@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://er6ny1vd4xxf"
+path="res://.godot/imported/animated_wave_fft_compose.glsl-7fc73b13512157e23ddc8adf06fe24e1.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/animated_wave_fft_compose.glsl"
+dest_files=["res://.godot/imported/animated_wave_fft_compose.glsl-7fc73b13512157e23ddc8adf06fe24e1.res"]
+
+[params]
+

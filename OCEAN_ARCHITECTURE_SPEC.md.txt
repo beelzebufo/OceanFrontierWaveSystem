@@ -1,0 +1,852 @@
+# GODOT C# OCEAN — PROJECT INSTRUCTIONS
+
+## 1. Цель проекта
+
+Создать новую ocean system для Godot 4.x на C# с GPU-first архитектурой, ориентируясь на архитектурные решения Crest Water.
+
+Проект создаётся с нуля.
+
+Старый Godot/GDScript ocean project не является архитектурной основой. Его можно использовать только как источник ранее выявленных требований, визуальных наблюдений и проблем.
+
+Главный reference implementation:
+
+`wave-harmonic/crest`
+
+Основной анализируемый публичный код — Crest Water 4.
+
+Crest Water 5 использовать как функциональный/архитектурный ориентир только по публично доступной документации или по исходникам, если пользователь позднее предоставит пакет Crest 5.
+
+Не утверждать, что исследован исходный код Crest 5, если он фактически не был предоставлен.
+
+---
+
+# 2. Базовый принцип
+
+Не портировать Crest целиком.
+
+Нужно:
+
+1. понять архитектуру Crest;
+2. найти математическое и GPU-ядро каждой подсистемы;
+3. отделить его от Unity-specific infrastructure;
+4. спроектировать эквивалентную, но более компактную систему под Godot;
+5. реализовывать её отдельными стадиями.
+
+Главный вопрос при анализе каждого Crest-компонента:
+
+> Что здесь является математикой/алгоритмом, что является архитектурой ocean system, а что является исключительно Unity plumbing?
+
+---
+
+# 3. Целевая архитектура
+
+Базовое направление:
+
+OceanRuntime C#
+↓
+SeaState / Spectrum resources
+↓
+FFT generation and evolution
+↓
+GPU IFFT
+↓
+Wave input composition
+↓
+AnimatedWaveField
+↓
+Render / Physics / Foam / FX
+
+AnimatedWaveField должен быть каноническим итоговым полем поверхности.
+
+Renderer и physics не должны обходить его и независимо рассчитывать собственную версию океана.
+
+---
+
+# 4. Crest Animated Waves — ключевой архитектурный reference
+
+Система должна использовать подход, аналогичный Crest Animated Waves.
+
+Animated Waves — это не генератор спектра.
+
+Это слой композиции всех источников формы поверхности.
+
+Источники могут включать:
+
+* global FFT;
+* local FFT;
+* локальные displacement inputs;
+* amplitude masks;
+* direction fields;
+* attenuation fields;
+* shallow-water attenuation;
+* dynamic wave contribution;
+* future wave-shadow/diffraction modifiers.
+
+Условная архитектура:
+
+Global FFT
+Local FFT
+Local wave inputs
+Dynamic waves
+Spatial modifiers
+↓
+AnimatedWaveComposer
+↓
+AnimatedWaveField
+↓
+all consumers
+
+Нужно сохранить идею Crest:
+
+> все волновые источники сначала объединяются в единое поле, после чего water renderer получает готовую форму поверхности.
+
+---
+
+# 5. Wave input modes
+
+Нужно предусмотреть минимум два режима композиции.
+
+## Additive
+
+Добавление нового displacement поверх существующего:
+
+D_final = D_existing + weight × D_input
+
+Применение:
+
+* дополнительный wind sea;
+* локальная встречная волна;
+* wake;
+* disturbed water;
+* дополнительные локальные компоненты.
+
+## Blend / Override
+
+Плавная замена существующего wave field новым:
+
+D_final = lerp(D_existing, D_input, weight)
+
+Применение:
+
+* локально другое состояние моря;
+* harbour;
+* пролив;
+* защищённая область;
+* переход между разными wave fields.
+
+Feather должен быть частью input system, а не отдельным ad-hoc механизмом.
+
+---
+
+# 6. FFT subsystem
+
+Первый основной reference:
+
+* `ShapeFFT.cs`
+* `FFTCompute.cs`
+* `OceanWaveSpectrum.cs`
+* `FFTSpectrum.compute`
+* `FFTCompute.compute`
+
+Нужно подробно разобрать:
+
+* spectrum initialization;
+* random phases;
+* directional spreading;
+* dispersion relation;
+* temporal evolution H(k,t);
+* horizontal displacement/chop;
+* vertical displacement;
+* FFT butterfly;
+* GPU resource layout;
+* texture-array cascades;
+* FFT dispatch sequence;
+* spectrum caching/reinitialization;
+* handling changes in wind speed/direction.
+
+При переносе:
+
+* C# отвечает за orchestration/resources/lifetime;
+* GPU shader отвечает за спектр, evolution и FFT;
+* CPU не выполняет production FFT;
+* никаких GPU→CPU readbacks полного ocean grid.
+
+---
+
+# 7. Spectrum architecture
+
+Не привязывать FFT backend к одному виду спектра.
+
+Предусмотреть концептуальное разделение:
+
+SpectrumDefinition
+↓
+SpectrumGenerator
+↓
+H0(k)
+↓
+SpectralEvolution
+↓
+IFFT
+
+Crest spectrum использовать первым рабочим вариантом.
+
+В дальнейшем архитектура должна позволять заменить или добавить:
+
+* Pierson–Moskowitz;
+* JONSWAP;
+* TMA;
+* custom/art-directed spectrum.
+
+Не реализовывать все спектры в Stage 1.
+
+---
+
+# 8. Cascades
+
+Подробно изучить Crest cascade architecture.
+
+Нужно понять:
+
+* зачем Crest использует spatial cascades;
+* как распределяются wavelength bands;
+* как данные хранятся в Texture2DArray;
+* как соседние LOD/cascades комбинируются;
+* как предотвращается under/oversampling;
+* как cascade data связано с камерой.
+
+Не копировать автоматически количество cascades Crest.
+
+Сначала определить минимальное количество, необходимое нашему проекту.
+
+Архитектура должна позволять увеличивать количество cascades без переписывания FFT backend.
+
+---
+
+# 9. Animated Wave Composer
+
+Это отдельная подсистема.
+
+Она принимает уже созданные wave buffers и spatial inputs и формирует окончательное displacement field.
+
+Нужно изучить в Crest:
+
+* `LodDataMgrAnimWaves`
+* `RegisterAnimWavesInput`
+* `ShapeCombine.compute`
+* `AnimWavesSpectrum.shader`
+* wave input registration;
+* wavelength filtering;
+* additive/blend behavior;
+* LOD assignment;
+* spatial feathering.
+
+Не копировать Unity drawing/CommandBuffer architecture буквально.
+
+Создать Godot-native эквивалент через RenderingDevice / compute pipelines.
+
+---
+
+# 10. Local wave modification
+
+Обязательно заложить spatial modification system.
+
+Минимальные поля:
+
+AmplitudeField(x,z)
+DirectionField(x,z)
+AttenuationField(x,z)
+
+В дальнейшем возможно:
+
+WavelengthScaleField(x,z)
+PhaseModifierField(x,z)
+SeaStateBlendField(x,z,t)
+
+Локальная модификация не должна требовать отдельного FFT, если достаточно преобразовать уже существующий wave field.
+
+Особенно изучить Crest `AnimWavesSpectrum.shader`, где spatial direction map используется для локального ориентирования FFT wave buffer.
+
+---
+
+# 11. Sea-state transitions
+
+Первоначально допускается Crest-подобное глобальное художественное изменение:
+
+* wind direction;
+* wind speed;
+* turbulence;
+* spectrum power.
+
+Но архитектура не должна блокировать будущий:
+
+SeaStateBlendField(x,z,t)
+
+для движущихся погодных фронтов.
+
+Не реализовывать moving front до появления стабильного FFT + Animated Waves core.
+
+---
+
+# 12. Islands / wave shadows
+
+Crest не считать готовым решением физической wave diffraction.
+
+Разделять:
+
+* light shadows;
+* shallow-water attenuation;
+* wave-energy shadow;
+* diffraction/refraction.
+
+В нашей архитектуре предусмотреть отдельный будущий:
+
+WaveModifierField
+
+который сможет содержать:
+
+* amplitude attenuation;
+* local direction rotation;
+* optional phase disturbance.
+
+Это позволит реализовать дешёвые:
+
+* wave shadows за островами;
+* pseudo-diffraction;
+* refraction-like turning;
+* attenuation around reefs/shallows.
+
+Не встраивать эти вычисления непосредственно в FFT kernel.
+
+---
+
+# 13. Shallow water
+
+Изучить Crest Sea Floor Depth и shallow attenuation.
+
+Depth field должен быть отдельным ocean data layer.
+
+Он может использоваться:
+
+* для attenuation больших волн;
+* shoreline foam;
+* shading;
+* future breaker model.
+
+Deep-water FFT не должен зависеть от конкретной bathymetry implementation.
+
+---
+
+# 14. Derivatives / normals / Jacobian
+
+Изучить Crest:
+
+* `SampleDisplacementsNormals`
+* displacement neighbour sampling;
+* Jacobian determinant;
+* SSS pinch;
+* foam generation.
+
+Не предполагать заранее, что Crest implementation оптимален для Godot.
+
+Сравнить два варианта:
+
+A.
+displacement texture
+→ neighbouring samples in render/foam shaders
+
+B.
+displacement
+→ dedicated GPU derivative pass
+→ slope/normal/Jacobian fields
+
+Выбрать вариант после оценки:
+
+* number of consumers;
+* texture bandwidth;
+* compute cost;
+* fragment cost;
+* memory.
+
+Не создавать дублирующиеся derivative calculations без необходимости.
+
+---
+
+# 15. Physics queries
+
+Основной reference:
+
+* `QueryDisplacements.cs`
+* `QueryDisplacements.compute`
+* collision/query infrastructure Crest.
+
+Наша цель:
+
+обычно 1 boat;
+максимально примерно 5 boats;
+примерно 16–32 sample points на vessel.
+
+Предпочтительная схема:
+
+C# builds query positions
+↓
+GPU structured buffer
+↓
+query compute
+↓
+sample final AnimatedWaveField
+↓
+inverse horizontal displacement
+↓
+result buffer
+↓
+async GPU readback
+↓
+C# buoyancy/forces
+
+Physics должна запрашивать FINAL AnimatedWaveField, а не raw FFT.
+
+Изучить и первоначально сохранить Crest-like iterative inversion of horizontal displacement.
+
+Позже расширить query result при необходимости:
+
+* displacement;
+* height;
+* normal;
+* velocity.
+
+---
+
+# 16. Foam
+
+Разделить:
+
+Foam Simulation
+и
+Foam Rendering.
+
+Изучить:
+
+* `UpdateFoam.compute`
+* `OceanFoam.hlsl`.
+
+Foam simulation должна создавать scalar foam amount field.
+
+Источники:
+
+* Jacobian/compression;
+* overlap;
+* shoreline depth;
+* dynamic inputs.
+
+Persistent foam:
+
+previous foam
+→ advection
+→ decay
+→ new foam generation
+→ current foam
+
+Визуальный рисунок:
+
+foam amount
+
+* lace/noise/Voronoi texture
+* lighting
+  = visible foam.
+
+Не кодировать художественную текстуру пены непосредственно в физическую foam simulation.
+
+---
+
+# 17. Lighting / optics
+
+Использовать Crest как математический reference, но не копировать Unity renderer integration.
+
+Изучить отдельно:
+
+* `Ocean.shader`
+* `OceanReflection.hlsl`
+* `OceanEmission.hlsl`
+* `OceanNormalMapping.hlsl`
+* `OceanLightingHelpers.hlsl`
+* underwater shaders.
+
+Минимальная будущая optical model:
+
+surface normal
+→ Fresnel
+→ reflection/transmission split
+→ refraction
+→ optical path
+→ exponential absorption
+→ scattering
+
+Дополнительно:
+
+* directional sun highlight;
+* roughness;
+* shallow colour;
+* foam;
+* caustics;
+* underwater.
+
+Optics не реализовывать одновременно с первым FFT milestone.
+
+---
+
+# 18. Renderer и ocean mesh
+
+Wave simulation и rendering mesh должны быть независимы.
+
+FFT не должен знать:
+
+* topology ocean mesh;
+* chunk layout;
+* mesh LOD implementation.
+
+Renderer должен потреблять:
+
+AnimatedWaveField
+
+через стабильный interface.
+
+Это позволит позже менять:
+
+* concentric mesh;
+* clipmap;
+* projected grid;
+* geometry LOD
+
+без изменения wave simulation.
+
+---
+
+# 19. Performance principles
+
+GPU-first.
+
+Запрещено без отдельного обоснования:
+
+* CPU FFT в runtime;
+* full-grid GPU readback;
+* повторный spectral calculation во fragment shader;
+* создание временных GPU resources каждый frame;
+* unnecessary texture copies;
+* duplicated wave mathematics для rendering и physics.
+
+Все persistent GPU resources должны иметь явный lifecycle.
+
+Следить отдельно за:
+
+* allocations;
+* synchronization;
+* barriers;
+* dispatch count;
+* texture bandwidth;
+* async readbacks;
+* per-frame resource recreation.
+
+---
+
+# 20. Godot implementation principles
+
+Основной язык runtime/orchestration:
+
+C#.
+
+GPU:
+
+Godot RenderingDevice + compute shaders.
+
+Shader language выбирать исходя из реальной поддержки Godot/Vulkan backend.
+
+Не пытаться дословно переносить Unity API.
+
+Например:
+
+Unity `RenderTexture`
+→ Godot RID texture/resource.
+
+Unity `ComputeShader.Dispatch`
+→ RenderingDevice compute list.
+
+Unity `CommandBuffer`
+→ Godot render/compute submission architecture.
+
+Unity `ScriptableObject`
+→ Godot Resource / C# Resource-derived configuration object.
+
+---
+
+# 21. Source-of-truth hierarchy
+
+При техническом споре использовать такой порядок:
+
+1. фактический Crest source code;
+2. официальная Crest documentation;
+3. математические papers/reference implementations;
+4. наши предположения.
+
+README и высокоуровневая документация не заменяют чтение source files.
+
+При анализе обязательно указывать:
+
+repository path
+→ class/function/kernel
+→ что он делает.
+
+---
+
+# 22. Licensing
+
+Публичный Crest repository имеет MIT license.
+
+Если код переносится непосредственно:
+
+* сохранить необходимые copyright/license notices;
+* вести список файлов/алгоритмов, которые были напрямую портированы;
+* не смешивать с proprietary Crest Water 5 code без явного разрешения/лицензии.
+
+Если используется только математическая идея или архитектурный принцип — всё равно фиксировать источник в developer notes.
+
+---
+
+# 23. Правила анализа Crest
+
+Перед реализацией каждой подсистемы:
+
+1. найти все связанные C# files;
+2. найти все связанные shader/compute files;
+3. построить data flow;
+4. определить persistent resources;
+5. определить per-frame operations;
+6. определить входы/выходы;
+7. определить Unity-specific code;
+8. определить переносимую математику;
+9. определить возможные улучшения для нашего use case;
+10. только потом проектировать Godot equivalent.
+
+Не писать код одновременно с первым исследованием подсистемы.
+
+---
+
+# 24. Формат технического аудита
+
+Для каждой подсистемы выдавать:
+
+## Purpose
+
+Что решает.
+
+## Crest data flow
+
+Точный поток данных.
+
+## Important files
+
+Конкретные пути.
+
+## GPU resources
+
+Textures/buffers/formats.
+
+## Per-frame work
+
+Что реально выполняется каждый frame.
+
+## Static work
+
+Что создаётся/считается один раз.
+
+## Unity-specific parts
+
+Что нельзя/не нужно переносить.
+
+## Portable core
+
+Что переносим.
+
+## Proposed Godot design
+
+Наш эквивалент.
+
+## Risks
+
+Математические/архитектурные/performance риски.
+
+Не переходить к реализации, пока эта карта не понятна.
+
+---
+
+# 25. Development workflow
+
+Работать небольшими стадиями.
+
+Каждая стадия должна:
+
+* иметь одну техническую цель;
+* минимально менять код;
+* не делать unrelated refactor;
+* иметь понятный acceptance criterion;
+* оставлять архитектуру расширяемой;
+* завершаться review перед следующим этапом.
+
+Не строить сразу полный Crest.
+
+---
+
+# 26. Предварительные стадии
+
+## Stage 0 — Crest Audit
+
+Source-level разбор:
+
+1. FFT/spectrum;
+2. cascades;
+3. Animated Waves;
+4. physics queries;
+5. derivatives/Jacobian;
+6. foam;
+7. rendering/optics.
+
+Результат — architecture map, без Godot implementation.
+
+## Stage 1 — GPU FFT Core
+
+Минимальный Godot C# prototype:
+
+Spectrum
+→ evolution
+→ IFFT
+→ displacement texture.
+
+Без:
+
+* foam;
+* physics;
+* local modifiers;
+* optics.
+
+## Stage 2 — Cascades + Animated Waves
+
+Добавить:
+
+* multiple wave bands/cascades;
+* wave composer;
+* canonical AnimatedWaveField.
+
+## Stage 3 — Rendering surface
+
+Минимальный renderer:
+
+* displacement;
+* normals;
+* basic lighting.
+
+## Stage 4 — Physics query API
+
+GPU batched queries + async readback.
+
+## Stage 5 — Local Wave Inputs
+
+Additive/blend inputs, amplitude/direction/attenuation fields.
+
+## Stage 6 — Foam
+
+Persistent foam field + rendering.
+
+## Later
+
+* wave shadows;
+* pseudo-diffraction;
+* shallow/coastal effects;
+* improved optics;
+* underwater;
+* spray;
+* dynamic waves.
+
+---
+
+# 27. Scope discipline
+
+На каждой стадии запрещено заранее реализовывать будущие системы.
+
+Например при Stage 1 FFT не добавлять:
+
+* foam;
+* boat physics;
+* shoreline;
+* spray;
+* reflection;
+* UI presets;
+* complex LOD mesh.
+
+Сначала проверяется математическое и GPU ядро.
+
+---
+
+# 28. Основной критерий архитектуры
+
+В любой момент должно быть возможно ответить:
+
+> Где находится единственная авторитетная версия текущей формы поверхности?
+
+Ответ должен быть:
+
+`AnimatedWaveField`.
+
+FFT является одним из её источников.
+
+Renderer, physics, foam и FX являются её потребителями либо производными системами.
+
+---
+
+# 29. Как отвечать пользователю в этом Project
+
+Предпочитать технические и конкретные ответы.
+
+Не повторять базовую теорию без необходимости.
+
+При обсуждении Crest различать:
+
+* что реально делает Crest;
+* что мы переносим;
+* что мы сознательно меняем;
+* что пока только предлагаем.
+
+Если исходный код не был проверен — явно сказать это.
+
+Если вопрос зависит от текущего Crest/Godot API — проверить актуальный source/documentation.
+
+Для Codex-задач сначала формулировать invariants и scope, затем implementation requirements.
+
+Не разрешать Codex делать большой рефакторинг без необходимости.
+
+При математически чувствительных изменениях сначала проводить read-only audit.
+
+---
+
+# 30. Первый следующий шаг
+
+Первой задачей проекта должен быть не код.
+
+Сначала выполнить:
+
+**Crest FFT + Animated Waves source audit.**
+
+Нужно полностью проследить цепочку:
+
+OceanWaveSpectrum
+→ ShapeFFT
+→ FFTCompute
+→ FFTSpectrum.compute
+→ FFTCompute.compute
+→ wave buffers
+→ Animated Waves input
+→ ShapeCombine
+→ final Animated Waves texture
+→ Ocean shader
+→ QueryDisplacements.
+
+После этого составить нашу минимальную Godot C# architecture map и только затем начать Stage 1.

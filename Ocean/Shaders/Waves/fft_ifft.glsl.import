@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://civh16mtadqfw"
+path="res://.godot/imported/fft_ifft.glsl-27688c15ff028f6f19bddc4e91b1530f.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/fft_ifft.glsl"
+dest_files=["res://.godot/imported/fft_ifft.glsl-27688c15ff028f6f19bddc4e91b1530f.res"]
+
+[params]
+
