@@ -20,7 +20,7 @@ public partial class OceanRuntime : Node
 	public int FftResolution { get; set; } = 128;
 
 	[Export(PropertyHint.Range, "1,16,1")]
-	public int FftCascadeCount { get; set; } = 8;
+	public int FftCascadeCount { get; set; } = 11;
 
 
 	[Export(PropertyHint.Range, "32,512,1")]
