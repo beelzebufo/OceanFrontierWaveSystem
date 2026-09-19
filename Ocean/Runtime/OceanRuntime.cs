@@ -56,6 +56,9 @@ public partial class OceanRuntime : Node
 	// Snapshot from main thread for the next render-thread update.
 	private float _pendingSimulationTime;
 	private Vector2 _pendingFocusXZ;
+	private int _surfaceFieldResolution;
+	private int _surfaceLodCount;
+	private float _surfaceBaseWorldSize;
 
 
 	private bool _processLogged;
@@ -176,6 +179,11 @@ public partial class OceanRuntime : Node
 		// on the main thread.
 		Vector2 initialFocusXZ =
 			GetAnimatedWaveFocusXZ();
+
+		_pendingFocusXZ = initialFocusXZ;
+		_surfaceFieldResolution = animatedWaveResolution;
+		_surfaceLodCount = animatedWaveLodCount;
+		_surfaceBaseWorldSize = animatedWaveBaseWorldSize;
 
 
 		_runtimeChop =
@@ -509,6 +517,43 @@ public partial class OceanRuntime : Node
 		return new Vector2(
 			position.X,
 			position.Z);
+	}
+
+	internal bool TryGetAnimatedWaveSurface(
+		int spatialLodIndex,
+		out Rid texture,
+		out int resolution,
+		out int lodCount,
+		out AnimatedWaveLodSlice selectedSlice)
+	{
+		texture = default;
+		resolution = 0;
+		lodCount = 0;
+		selectedSlice = default;
+
+		if (!_gpuReady ||
+			spatialLodIndex < 0 ||
+			spatialLodIndex >= _surfaceLodCount)
+		{
+			return false;
+		}
+
+		AnimatedWaveField field = _animatedWaveComposer.Field;
+		if (field == null || !field.Displacement.IsValid)
+		{
+			return false;
+		}
+
+		texture = field.Displacement;
+		resolution = _surfaceFieldResolution;
+		lodCount = _surfaceLodCount;
+		selectedSlice = AnimatedWaveLodLayout.CalculateSlice(
+			resolution,
+			_surfaceBaseWorldSize,
+			spatialLodIndex,
+			_pendingFocusXZ);
+
+		return true;
 	}
 
 

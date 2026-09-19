@@ -128,56 +128,46 @@ internal sealed class AnimatedWaveLodLayout
 	{
 		FocusXZ = focusXZ;
 
-		float worldSize =
-			BaseWorldSize;
-
 		for (int lod = 0;
 			 lod < _slices.Length;
 			 lod++)
 		{
-			float texelWidth =
-				worldSize /
-				Resolution;
-
-			Vector2 centerXZ =
-				new(
-					SnapDown(
-						focusXZ.X,
-						texelWidth),
-
-					SnapDown(
-						focusXZ.Y,
-						texelWidth));
-
-			// Crest LodTransform relation:
-			//
-			// max wavelength = 4 texels
-			// min wavelength = max / 2
-			//
-			// so the direct wavelength band is approximately:
-			//
-			// 2 * texelWidth <= wavelength < 4 * texelWidth
-
-			float maxWavelength =
-				4.0f *
-				texelWidth;
-
-			float minWavelength =
-				0.5f *
-				maxWavelength;
-
 			_slices[lod] =
-				new AnimatedWaveLodSlice(
+				CalculateSlice(
+					Resolution,
+					BaseWorldSize,
 					lod,
-					centerXZ,
-					worldSize,
-					texelWidth,
-					minWavelength,
-					maxWavelength);
-
-			worldSize *=
-				2.0f;
+					focusXZ);
 		}
+	}
+
+
+	internal static AnimatedWaveLodSlice CalculateSlice(
+		int resolution,
+		float baseWorldSize,
+		int lodIndex,
+		Vector2 focusXZ)
+	{
+		float worldSize =
+			baseWorldSize * MathF.Pow(2.0f, lodIndex);
+
+		float texelWidth =
+			worldSize / resolution;
+
+		Vector2 centerXZ = new(
+			SnapDown(focusXZ.X, texelWidth),
+			SnapDown(focusXZ.Y, texelWidth));
+
+		// Crest LodTransform: max wavelength = 4 texels.
+		float maxWavelength = 4.0f * texelWidth;
+
+		return new AnimatedWaveLodSlice(
+			lodIndex,
+			centerXZ,
+			worldSize,
+			texelWidth,
+			0.5f * maxWavelength,
+			maxWavelength);
 	}
 
 
