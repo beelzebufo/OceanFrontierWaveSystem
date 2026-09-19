@@ -76,6 +76,8 @@ public partial class FftDisplacementDebugView : CanvasLayer
 	public DebugChannel Channel { get; set; } =
 		DebugChannel.Height;
 
+	public string PhysicalMetadata { get; set; } = string.Empty;
+
 
 	[Export]
 	public Vector2 PanelPosition { get; set; } =
@@ -273,7 +275,10 @@ public partial class FftDisplacementDebugView : CanvasLayer
 			$"{sliceName} {slice}/{sliceCount - 1} | " +
 			$"{Channel} | " +
 			$"{Mode} | " +
-			$"Gain {Gain:0.######}";
+			$"Gain {Gain:0.######}" +
+			(PhysicalMetadata.Length > 0
+				? $"\n{PhysicalMetadata}"
+				: string.Empty);
 	}
 
 

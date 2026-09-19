@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Godot;
 using OceanFrontier.Water.Waves;
 using OceanFrontier.Water.Waves.FFT;
@@ -47,10 +48,15 @@ public partial class OceanRuntime : Node
 	private Callable _renderUpdateCallable;
 
 
-	// Runtime values used by the render thread.
-	private float _runtimeChop;
-	private float _runtimeGravity;
-	private float _runtimeLoopPeriod;
+	private RuntimeWaveSettings _startupWaveSettings;
+	private RuntimeWaveSettings _requestedWaveSettings;
+	private RuntimeWaveSettings _frameWaveSettings;
+	private int _appliedH0Revision;
+	private bool _simulationPaused;
+	private float _simulationTimeScale = 1.0f;
+	private bool _focusOverrideEnabled;
+	private Vector2 _focusOverrideXZ;
+	private float _runtimeResolutionMultiplier;
 
 
 	// Snapshot from main thread for the next render-thread update.
@@ -62,6 +68,36 @@ public partial class OceanRuntime : Node
 
 
 	private bool _processLogged;
+
+	internal float SimulationTime => (float)_simulationTime;
+	internal int AppliedH0Revision => Volatile.Read(ref _appliedH0Revision);
+	internal bool H0Pending => _requestedWaveSettings != null &&
+		_requestedWaveSettings.H0Revision != AppliedH0Revision;
+	internal bool SimulationPaused { get => _simulationPaused; set => _simulationPaused = value; }
+	internal float SimulationTimeScale { get => _simulationTimeScale; set => _simulationTimeScale = Mathf.Clamp(value, 0.0f, 4.0f); }
+	internal bool FocusOverrideEnabled { get => _focusOverrideEnabled; set => _focusOverrideEnabled = value; }
+	internal Vector2 FocusOverrideXZ { get => _focusOverrideXZ; set => _focusOverrideXZ = value; }
+	internal int RuntimeFftCascadeCount => _fftWaveSource?.CascadeCount ?? 0;
+	internal int RuntimeAnimatedWaveLodCount => _surfaceLodCount;
+	internal int RuntimeAnimatedWaveResolution => _surfaceFieldResolution;
+	internal float RuntimeResolutionMultiplier => _runtimeResolutionMultiplier;
+	internal RuntimeWaveSettings GetWaveSettingsSnapshot() => _requestedWaveSettings?.Copy();
+	internal RuntimeWaveSettings GetStartupWaveSettingsSnapshot() => _startupWaveSettings?.Copy();
+
+	internal void RequestWaveSettings(RuntimeWaveSettings requested)
+	{
+		if (requested == null || _requestedWaveSettings == null) return;
+		RuntimeWaveSettings next = requested.Copy();
+		next.H0Revision = _requestedWaveSettings.H0Revision +
+			(_requestedWaveSettings.HasSameH0(next) ? 0 : 1);
+		_requestedWaveSettings = next;
+	}
+
+	internal void ResetWaveSettings()
+	{
+		if (_startupWaveSettings != null)
+			RequestWaveSettings(_startupWaveSettings);
+	}
 
 
 	public override void _Ready()
@@ -121,41 +157,12 @@ public partial class OceanRuntime : Node
 			FftCascadeCount;
 
 
-		float windSpeed =
-			SeaState.WindSpeedMetersPerSecond;
-
-		float turbulence =
-			SeaState.WindTurbulence;
-
-		float gravity =
-			SeaState.Gravity;
-
-		float loopPeriod =
-			SeaState.LoopPeriodSeconds;
-
-
-		float windRadians =
-			Mathf.DegToRad(
-				SeaState.WindDirectionDegrees);
-
-		float windDirectionX =
-			Mathf.Cos(
-				windRadians);
-
-		float windDirectionY =
-			Mathf.Sin(
-				windRadians);
-
-
-		float smallestWavelengthPower =
-			Spectrum.SmallestWavelengthPowerOfTwo;
-
-
-		float[] powerControls =
-			Spectrum.BuildLinearPowerControls();
-
-		int bandCount =
-			powerControls.Length;
+		RuntimeWaveSettings initialSettings =
+			RuntimeWaveSettings.FromResources(SeaState, Spectrum);
+		_startupWaveSettings = initialSettings.Copy();
+		_requestedWaveSettings = initialSettings;
+		_frameWaveSettings = initialSettings;
+		int bandCount = initialSettings.PowerLog10.Length;
 
 
 		int animatedWaveResolution =
@@ -183,17 +190,8 @@ public partial class OceanRuntime : Node
 		_pendingFocusXZ = initialFocusXZ;
 		_surfaceFieldResolution = animatedWaveResolution;
 		_surfaceLodCount = animatedWaveLodCount;
+		_runtimeResolutionMultiplier = animatedWaveResolutionMultiplier;
 		_surfaceBaseWorldSize = animatedWaveBaseWorldSize;
-
-
-		_runtimeChop =
-			SeaState.Chop;
-
-		_runtimeGravity =
-			SeaState.Gravity;
-
-		_runtimeLoopPeriod =
-			SeaState.LoopPeriodSeconds;
 
 
 		var fft =
@@ -297,23 +295,10 @@ public partial class OceanRuntime : Node
 					// Spectrum initialization.
 					//
 
-					var initSettings =
-						new FftSpectrumInitSettings(
-							resolution,
-							cascadeCount,
-							bandCount,
-							windSpeed,
-							turbulence,
-							gravity,
-							loopPeriod,
-							windDirectionX,
-							windDirectionY,
-							smallestWavelengthPower);
-
-
 					fft.InitializeSpectrum(
-						initSettings,
-						powerControls);
+						initialSettings.ToInitSettings(resolution, cascadeCount),
+						initialSettings.BuildLinearPowerControls());
+					Volatile.Write(ref _appliedH0Revision, initialSettings.H0Revision);
 
 
 					GD.Print(
@@ -326,9 +311,9 @@ public partial class OceanRuntime : Node
 
 					fft.UpdateSpectrum(
 						0.0f,
-						_runtimeChop,
-						_runtimeGravity,
-						_runtimeLoopPeriod);
+						initialSettings.Chop,
+						initialSettings.Gravity,
+						initialSettings.LoopPeriod);
 
 
 					GD.Print(
@@ -408,8 +393,8 @@ public partial class OceanRuntime : Node
 	public override void _Process(
 		double delta)
 	{
-		_simulationTime +=
-			delta;
+		if (!_simulationPaused)
+			_simulationTime += delta * _simulationTimeScale;
 
 
 		if (!_gpuReady)
@@ -439,6 +424,7 @@ public partial class OceanRuntime : Node
 
 		_pendingFocusXZ =
 			GetAnimatedWaveFocusXZ();
+		Volatile.Write(ref _frameWaveSettings, _requestedWaveSettings);
 
 
 		//
@@ -464,11 +450,21 @@ public partial class OceanRuntime : Node
 		// 1. Evolve spectral data.
 		//
 
+		RuntimeWaveSettings settings = Volatile.Read(ref _frameWaveSettings);
+		if (settings.H0Revision != Volatile.Read(ref _appliedH0Revision))
+		{
+			_fftWaveSource.InitializeSpectrum(
+				settings.ToInitSettings(_fftWaveSource.Resolution, _fftWaveSource.CascadeCount),
+				settings.BuildLinearPowerControls());
+			Volatile.Write(ref _appliedH0Revision, settings.H0Revision);
+			GD.Print($"[Ocean] SpectrumInit regenerated: H0 rev {settings.H0Revision}");
+		}
+
 		_fftWaveSource.UpdateSpectrum(
 			_pendingSimulationTime,
-			_runtimeChop,
-			_runtimeGravity,
-			_runtimeLoopPeriod);
+			settings.Chop,
+			settings.Gravity,
+			settings.LoopPeriod);
 
 
 		//
@@ -500,6 +496,7 @@ public partial class OceanRuntime : Node
 	/// </summary>
 	private Vector2 GetAnimatedWaveFocusXZ()
 	{
+		if (_focusOverrideEnabled) return _focusOverrideXZ;
 		Camera3D camera =
 			GetViewport()?.GetCamera3D();
 
@@ -553,6 +550,25 @@ public partial class OceanRuntime : Node
 			spatialLodIndex,
 			_pendingFocusXZ);
 
+		return true;
+	}
+
+	internal bool TryGetAnimatedWaveSurfaceWithNext(
+		int spatialLodIndex,
+		out Rid texture,
+		out int resolution,
+		out int lodCount,
+		out AnimatedWaveLodSlice selectedSlice,
+		out AnimatedWaveLodSlice nextSlice)
+	{
+		nextSlice = default;
+		if (!TryGetAnimatedWaveSurface(
+			spatialLodIndex, out texture, out resolution, out lodCount, out selectedSlice))
+			return false;
+
+		if (spatialLodIndex + 1 < lodCount)
+			nextSlice = AnimatedWaveLodLayout.CalculateSlice(
+				resolution, _surfaceBaseWorldSize, spatialLodIndex + 1, _pendingFocusXZ);
 		return true;
 	}
 

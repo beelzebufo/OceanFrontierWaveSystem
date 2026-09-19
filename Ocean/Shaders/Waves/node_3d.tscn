@@ -2,24 +2,31 @@
 
 [ext_resource type="Script" uid="uid://bjxrluaswmuod" path="res://Ocean/Runtime/OceanRuntime.cs" id="1_ocean_runtime"]
 [ext_resource type="Script" uid="uid://5x71r5va2klp" path="res://Ocean/Debug/FftDisplacementDebugView.cs" id="2_ku7j0"]
-[ext_resource type="Script" path="res://Ocean/Rendering/AnimatedWaveSurfaceRenderer.cs" id="3_surface"]
+[ext_resource type="Script" uid="uid://xm2cuk3scu80" path="res://Ocean/Rendering/AnimatedWaveSurfaceRenderer.cs" id="3_surface"]
+[ext_resource type="Script" uid="uid://bew2tyyd555mo" path="res://Ocean/Debug/OceanDiagnosticCameraController.cs" id="4_camera"]
+[ext_resource type="Script" uid="uid://cufatu6tk1ik5" path="res://Ocean/Debug/OceanDiagnosticReferenceFrame.cs" id="5_reference"]
+[ext_resource type="Script" uid="uid://de6e7eede4427" path="res://Ocean/Debug/OceanWaveDiagnosticScreen.cs" id="6_diagnostics"]
 
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=60810671]
 transform = Transform3D(1, 0, 0, 0, 0.5, 0.8660254, 0, -0.8660254, 0.5, 0, 45, 25)
 current = true
-far = 500.0
+script = ExtResource("4_camera")
 
-[node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="."]
+[node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
 script = ExtResource("3_surface")
-SpatialLodIndex = 4
+SpatialLodIndex = 0
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")
-Source = 1
-Mode = 2
-CascadeIndex = 4
+CascadeIndex = 1
 Gain = 0.5
 PanelSize = Vector2(320, 320)
+
+[node name="OceanDiagnosticReferenceFrame" type="Node3D" parent="."]
+script = ExtResource("5_reference")
+
+[node name="OceanWaveDiagnosticScreen" type="CanvasLayer" parent="."]
+script = ExtResource("6_diagnostics")
