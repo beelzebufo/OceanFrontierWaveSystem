@@ -73,6 +73,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		AddViewButton(top, "Side X", OceanDiagnosticCameraController.ViewMode.SideX);
 		AddViewButton(top, "Side Z", OceanDiagnosticCameraController.ViewMode.SideZ);
 		Button(top, "Overview", () => { _overviewRequested = true; _framed = false; });
+		Check(top, "Free Camera", false).Toggled += value => _camera?.SetFreeCameraEnabled(value);
 		var pause = Check(top, "Pause", false);
 		pause.Toggled += value => _runtime.SimulationPaused = value;
 		var follow = Check(top, "Follow Camera", false);
@@ -100,14 +101,24 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		{ if (_lightGizmo != null) _lightGizmo.Visible = value; };
 		Check(column, "Show Normal Vectors", false).Toggled +=
 			value => _surface?.SetNormalVectorsVisible(value);
+
+		var normalMethod = Option(
+										column,
+										"Normal Method",
+										"Blended XYZ Forward",
+										"Crest Per-LOD Forward");
+
+		normalMethod.Selected = _surface?.NormalMethod ?? 0;
+
+		normalMethod.ItemSelected += index => _surface?.SetNormalMethod((int)index);
 		_lodControl = Spin(column, "Spatial LOD", _selectedLod, 0, 15, 1);
 		_lodControl.ValueChanged += value =>
-		{
-			_selectedLod = (int)value;
-			_surface?.SetSpatialLod(_selectedLod);
-			_reference?.SetSpatialLod(_selectedLod);
-			_framed = false;
-		};
+				{
+					_selectedLod = (int)value;
+					_surface?.SetSpatialLod(_selectedLod);
+					_reference?.SetSpatialLod(_selectedLod);
+					_framed = false;
+				};
 		var waveContent = Option(column, "Wave Content", "Cumulative", "Own Band");
 		waveContent.ItemSelected += index =>
 		{

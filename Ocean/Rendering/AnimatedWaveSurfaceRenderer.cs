@@ -85,6 +85,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_showMarkers = markers;
 		ApplyDisplayParameters();
 	}
+
+	internal void SetNormalMethod(int method)
+	{
+		NormalMethod = method <= 0 ? 0 : 1;
+		// Force shared shader state to update on the next process pass.
+		_materialNormalMethod = -1;
+	}
+
 	private void ApplyDisplayParameters()
 	{
 		if (_material == null) return;

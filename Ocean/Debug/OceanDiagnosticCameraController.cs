@@ -8,23 +8,42 @@ public partial class OceanDiagnosticCameraController : Camera3D
 {
 	internal enum ViewMode { Perspective, Top, SideX, SideZ }
 	private readonly float[] _zoomFactors = { 1.0f, 1.0f, 1.0f, 1.0f };
-	private float _moveSpeed = 5.0f;
+	private const float MouseSensitivity = 0.0025f;
+	private const float PitchLimit = 89.0f * Mathf.Pi / 180.0f;
+	private const float FastMultiplier = 4.0f;
+	private const float PrecisionMultiplier = 0.25f;
+	private float _moveSpeed;
 	private float _lodWorldSize;
 	private float _squareRadius;
 	private float _automaticPerspectiveDistance;
 	private float _automaticOrthoSize;
 	private Vector3 _target;
+	private Vector3 _frameCenter;
 	private ViewMode _mode;
 	private bool _hasFrame;
+	private bool _freeCameraEnabled;
+	private bool _mouseLooking;
+	private float _yaw;
+	private float _pitch;
+	private Input.MouseModeEnum _mouseModeBeforeLook;
+
+	internal void SetFreeCameraEnabled(bool enabled)
+	{
+		if (_freeCameraEnabled == enabled) return;
+		_freeCameraEnabled = enabled;
+		if (!enabled) EndMouseLook();
+		UpdateFar();
+	}
 
 	internal void Frame(ViewMode mode, AnimatedWaveLodSlice slice)
 	{
 		_mode = mode;
 		_target = new Vector3(slice.CenterXZ.X, 0, slice.CenterXZ.Y);
+		_frameCenter = _target;
 		_lodWorldSize = slice.WorldSize;
 		_squareRadius = _lodWorldSize * 0.5f * Mathf.Sqrt(2.0f);
 		float aspect = Mathf.Max(0.01f, GetViewport().GetVisibleRect().Size.Aspect());
-		_moveSpeed = _lodWorldSize * 0.8f;
+		_moveSpeed = Mathf.Clamp(_lodWorldSize * 0.4f, 0.5f, 80.0f);
 		Near = 0.05f;
 		if (mode == ViewMode.Perspective)
 		{
@@ -54,6 +73,7 @@ public partial class OceanDiagnosticCameraController : Camera3D
 			LookAt(_target, mode == ViewMode.Top ? Vector3.Forward : Vector3.Up);
 		}
 		_hasFrame = true;
+		SyncLookAngles();
 		UpdateFar();
 	}
 
@@ -65,8 +85,19 @@ public partial class OceanDiagnosticCameraController : Camera3D
 
 	public override void _UnhandledInput(InputEvent inputEvent)
 	{
-		if (!_hasFrame || inputEvent is not InputEventMouseButton wheel || !wheel.Pressed)
+		if (!_hasFrame || inputEvent is not InputEventMouseButton wheel || !wheel.Pressed) return;
+		if (_freeCameraEnabled && wheel.ButtonIndex == MouseButton.Right)
+		{
+			Control hoveredControl = GetViewport().GuiGetHoveredControl();
+			if (hoveredControl != null && hoveredControl.MouseFilter != Control.MouseFilterEnum.Ignore)
+				return;
+			_mouseModeBeforeLook = Input.MouseMode;
+			_mouseLooking = true;
+			Input.MouseMode = Input.MouseModeEnum.Captured;
+			GetViewport().SetInputAsHandled();
 			return;
+		}
+		if (_freeCameraEnabled) return;
 		int steps = wheel.ButtonIndex switch
 		{
 			MouseButton.WheelUp => 1,
@@ -95,6 +126,46 @@ public partial class OceanDiagnosticCameraController : Camera3D
 		GetViewport().SetInputAsHandled();
 	}
 
+	public override void _Input(InputEvent inputEvent)
+	{
+		if (!_mouseLooking) return;
+		if (inputEvent is InputEventMouseButton button &&
+			button.ButtonIndex == MouseButton.Right && !button.Pressed)
+		{
+			EndMouseLook();
+			GetViewport().SetInputAsHandled();
+		}
+		else if (inputEvent is InputEventMouseMotion motion)
+		{
+			_yaw -= motion.Relative.X * MouseSensitivity;
+			_pitch = Mathf.Clamp(_pitch - motion.Relative.Y * MouseSensitivity,
+				-PitchLimit, PitchLimit);
+			GlobalBasis = Basis.FromEuler(new Vector3(_pitch, _yaw, 0.0f));
+			GetViewport().SetInputAsHandled();
+		}
+	}
+
+	private void EndMouseLook()
+	{
+		if (!_mouseLooking) return;
+		_mouseLooking = false;
+		Input.MouseMode = _mouseModeBeforeLook;
+	}
+
+	private void SyncLookAngles()
+	{
+		Vector3 forward = -GlobalBasis.Z;
+		_pitch = Mathf.Asin(Mathf.Clamp(forward.Y, -1.0f, 1.0f));
+		Vector3 horizontalForward = new(forward.X, 0.0f, forward.Z);
+		if (horizontalForward.LengthSquared() > 1e-6f)
+			_yaw = Mathf.Atan2(-forward.X, -forward.Z);
+		else
+		{
+			Vector3 right = GlobalBasis.X;
+			_yaw = Mathf.Atan2(-right.Z, right.X);
+		}
+	}
+
 	private float ClampPerspectiveDistance(float distance)
 	{
 		float minimum = Mathf.Max(0.1f, _lodWorldSize * 0.02f);
@@ -110,26 +181,36 @@ public partial class OceanDiagnosticCameraController : Camera3D
 
 	private void UpdateFar()
 	{
-		float cameraDistance = GlobalPosition.DistanceTo(_target);
+		float cameraDistance = Mathf.Max(GlobalPosition.DistanceTo(_target),
+			GlobalPosition.DistanceTo(_frameCenter));
 		Far = Mathf.Max(50.0f, (cameraDistance + _squareRadius + _lodWorldSize) * 1.2f);
 	}
 
 	public override void _Process(double delta)
 	{
-		if (GetViewport().GuiGetFocusOwner() != null) return;
+		if (!_freeCameraEnabled || !_hasFrame) return;
+		if (_mouseLooking && !Input.IsMouseButtonPressed(MouseButton.Right)) EndMouseLook();
+		Control focusOwner = GetViewport().GuiGetFocusOwner();
+		if (focusOwner is LineEdit or TextEdit or SpinBox) return;
 		Vector3 motion = Vector3.Zero;
-		if (Input.IsKeyPressed(Key.W)) motion -= GlobalTransform.Basis.Z;
-		if (Input.IsKeyPressed(Key.S)) motion += GlobalTransform.Basis.Z;
-		if (Input.IsKeyPressed(Key.A)) motion -= GlobalTransform.Basis.X;
-		if (Input.IsKeyPressed(Key.D)) motion += GlobalTransform.Basis.X;
+		Vector3 forward = new(-Mathf.Sin(_yaw), 0.0f, -Mathf.Cos(_yaw));
+		Vector3 right = new(Mathf.Cos(_yaw), 0.0f, -Mathf.Sin(_yaw));
+		if (Input.IsKeyPressed(Key.W)) motion += forward;
+		if (Input.IsKeyPressed(Key.S)) motion -= forward;
+		if (Input.IsKeyPressed(Key.A)) motion -= right;
+		if (Input.IsKeyPressed(Key.D)) motion += right;
 		if (Input.IsKeyPressed(Key.Q)) motion -= Vector3.Up;
 		if (Input.IsKeyPressed(Key.E)) motion += Vector3.Up;
 		if (motion != Vector3.Zero)
 		{
-			Vector3 shift = motion.Normalized() * _moveSpeed * (float)delta;
+			float speedMultiplier = Input.IsKeyPressed(Key.Ctrl) ? PrecisionMultiplier :
+				Input.IsKeyPressed(Key.Shift) ? FastMultiplier : 1.0f;
+			Vector3 shift = motion.Normalized() * _moveSpeed * speedMultiplier * (float)delta;
 			GlobalPosition += shift;
 			_target += shift;
 			UpdateFar();
 		}
 	}
+
+	public override void _ExitTree() => EndMouseLook();
 }
