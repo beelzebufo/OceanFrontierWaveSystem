@@ -426,14 +426,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		if ((patchResolution & 1) != 0)
 				patchResolution++;
 
-		GD.Print(
-			$"[Ocean] Nested surface ready: " +
-			$"{lodCount} LODs, {_nestedTileCount} tiles, " +
-			$"AWF {resolution}², geometry {geometryResolution}², " +
-			$"patch {patchResolution} quads, " +
-			$"downsample x{GeometryDownSampleFactor}, " +
-			$"{_nestedPatchMeshes.Length} shared patch variants.");
-					
+
+
 		_nestedPatchMeshes = new Mesh[]
 		{
 			new PlaneMesh
@@ -490,6 +484,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetAllSamplingParameter("normal_method", NormalMethod);
 		GD.Print($"[Ocean] Nested surface ready: {lodCount} LODs, {_nestedTileCount} tiles, " +
 			$"patch resolution {patchResolution}, {_nestedPatchMeshes.Length} shared patch variants.");
+
+		GD.Print(
+			$"[Ocean] Nested surface ready: " +
+			$"{lodCount} LODs, {_nestedTileCount} tiles, " +
+			$"AWF {resolution}², geometry {geometryResolution}², " +
+			$"patch {patchResolution} quads, " +
+			$"downsample x{GeometryDownSampleFactor}, " +
+			$"{_nestedPatchMeshes.Length} shared patch variants.");	
 	}
 
 	private void UpdateNestedMaterials(int lodCount, Vector2 focusXZ)

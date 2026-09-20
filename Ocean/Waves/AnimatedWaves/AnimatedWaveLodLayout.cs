@@ -76,13 +76,12 @@ internal sealed class AnimatedWaveLodLayout
 		_slices.Length;
 
 	public float BaseWorldSize { get; }
-
+	public float WorldScale { get; private set; } = 1.0f;
 	public Vector2 FocusXZ { get; private set; }
 
-	public AnimatedWaveLodSlice this[int index] =>
-		_slices[index];
+	public AnimatedWaveLodSlice this[int index] => _slices[index];
 
-
+	
 	public AnimatedWaveLodLayout(
 		int resolution,
 		int lodCount,
@@ -113,7 +112,7 @@ internal sealed class AnimatedWaveLodLayout
 		_slices =
 			new AnimatedWaveLodSlice[lodCount];
 
-		Update(Vector2.Zero);
+		Update(Vector2.Zero , 1.0f);
 	}
 
 
@@ -123,21 +122,26 @@ internal sealed class AnimatedWaveLodLayout
 	/// Centers are snapped independently for every LOD to that
 	/// LOD's texel width.
 	/// </summary>
-	public void Update(
-		Vector2 focusXZ)
+	public void Update( Vector2 focusXZ, float worldScale = 1.0f)
 	{
-		FocusXZ = focusXZ;
-
-		for (int lod = 0;
-			 lod < _slices.Length;
-			 lod++)
+		if (!float.IsFinite(worldScale) ||
+			worldScale < 1.0f)
 		{
-			_slices[lod] =
-				CalculateSlice(
-					Resolution,
-					BaseWorldSize,
-					lod,
-					focusXZ);
+			throw new ArgumentOutOfRangeException(nameof(worldScale));
+		}
+
+		FocusXZ = focusXZ;
+		WorldScale = worldScale;
+
+		float scaledBaseWorldSize = BaseWorldSize * WorldScale;
+
+		for (int lod = 0; lod < _slices.Length; lod++)
+		{
+			_slices[lod] = CalculateSlice(
+				Resolution,
+				scaledBaseWorldSize,
+				lod,
+				focusXZ);
 		}
 	}
 

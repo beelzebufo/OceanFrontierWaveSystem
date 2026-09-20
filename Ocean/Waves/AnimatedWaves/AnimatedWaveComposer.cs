@@ -69,14 +69,14 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		}
 	}
 
-	public void UpdateLodLayout( Vector2 focusXZ)
+	public void UpdateLodLayout( Vector2 focusXZ, float worldScale = 1.0f)
 	{
 		if (LodLayout == null)
 		{
 			return;
 		}
 
-		LodLayout.Update(focusXZ);
+		LodLayout.Update( focusXZ, worldScale);
 	}
 
 	public void InitializeFftInput(
@@ -109,16 +109,14 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					waveResolutionMultiplier);
 	}
 
-	public void ComposeFft(Vector2 focusXZ)
+	public void ComposeFft( Vector2 focusXZ, float worldScale = 1.0f)
 	{
 		if (_fftComposePass == null || LodLayout == null || LodGpuBuffer == null)
 		{
 			return;
 		}
 
-		// IMPORTANT:
-		// layout mutation + GPU upload happen on render thread.
-		LodLayout.Update(focusXZ);
+		LodLayout.Update(focusXZ, worldScale);
 
 		LodGpuBuffer.Upload(LodLayout);
 

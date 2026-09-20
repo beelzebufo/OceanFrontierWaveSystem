@@ -36,10 +36,17 @@ public partial class OceanRuntime : Node
 	[Export(PropertyHint.Range, "0.25,4096,0.25,or_greater")]
 	public float AnimatedWaveBaseWorldSize { get; set; } = 32.0f;
 
+	[Export]
+	public bool AnimatedWaveViewHeightScaleEnabled { get; set; } = true;
+
+	[Export(PropertyHint.Range, "0,20,0.25")]
+	public float AnimatedWaveDetailBandHeight { get; set; } = 4.0f;
+
 
 	private readonly FftWaveSource _fftWaveSource = new();
 
 	private readonly AnimatedWaveComposer _animatedWaveComposer = new();
+
 	public OceanPointQueryService PointQueries { get; } = new();
 
 
@@ -53,17 +60,44 @@ public partial class OceanRuntime : Node
 	private RuntimeWaveSettings _startupWaveSettings;
 	private RuntimeWaveSettings _requestedWaveSettings;
 	private RuntimeWaveSettings _frameWaveSettings;
+
 	private int _appliedH0Revision;
+
 	private bool _simulationPaused;
 	private float _simulationTimeScale = 1.0f;
+
 	private bool _focusOverrideEnabled;
 	private Vector2 _focusOverrideXZ;
+
 	private float _runtimeResolutionMultiplier;
 
 
-	// Snapshot from main thread for the next render-thread update.
+	//
+	// Crest-like whole-LOD-stack scale.
+	//
+	// world scale:
+	//     1 -> LOD0 = 32m
+	//     2 -> LOD0 = 64m
+	//     4 -> LOD0 = 128m
+	//
+	// alpha:
+	//     continuous interpolation towards the next x2 scale.
+	//
+
+	private float _pendingLodScale = 1.0f;
+	private float _pendingLodScaleAlpha;
+
+	private bool _lodScaleOverrideEnabled;
+	private float _lodScaleOverride = 1.0f;
+
+
+	//
+	// Main-thread snapshot consumed by the render-thread update.
+	//
+
 	private float _pendingSimulationTime;
 	private Vector2 _pendingFocusXZ;
+
 	private int _surfaceFieldResolution;
 	private int _surfaceLodCount;
 	private float _surfaceBaseWorldSize;
@@ -71,40 +105,134 @@ public partial class OceanRuntime : Node
 
 	private bool _processLogged;
 
-	internal float SimulationTime => (float)_simulationTime;
-	internal int AppliedH0Revision => Volatile.Read(ref _appliedH0Revision);
-	internal bool H0Pending => _requestedWaveSettings != null &&
-		_requestedWaveSettings.H0Revision != AppliedH0Revision;
-	internal bool SimulationPaused { get => _simulationPaused; set => _simulationPaused = value; }
-	internal float SimulationTimeScale { get => _simulationTimeScale; set => _simulationTimeScale = Mathf.Clamp(value, 0.0f, 4.0f); }
-	internal bool FocusOverrideEnabled { get => _focusOverrideEnabled; set => _focusOverrideEnabled = value; }
-	internal Vector2 FocusOverrideXZ { get => _focusOverrideXZ; set => _focusOverrideXZ = value; }
-	internal int RuntimeFftCascadeCount => _fftWaveSource?.CascadeCount ?? 0;
-	internal int RuntimeAnimatedWaveLodCount => _surfaceLodCount;
-	internal int RuntimeAnimatedWaveResolution => _surfaceFieldResolution;
-	internal float RuntimeResolutionMultiplier => _runtimeResolutionMultiplier;
-	internal RuntimeWaveSettings GetWaveSettingsSnapshot() => _requestedWaveSettings?.Copy();
-	internal RuntimeWaveSettings GetStartupWaveSettingsSnapshot() => _startupWaveSettings?.Copy();
 
-	internal void RequestWaveSettings(RuntimeWaveSettings requested)
+	internal float SimulationTime =>
+		(float)_simulationTime;
+
+	internal int AppliedH0Revision =>
+		Volatile.Read(
+			ref _appliedH0Revision);
+
+	internal bool H0Pending =>
+		_requestedWaveSettings != null &&
+		_requestedWaveSettings.H0Revision != AppliedH0Revision;
+
+	internal bool SimulationPaused
 	{
-		if (requested == null || _requestedWaveSettings == null) return;
-		RuntimeWaveSettings next = requested.Copy();
-		next.H0Revision = _requestedWaveSettings.H0Revision +
-			(_requestedWaveSettings.HasSameH0(next) ? 0 : 1);
-		_requestedWaveSettings = next;
+		get => _simulationPaused;
+		set => _simulationPaused = value;
 	}
+
+	internal float SimulationTimeScale
+	{
+		get => _simulationTimeScale;
+
+		set =>
+			_simulationTimeScale =
+				Mathf.Clamp(
+					value,
+					0.0f,
+					4.0f);
+	}
+
+	internal bool FocusOverrideEnabled
+	{
+		get => _focusOverrideEnabled;
+		set => _focusOverrideEnabled = value;
+	}
+
+	internal Vector2 FocusOverrideXZ
+	{
+		get => _focusOverrideXZ;
+		set => _focusOverrideXZ = value;
+	}
+
+	internal int RuntimeFftCascadeCount =>
+		_fftWaveSource?.CascadeCount ?? 0;
+
+	internal int RuntimeAnimatedWaveLodCount =>
+		_surfaceLodCount;
+
+	internal int RuntimeAnimatedWaveResolution =>
+		_surfaceFieldResolution;
+
+	internal float RuntimeResolutionMultiplier =>
+		_runtimeResolutionMultiplier;
+
+	internal float RuntimeLodScale =>
+		_pendingLodScale;
+
+	internal float RuntimeLodScaleAlpha =>
+		_pendingLodScaleAlpha;
+
+	internal bool LodScaleOverrideEnabled
+	{
+		get => _lodScaleOverrideEnabled;
+		set => _lodScaleOverrideEnabled = value;
+	}
+
+	internal float LodScaleOverride
+	{
+		get => _lodScaleOverride;
+
+		set =>
+			_lodScaleOverride =
+				Mathf.Max(
+					1.0f,
+					value);
+	}
+
+
+	internal RuntimeWaveSettings GetWaveSettingsSnapshot() =>
+		_requestedWaveSettings?.Copy();
+
+	internal RuntimeWaveSettings GetStartupWaveSettingsSnapshot() =>
+		_startupWaveSettings?.Copy();
+
+
+	internal void RequestWaveSettings(
+		RuntimeWaveSettings requested)
+	{
+		if (requested == null ||
+			_requestedWaveSettings == null)
+		{
+			return;
+		}
+
+		RuntimeWaveSettings next =
+			requested.Copy();
+
+		next.H0Revision =
+			_requestedWaveSettings.H0Revision +
+			(_requestedWaveSettings.HasSameH0(next)
+				? 0
+				: 1);
+
+		_requestedWaveSettings =
+			next;
+	}
+
 
 	internal void ResetWaveSettings()
 	{
 		if (_startupWaveSettings != null)
-			RequestWaveSettings(_startupWaveSettings);
+		{
+			RequestWaveSettings(
+				_startupWaveSettings);
+		}
 	}
 
 
 	public override void _Ready()
 	{
-		GD.Print("[Ocean] _Ready");
+		GD.Print(
+			"[Ocean] _Ready");
+
+		//
+		// This callable IS the per-frame render-thread update.
+		//
+		// _Process() only snapshots main-thread state and queues it.
+		//
 
 		_renderUpdateCallable =
 			Callable.From(
@@ -119,6 +247,145 @@ public partial class OceanRuntime : Node
 		_gpuReady = false;
 
 		QueueGpuRelease();
+	}
+
+
+	/// <summary>
+	/// Crest-like viewpoint-height driven whole LOD-stack scale.
+	///
+	/// Crest reference:
+	///
+	///     camDistance = max(abs(viewerHeight) - 4, 0)
+	///     level       = max(camDistance, minScale)
+	///     l2          = log2(level)
+	///     scale       = 2^floor(l2)
+	///     alpha       = frac(l2)
+	///
+	/// Our minimum Crest scale is derived from the physical width
+	/// of LOD0:
+	///
+	///     LOD0 width = 4 * Crest scale
+	///
+	/// Therefore 32m LOD0 corresponds to Crest scale 8.
+	/// </summary>
+	private void GetAnimatedWaveLodScale(
+		out float worldScale,
+		out float scaleAlpha)
+	{
+		if (_lodScaleOverrideEnabled)
+		{
+			worldScale =
+				Mathf.Max(
+					1.0f,
+					_lodScaleOverride);
+
+			scaleAlpha =
+				0.0f;
+
+			return;
+		}
+
+
+		if (!AnimatedWaveViewHeightScaleEnabled)
+		{
+			worldScale =
+				1.0f;
+
+			scaleAlpha =
+				0.0f;
+
+			return;
+		}
+
+
+		Camera3D camera =
+			GetViewport()?.GetCamera3D();
+
+		if (camera == null)
+		{
+			worldScale =
+				1.0f;
+
+			scaleAlpha =
+				0.0f;
+
+			return;
+		}
+
+
+		//
+		// Current ocean contract:
+		// sea level = world Y 0.
+		//
+		// Later this can use authoritative local sea level.
+		//
+
+		float viewerHeight =
+			MathF.Abs(
+				camera.GlobalPosition.Y);
+
+
+		//
+		// Crest keeps full detail inside a band around sea level.
+		//
+
+		float cameraDistance =
+			MathF.Max(
+				viewerHeight -
+				AnimatedWaveDetailBandHeight,
+				0.0f);
+
+
+		//
+		// Crest scale 8 -> physical LOD0 width 32m.
+		//
+
+		float minimumCrestScale =
+			AnimatedWaveBaseWorldSize *
+			0.25f;
+
+
+		float level =
+			MathF.Max(
+				cameraDistance,
+				minimumCrestScale);
+
+
+		//
+		// Normalize Crest absolute scale so our
+		// AnimatedWaveLodLayout receives:
+		//
+		// 1, 2, 4, 8...
+		//
+
+		float relativeLevel =
+			MathF.Max(
+				level /
+				minimumCrestScale,
+				1.0f);
+
+
+		float log2Level =
+			MathF.Log2(
+				relativeLevel);
+
+		float floorLevel =
+			MathF.Floor(
+				log2Level);
+
+
+		worldScale =
+			MathF.Pow(
+				2.0f,
+				floorLevel);
+
+
+		scaleAlpha =
+			Mathf.Clamp(
+				log2Level -
+				floorLevel,
+				0.0f,
+				1.0f);
 	}
 
 
@@ -148,7 +415,7 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// Snapshot all Godot Resource/configuration data
+		// Snapshot Godot Resource/configuration data
 		// on the main thread.
 		//
 
@@ -160,11 +427,21 @@ public partial class OceanRuntime : Node
 
 
 		RuntimeWaveSettings initialSettings =
-			RuntimeWaveSettings.FromResources(SeaState, Spectrum);
-		_startupWaveSettings = initialSettings.Copy();
-		_requestedWaveSettings = initialSettings;
-		_frameWaveSettings = initialSettings;
-		int bandCount = initialSettings.PowerLog10.Length;
+			RuntimeWaveSettings.FromResources(
+				SeaState,
+				Spectrum);
+
+		_startupWaveSettings =
+			initialSettings.Copy();
+
+		_requestedWaveSettings =
+			initialSettings;
+
+		_frameWaveSettings =
+			initialSettings;
+
+		int bandCount =
+			initialSettings.PowerLog10.Length;
 
 
 		int animatedWaveResolution =
@@ -179,21 +456,47 @@ public partial class OceanRuntime : Node
 		float animatedWaveBaseWorldSize =
 			AnimatedWaveBaseWorldSize;
 
+
 		GD.Print(
-			$"[Ocean] Animated Wave sampling: resolution={animatedWaveResolution}, " +
+			$"[Ocean] Animated Wave sampling: " +
+			$"resolution={animatedWaveResolution}, " +
 			$"multiplier={animatedWaveResolutionMultiplier}");
 
 
-		// Initial spatial focus is also captured
-		// on the main thread.
+		//
+		// Initial spatial state.
+		//
+
 		Vector2 initialFocusXZ =
 			GetAnimatedWaveFocusXZ();
 
-		_pendingFocusXZ = initialFocusXZ;
-		_surfaceFieldResolution = animatedWaveResolution;
-		_surfaceLodCount = animatedWaveLodCount;
-		_runtimeResolutionMultiplier = animatedWaveResolutionMultiplier;
-		_surfaceBaseWorldSize = animatedWaveBaseWorldSize;
+
+		GetAnimatedWaveLodScale(
+			out float initialLodScale,
+			out float initialLodScaleAlpha);
+
+
+		_pendingFocusXZ =
+			initialFocusXZ;
+
+		_pendingLodScale =
+			initialLodScale;
+
+		_pendingLodScaleAlpha =
+			initialLodScaleAlpha;
+
+
+		_surfaceFieldResolution =
+			animatedWaveResolution;
+
+		_surfaceLodCount =
+			animatedWaveLodCount;
+
+		_runtimeResolutionMultiplier =
+			animatedWaveResolutionMultiplier;
+
+		_surfaceBaseWorldSize =
+			animatedWaveBaseWorldSize;
 
 
 		var fft =
@@ -266,23 +569,6 @@ public partial class OceanRuntime : Node
 						$"{animatedWaveLodCount} LOD slices.");
 
 
-					var lod0 =
-						composer.LodLayout[0];
-
-					var lodLast =
-						composer.LodLayout[
-							animatedWaveLodCount - 1];
-
-
-					GD.Print(
-						$"[Ocean] AnimatedWave LOD layout: " +
-						$"LOD0 size={lod0.WorldSize:0.###}m, " +
-						$"texel={lod0.TexelWidth:0.######}m, " +
-						$"wavelength={lod0.MinWavelength:0.######}-" +
-						$"{lod0.MaxWavelength:0.######}m; " +
-						$"LOD{lodLast.Index} size={lodLast.WorldSize:0.###}m.");
-
-
 					//
 					// FFT becomes an input of AnimatedWaveComposer.
 					//
@@ -298,9 +584,15 @@ public partial class OceanRuntime : Node
 					//
 
 					fft.InitializeSpectrum(
-						initialSettings.ToInitSettings(resolution, cascadeCount),
+						initialSettings.ToInitSettings(
+							resolution,
+							cascadeCount),
 						initialSettings.BuildLinearPowerControls());
-					Volatile.Write(ref _appliedH0Revision, initialSettings.H0Revision);
+
+
+					Volatile.Write(
+						ref _appliedH0Revision,
+						initialSettings.H0Revision);
 
 
 					GD.Print(
@@ -332,18 +624,47 @@ public partial class OceanRuntime : Node
 					//
 					// First canonical AnimatedWaveField composition.
 					//
+					// IMPORTANT:
+					// initialLodScale is already applied here.
+					//
 
 					composer.ComposeFft(
-						initialFocusXZ);
-					PointQueries.Initialize(rd, composer.Field.Displacement,
-						composer.LodGpuBuffer.Buffer, composer.Field.LodCount);
+						initialFocusXZ,
+						initialLodScale);
+
+
+					var lod0 =
+						composer.LodLayout[0];
+
+					var lodLast =
+						composer.LodLayout[
+							animatedWaveLodCount - 1];
+
+
+					GD.Print(
+						$"[Ocean] AnimatedWave LOD layout: " +
+						$"scale=x{initialLodScale:0.###}, " +
+						$"alpha={initialLodScaleAlpha:0.###}; " +
+						$"LOD0 size={lod0.WorldSize:0.###}m, " +
+						$"texel={lod0.TexelWidth:0.######}m, " +
+						$"wavelength={lod0.MinWavelength:0.######}-" +
+						$"{lod0.MaxWavelength:0.######}m; " +
+						$"LOD{lodLast.Index} size={lodLast.WorldSize:0.###}m.");
+
+
+					PointQueries.Initialize(
+						rd,
+						composer.Field.Displacement,
+						composer.LodGpuBuffer.Buffer,
+						composer.Field.LodCount);
 
 
 					//
 					// Runtime can now consume the GPU pipeline.
 					//
 
-					_gpuReady = true;
+					_gpuReady =
+						true;
 
 
 					GD.Print(
@@ -373,17 +694,21 @@ public partial class OceanRuntime : Node
 
 		var composer =
 			_animatedWaveComposer;
-		var queries = PointQueries;
+
+		var queries =
+			PointQueries;
 
 
 		RenderingServer.CallOnRenderThread(
 			Callable.From(() =>
 			{
 				//
-				// Release consumers before their borrowed field and FFT resources.
+				// Release consumers before resources
+				// borrowed from composer/FFT.
 				//
 
 				queries.Release();
+
 				composer.Release();
 
 				fft.Release();
@@ -399,7 +724,11 @@ public partial class OceanRuntime : Node
 		double delta)
 	{
 		if (!_simulationPaused)
-			_simulationTime += delta * _simulationTimeScale;
+		{
+			_simulationTime +=
+				delta *
+				_simulationTimeScale;
+		}
 
 
 		if (!_gpuReady)
@@ -410,7 +739,8 @@ public partial class OceanRuntime : Node
 
 		if (!_processLogged)
 		{
-			_processLogged = true;
+			_processLogged =
+				true;
 
 			GD.Print(
 				"[Ocean] Per-frame processing started");
@@ -418,23 +748,37 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// Snapshot main-thread state.
+		// MAIN THREAD:
 		//
-		// Do NOT touch AnimatedWaveLodLayout here.
-		// It is updated on the render thread by ComposeFft().
+		// Snapshot everything needed by the next
+		// render-thread update.
+		//
+		// Do NOT mutate AnimatedWaveLodLayout here.
 		//
 
 		_pendingSimulationTime =
 			(float)_simulationTime;
 
+
 		_pendingFocusXZ =
 			GetAnimatedWaveFocusXZ();
-		Volatile.Write(ref _frameWaveSettings, _requestedWaveSettings);
+
+
+		GetAnimatedWaveLodScale(
+			out _pendingLodScale,
+			out _pendingLodScaleAlpha);
+
+
+		Volatile.Write(
+			ref _frameWaveSettings,
+			_requestedWaveSettings);
 
 
 		//
-		// Reuse one Callable.
-		// No per-frame lambda/closure allocation.
+		// Queue the persistent callable.
+		//
+		// RenderThreadUpdateSpectrum() below is the
+		// actual render-thread update.
 		//
 
 		RenderingServer.CallOnRenderThread(
@@ -442,6 +786,21 @@ public partial class OceanRuntime : Node
 	}
 
 
+	/// <summary>
+	/// PER-FRAME RENDER-THREAD UPDATE.
+	///
+	/// This is the "render update".
+	///
+	/// Order:
+	///
+	/// spectrum evolution
+	/// -> IFFT
+	/// -> canonical AWF composition
+	/// -> physics query dispatch
+	///
+	/// All LOD scale data is snapshotted at the beginning so the
+	/// composer and point query use the same state for this update.
+	/// </summary>
 	private void RenderThreadUpdateSpectrum()
 	{
 		if (!_gpuReady ||
@@ -452,37 +811,81 @@ public partial class OceanRuntime : Node
 
 
 		//
+		// Snapshot main-thread values once for this render update.
+		//
+
+		float simulationTime =
+			_pendingSimulationTime;
+
+		Vector2 focusXZ =
+			_pendingFocusXZ;
+
+		float lodScale =
+			_pendingLodScale;
+
+		float lodScaleAlpha =
+			_pendingLodScaleAlpha;
+
+
+		RuntimeWaveSettings settings =
+			Volatile.Read(
+				ref _frameWaveSettings);
+
+
+		if (settings == null)
+		{
+			return;
+		}
+
+
+		//
 		// 1. Evolve spectral data.
 		//
 
-		RuntimeWaveSettings settings = Volatile.Read(ref _frameWaveSettings);
-		if (settings.H0Revision != Volatile.Read(ref _appliedH0Revision))
+		if (settings.H0Revision !=
+			Volatile.Read(
+				ref _appliedH0Revision))
 		{
 			_fftWaveSource.InitializeSpectrum(
-				settings.ToInitSettings(_fftWaveSource.Resolution, _fftWaveSource.CascadeCount),
+				settings.ToInitSettings(
+					_fftWaveSource.Resolution,
+					_fftWaveSource.CascadeCount),
 				settings.BuildLinearPowerControls());
-			Volatile.Write(ref _appliedH0Revision, settings.H0Revision);
-			GD.Print($"[Ocean] SpectrumInit regenerated: H0 rev {settings.H0Revision}");
+
+
+			Volatile.Write(
+				ref _appliedH0Revision,
+				settings.H0Revision);
+
+
+			GD.Print(
+				$"[Ocean] SpectrumInit regenerated: " +
+				$"H0 rev {settings.H0Revision}");
 		}
 
+
 		_fftWaveSource.UpdateSpectrum(
-			_pendingSimulationTime,
+			simulationTime,
 			settings.Chop,
 			settings.Gravity,
 			settings.LoopPeriod);
 
 
 		//
-		// 2. Raw FFT spectral bands -> spatial displacement.
+		// 2. Raw FFT spectral bands
+		//    -> spatial displacement.
 		//
 
 		_fftWaveSource.TransformSpectrumToDisplacement();
 
 
 		//
-		// 3. Raw FFT source -> canonical AnimatedWaveField.
+		// 3. Raw FFT source
+		//    -> canonical AnimatedWaveField.
 		//
 		// ComposeFft:
+		//
+		// - applies the current whole-stack LOD scale;
 		// - updates camera-relative LOD layout;
 		// - uploads LOD metadata;
 		// - samples appropriate FFT bands;
@@ -490,19 +893,38 @@ public partial class OceanRuntime : Node
 		//
 
 		_animatedWaveComposer.ComposeFft(
-			_pendingFocusXZ);
-		PointQueries.DispatchAfterCompose(_animatedWaveComposer.LodLayout.FocusXZ);
+			focusXZ,
+			lodScale);
+
+
+		//
+		// 4. Queries consume the SAME canonical AWF
+		//    immediately after composition.
+		//
+		// lodScaleAlpha is required so physics sampling
+		// matches the renderer's LOD0 -> LOD1 altitude blend.
+		//
+
+		PointQueries.DispatchAfterCompose(
+			_animatedWaveComposer.LodLayout.FocusXZ,
+			lodScaleAlpha);
 	}
 
 
 	/// <summary>
 	/// Main-thread camera/focus lookup.
 	///
-	/// AnimatedWaveField spatial LODs follow the active camera in XZ.
+	/// AnimatedWaveField spatial LODs follow the active
+	/// camera in XZ unless diagnostics override the focus.
 	/// </summary>
 	private Vector2 GetAnimatedWaveFocusXZ()
 	{
-		if (_focusOverrideEnabled) return _focusOverrideXZ;
+		if (_focusOverrideEnabled)
+		{
+			return _focusOverrideXZ;
+		}
+
+
 		Camera3D camera =
 			GetViewport()?.GetCamera3D();
 
@@ -522,6 +944,7 @@ public partial class OceanRuntime : Node
 			position.Z);
 	}
 
+
 	internal bool TryGetAnimatedWaveSurface(
 		int spatialLodIndex,
 		out Rid texture,
@@ -529,10 +952,18 @@ public partial class OceanRuntime : Node
 		out int lodCount,
 		out AnimatedWaveLodSlice selectedSlice)
 	{
-		texture = default;
-		resolution = 0;
-		lodCount = 0;
-		selectedSlice = default;
+		texture =
+			default;
+
+		resolution =
+			0;
+
+		lodCount =
+			0;
+
+		selectedSlice =
+			default;
+
 
 		if (!_gpuReady ||
 			spatialLodIndex < 0 ||
@@ -541,23 +972,51 @@ public partial class OceanRuntime : Node
 			return false;
 		}
 
-		AnimatedWaveField field = _animatedWaveComposer.Field;
-		if (field == null || !field.Displacement.IsValid)
+
+		AnimatedWaveField field =
+			_animatedWaveComposer.Field;
+
+
+		if (field == null ||
+			!field.Displacement.IsValid)
 		{
 			return false;
 		}
 
-		texture = field.Displacement;
-		resolution = _surfaceFieldResolution;
-		lodCount = _surfaceLodCount;
-		selectedSlice = AnimatedWaveLodLayout.CalculateSlice(
-			resolution,
-			_surfaceBaseWorldSize,
-			spatialLodIndex,
-			_pendingFocusXZ);
+
+		texture =
+			field.Displacement;
+
+		resolution =
+			_surfaceFieldResolution;
+
+		lodCount =
+			_surfaceLodCount;
+
+
+		//
+		// IMPORTANT:
+		//
+		// CPU/debug metadata must describe the same scaled
+		// spatial hierarchy as the composer.
+		//
+
+		float currentBaseWorldSize =
+			_surfaceBaseWorldSize *
+			_pendingLodScale;
+
+
+		selectedSlice =
+			AnimatedWaveLodLayout.CalculateSlice(
+				resolution,
+				currentBaseWorldSize,
+				spatialLodIndex,
+				_pendingFocusXZ);
+
 
 		return true;
 	}
+
 
 	internal bool TryGetAnimatedWaveSurfaceWithNext(
 		int spatialLodIndex,
@@ -568,26 +1027,50 @@ public partial class OceanRuntime : Node
 		out AnimatedWaveLodSlice nextSlice,
 		out Vector2 focusXZ)
 	{
-		nextSlice = default;
-		focusXZ = default;
-		if (!TryGetAnimatedWaveSurface(
-			spatialLodIndex, out texture, out resolution, out lodCount, out selectedSlice))
-			return false;
+		nextSlice =
+			default;
 
-		focusXZ = _pendingFocusXZ;
+		focusXZ =
+			default;
+
+
+		if (!TryGetAnimatedWaveSurface(
+				spatialLodIndex,
+				out texture,
+				out resolution,
+				out lodCount,
+				out selectedSlice))
+		{
+			return false;
+		}
+
+
+		focusXZ =
+			_pendingFocusXZ;
+
+
 		if (spatialLodIndex + 1 < lodCount)
-			nextSlice = AnimatedWaveLodLayout.CalculateSlice(
-				resolution, _surfaceBaseWorldSize, spatialLodIndex + 1, focusXZ);
+		{
+			float currentBaseWorldSize =
+				_surfaceBaseWorldSize *
+				_pendingLodScale;
+
+
+			nextSlice =
+				AnimatedWaveLodLayout.CalculateSlice(
+					resolution,
+					currentBaseWorldSize,
+					spatialLodIndex + 1,
+					focusXZ);
+		}
+
+
 		return true;
 	}
 
 
 	//
 	// DEBUG
-	//
-	// Stage 1D-C still exposes the raw FFT texture.
-	// We will add a canonical AnimatedWaveField debug accessor
-	// separately during visual validation of Stage 2D.
 	//
 
 	internal bool TryGetRawFftDebugTexture(
@@ -620,36 +1103,43 @@ public partial class OceanRuntime : Node
 			cascadeCount > 0;
 	}
 
-	
+
 	internal bool TryGetAnimatedWaveDebugTexture(
-	out Rid texture,
-	out int lodCount)
-{
-	texture = default;
-	lodCount = 0;
-
-	if (!_gpuReady)
+		out Rid texture,
+		out int lodCount)
 	{
-		return false;
+		texture =
+			default;
+
+		lodCount =
+			0;
+
+
+		if (!_gpuReady)
+		{
+			return false;
+		}
+
+
+		AnimatedWaveField field =
+			_animatedWaveComposer.Field;
+
+
+		if (field == null)
+		{
+			return false;
+		}
+
+
+		texture =
+			field.Displacement;
+
+		lodCount =
+			field.LodCount;
+
+
+		return
+			texture.IsValid &&
+			lodCount > 0;
 	}
-
-	AnimatedWaveField field =
-		_animatedWaveComposer.Field;
-
-	if (field == null)
-	{
-		return false;
-	}
-
-	texture =
-		field.Displacement;
-
-	lodCount =
-		field.LodCount;
-
-	return
-		texture.IsValid &&
-		lodCount > 0;
 }
-}
- 
