@@ -23,6 +23,10 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private bool _overviewRequested;
 	private OceanDiagnosticCameraController.ViewMode _viewMode;
 	private Label _status;
+	private Label _performance;
+	private ulong _lastFrameTicksUsec;
+	private double _performanceSampleSeconds;
+	private int _performanceSampleFrames;
 	private Label _bandWavelength;
 	private OptionButton _band;
 	private CheckBox _bandEnabled;
@@ -212,6 +216,20 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		_debugMode.ItemSelected += _ => UpdateInset();
 		_debugGain.ValueChanged += _ => UpdateInset();
 
+		var performancePanel = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+		performancePanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft);
+		performancePanel.OffsetLeft = 8;
+		performancePanel.OffsetTop = -132;
+		performancePanel.OffsetRight = 210;
+		performancePanel.OffsetBottom = -36;
+		root.AddChild(performancePanel);
+		_performance = new Label
+		{
+			Text = "FPS: --\nFrame: -- ms\nQueries: 0\nQuery readback: -- frames",
+			MouseFilter = Control.MouseFilterEnum.Ignore,
+		};
+		performancePanel.AddChild(_performance);
+
 		_status = new Label();
 		_status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
 		_status.OffsetTop = -30;
@@ -282,6 +300,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 	public override void _Process(double delta)
 	{
+		UpdatePerformance();
 		if (_runtime == null) return;
 		if (!_syncing && !_framed && _runtime.TryGetAnimatedWaveSurface(
 			_selectedLod, out _, out _, out _, out AnimatedWaveLodSlice slice))
@@ -321,6 +340,28 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		if (_statusTimer <= 0) { _statusTimer = 0.15; UpdateStatus(); }
 	}
 	private bool _initializedControls;
+
+	private void UpdatePerformance()
+	{
+		ulong now = Time.GetTicksUsec();
+		if (_lastFrameTicksUsec != 0)
+		{
+			_performanceSampleSeconds += (now - _lastFrameTicksUsec) / 1_000_000.0;
+			_performanceSampleFrames++;
+			if (_performanceSampleSeconds >= 0.25)
+			{
+				_runtime.PointQueries.GetDiagnostics(out int queries,
+					out int readbackFrames, out bool hasResult);
+				_performance.Text = $"FPS: {_performanceSampleFrames / _performanceSampleSeconds:0.0}\n" +
+					$"Frame: {_performanceSampleSeconds * 1000.0 / _performanceSampleFrames:0.00} ms\n" +
+					$"Queries: {queries}\n" +
+					$"Query readback: {(hasResult ? readbackFrames.ToString() : "--")} frames";
+				_performanceSampleSeconds = 0;
+				_performanceSampleFrames = 0;
+			}
+		}
+		_lastFrameTicksUsec = now;
+	}
 
 	private void UpdateDebugSliceRange()
 	{

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b1y3n85xvy6bl"
+path="res://.godot/imported/animated_wave_point_query.glsl-e0f70c89f61696cac9e106f476c2e95e.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/animated_wave_point_query.glsl"
+dest_files=["res://.godot/imported/animated_wave_point_query.glsl-e0f70c89f61696cac9e106f476c2e95e.res"]
+
+[params]
+

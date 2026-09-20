@@ -4,6 +4,7 @@ using Godot;
 using OceanFrontier.Water.Waves;
 using OceanFrontier.Water.Waves.FFT;
 using OceanFrontier.Water.Waves.AnimatedWaves;
+using OceanFrontier.Water.Queries;
 
 namespace OceanFrontier.Water.Runtime;
 
@@ -39,6 +40,7 @@ public partial class OceanRuntime : Node
 	private readonly FftWaveSource _fftWaveSource = new();
 
 	private readonly AnimatedWaveComposer _animatedWaveComposer = new();
+	public OceanPointQueryService PointQueries { get; } = new();
 
 
 	private double _simulationTime;
@@ -333,6 +335,8 @@ public partial class OceanRuntime : Node
 
 					composer.ComposeFft(
 						initialFocusXZ);
+					PointQueries.Initialize(rd, composer.Field.Displacement,
+						composer.LodGpuBuffer.Buffer, composer.Field.LodCount);
 
 
 					//
@@ -369,16 +373,17 @@ public partial class OceanRuntime : Node
 
 		var composer =
 			_animatedWaveComposer;
+		var queries = PointQueries;
 
 
 		RenderingServer.CallOnRenderThread(
 			Callable.From(() =>
 			{
 				//
-				// Composer references FFT resources,
-				// so composer must be released first.
+				// Release consumers before their borrowed field and FFT resources.
 				//
 
+				queries.Release();
 				composer.Release();
 
 				fft.Release();
@@ -486,6 +491,7 @@ public partial class OceanRuntime : Node
 
 		_animatedWaveComposer.ComposeFft(
 			_pendingFocusXZ);
+		PointQueries.DispatchAfterCompose(_animatedWaveComposer.LodLayout.FocusXZ);
 	}
 
 
