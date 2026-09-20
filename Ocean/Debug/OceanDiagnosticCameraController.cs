@@ -25,7 +25,7 @@ public partial class OceanDiagnosticCameraController : Camera3D
 		_squareRadius = _lodWorldSize * 0.5f * Mathf.Sqrt(2.0f);
 		float aspect = Mathf.Max(0.01f, GetViewport().GetVisibleRect().Size.Aspect());
 		_moveSpeed = _lodWorldSize * 0.8f;
-		Near = 0.1f;
+		Near = 0.05f;
 		if (mode == ViewMode.Perspective)
 		{
 			Projection = ProjectionType.Perspective;
@@ -55,6 +55,12 @@ public partial class OceanDiagnosticCameraController : Camera3D
 		}
 		_hasFrame = true;
 		UpdateFar();
+	}
+
+	internal void FrameOverview(ViewMode mode, AnimatedWaveLodSlice slice)
+	{
+		_zoomFactors[(int)mode] = 1.0f;
+		Frame(mode, slice);
 	}
 
 	public override void _UnhandledInput(InputEvent inputEvent)
@@ -91,8 +97,8 @@ public partial class OceanDiagnosticCameraController : Camera3D
 
 	private float ClampPerspectiveDistance(float distance)
 	{
-		float minimum = Mathf.Max(0.25f, _lodWorldSize * 0.05f);
-		float maximum = Mathf.Max(_lodWorldSize * 8.0f, minimum * 2.0f);
+		float minimum = Mathf.Max(0.1f, _lodWorldSize * 0.02f);
+		float maximum = Mathf.Max(_lodWorldSize * 12.0f, minimum * 2.0f);
 		return Mathf.Clamp(distance, minimum, maximum);
 	}
 
@@ -105,7 +111,7 @@ public partial class OceanDiagnosticCameraController : Camera3D
 	private void UpdateFar()
 	{
 		float cameraDistance = GlobalPosition.DistanceTo(_target);
-		Far = Mathf.Max(500.0f, (cameraDistance + _squareRadius + _lodWorldSize) * 1.2f);
+		Far = Mathf.Max(50.0f, (cameraDistance + _squareRadius + _lodWorldSize) * 1.2f);
 	}
 
 	public override void _Process(double delta)

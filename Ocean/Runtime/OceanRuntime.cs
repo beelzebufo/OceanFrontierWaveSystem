@@ -559,16 +559,19 @@ public partial class OceanRuntime : Node
 		out int resolution,
 		out int lodCount,
 		out AnimatedWaveLodSlice selectedSlice,
-		out AnimatedWaveLodSlice nextSlice)
+		out AnimatedWaveLodSlice nextSlice,
+		out Vector2 focusXZ)
 	{
 		nextSlice = default;
+		focusXZ = default;
 		if (!TryGetAnimatedWaveSurface(
 			spatialLodIndex, out texture, out resolution, out lodCount, out selectedSlice))
 			return false;
 
+		focusXZ = _pendingFocusXZ;
 		if (spatialLodIndex + 1 < lodCount)
 			nextSlice = AnimatedWaveLodLayout.CalculateSlice(
-				resolution, _surfaceBaseWorldSize, spatialLodIndex + 1, _pendingFocusXZ);
+				resolution, _surfaceBaseWorldSize, spatialLodIndex + 1, focusXZ);
 		return true;
 	}
 

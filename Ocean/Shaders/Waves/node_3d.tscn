@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://bew2tyyd555mo" path="res://Ocean/Debug/OceanDiagnosticCameraController.cs" id="4_camera"]
 [ext_resource type="Script" uid="uid://cufatu6tk1ik5" path="res://Ocean/Debug/OceanDiagnosticReferenceFrame.cs" id="5_reference"]
 [ext_resource type="Script" uid="uid://de6e7eede4427" path="res://Ocean/Debug/OceanWaveDiagnosticScreen.cs" id="6_diagnostics"]
+[ext_resource type="Script" uid="uid://b5w6mg0o0cyd0" path="res://Ocean/Debug/OceanDiagnosticLightDirectionGizmo.cs" id="7_light_gizmo"]
 
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
@@ -14,6 +15,10 @@ script = ExtResource("1_ocean_runtime")
 transform = Transform3D(1, 0, 0, 0, 0.5, 0.8660254, 0, -0.8660254, 0.5, 0, 45, 25)
 current = true
 script = ExtResource("4_camera")
+
+[node name="DiagnosticSun" type="DirectionalLight3D" parent="."]
+light_energy = 1.0
+shadow_enabled = false
 
 [node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
 script = ExtResource("3_surface")
@@ -27,6 +32,9 @@ PanelSize = Vector2(320, 320)
 
 [node name="OceanDiagnosticReferenceFrame" type="Node3D" parent="." unique_id=98073916]
 script = ExtResource("5_reference")
+
+[node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="."]
+script = ExtResource("7_light_gizmo")
 
 [node name="OceanWaveDiagnosticScreen" type="CanvasLayer" parent="." unique_id=11273535]
 script = ExtResource("6_diagnostics")

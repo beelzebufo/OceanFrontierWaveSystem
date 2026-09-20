@@ -13,11 +13,14 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private AnimatedWaveSurfaceRenderer _surface;
 	private OceanDiagnosticReferenceFrame _reference;
 	private OceanDiagnosticCameraController _camera;
+	private DirectionalLight3D _sun;
+	private OceanDiagnosticLightDirectionGizmo _lightGizmo;
 	private FftDisplacementDebugView _inset;
 	private RuntimeWaveSettings _draft;
 	private double _h0Debounce;
 	private bool _syncing;
 	private bool _framed;
+	private bool _overviewRequested;
 	private OceanDiagnosticCameraController.ViewMode _viewMode;
 	private Label _status;
 	private Label _bandWavelength;
@@ -47,6 +50,8 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		_surface = _runtime.GetNodeOrNull<AnimatedWaveSurfaceRenderer>("AnimatedWaveSurfaceRenderer");
 		_reference = _runtime.GetNodeOrNull<OceanDiagnosticReferenceFrame>("OceanDiagnosticReferenceFrame");
 		_camera = _runtime.GetNodeOrNull<OceanDiagnosticCameraController>("Camera3D");
+		_sun = _runtime.GetNodeOrNull<DirectionalLight3D>("DiagnosticSun");
+		_lightGizmo = _runtime.GetNodeOrNull<OceanDiagnosticLightDirectionGizmo>("OceanDiagnosticLightDirectionGizmo");
 		_inset = _runtime.GetNodeOrNull<FftDisplacementDebugView>("FftDisplacementDebugView");
 		_selectedLod = _surface?.SpatialLodIndex ?? 0;
 		_runtime.FocusOverrideXZ = Vector2.Zero;
@@ -67,6 +72,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		AddViewButton(top, "Top", OceanDiagnosticCameraController.ViewMode.Top);
 		AddViewButton(top, "Side X", OceanDiagnosticCameraController.ViewMode.SideX);
 		AddViewButton(top, "Side Z", OceanDiagnosticCameraController.ViewMode.SideZ);
+		Button(top, "Overview", () => { _overviewRequested = true; _framed = false; });
 		var pause = Check(top, "Pause", false);
 		pause.Toggled += value => _runtime.SimulationPaused = value;
 		var follow = Check(top, "Follow Camera", false);
@@ -84,6 +90,16 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		scroll.AddChild(column);
 
 		Section(column, "SURFACE");
+		var sunProgress = Spin(column, "Sun progress", 0.35, 0, 1, 0.01);
+		sunProgress.ValueChanged += value => SetSunProgress((float)value);
+		SetSunProgress((float)sunProgress.Value);
+		Check(column, "Lighting", true).Toggled += value => _surface?.SetLightingEnabled(value);
+		Spin(column, "Roughness", 0.65, 0, 1, 0.01).ValueChanged +=
+			value => _surface?.SetDiagnosticRoughness((float)value);
+		Check(column, "Show Light Direction", false).Toggled += value =>
+		{ if (_lightGizmo != null) _lightGizmo.Visible = value; };
+		Check(column, "Show Normal Vectors", false).Toggled +=
+			value => _surface?.SetNormalVectorsVisible(value);
 		_lodControl = Spin(column, "Spatial LOD", _selectedLod, 0, 15, 1);
 		_lodControl.ValueChanged += value =>
 		{
@@ -236,15 +252,34 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private void AddViewButton(HBoxContainer row, string title, OceanDiagnosticCameraController.ViewMode mode)
 		=> Button(row, title, () => { _viewMode = mode; _framed = false; });
 
+	private void SetSunProgress(float progress)
+	{
+		if (_sun == null) return;
+		float azimuth = Mathf.Lerp(-Mathf.Pi * 0.5f, Mathf.Pi * 0.5f, progress);
+		float elevation = Mathf.DegToRad(8.0f + 57.0f * Mathf.Sin(Mathf.Pi * progress));
+		Vector3 direction = new(
+			Mathf.Cos(elevation) * Mathf.Cos(azimuth),
+			-Mathf.Sin(elevation),
+			Mathf.Cos(elevation) * Mathf.Sin(azimuth));
+		_sun.LookAt(_sun.GlobalPosition + direction, Vector3.Up);
+	}
+
 	public override void _Process(double delta)
 	{
 		if (_runtime == null) return;
 		if (!_syncing && !_framed && _runtime.TryGetAnimatedWaveSurface(
 			_selectedLod, out _, out _, out _, out AnimatedWaveLodSlice slice))
 		{
-			_camera?.Frame(_viewMode, slice);
+			if (_overviewRequested)
+				_camera?.FrameOverview(_viewMode, slice);
+			else
+				_camera?.Frame(_viewMode, slice);
+			_overviewRequested = false;
 			_framed = true;
 		}
+		if (_lightGizmo != null && _lightGizmo.Visible && _sun != null &&
+			_runtime.TryGetAnimatedWaveSurface(_selectedLod, out _, out _, out _, out AnimatedWaveLodSlice lightSlice))
+			_lightGizmo.UpdateFrom(_sun, lightSlice);
 		if (_chop != null && !_initializedControls &&
 			_runtime.TryGetAnimatedWaveSurface(0, out _, out _, out _, out _) &&
 			_runtime.GetWaveSettingsSnapshot() is { } startup)

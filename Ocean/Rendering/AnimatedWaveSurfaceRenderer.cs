@@ -5,25 +5,35 @@ using OceanFrontier.Water.Waves.AnimatedWaves;
 namespace OceanFrontier.Water.Rendering;
 
 /// <summary>
-/// Stage 3A-1: one diagnostic grid sampling one canonical spatial LOD.
+/// One validation grid sampling adjacent canonical spatial LODs.
 /// The AnimatedWaveField owns the RenderingDevice texture RID.
 /// </summary>
 public partial class AnimatedWaveSurfaceRenderer : Node3D
 {
+	private const int NormalGridResolution = 17;
+	private const float NormalVectorScale = 0.35f;
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
+	private const string NormalShaderPath =
+		"res://Ocean/Shaders/Rendering/animated_wave_normal_debug.gdshader";
 
 	[Export(PropertyHint.Range, "0,15,1")]
 	public int SpatialLodIndex { get; set; } = 4;
 
+	[Export(PropertyHint.Enum, "Blended XYZ Forward,Crest Per LOD Forward")]
+	public int NormalMethod { get; set; } = 0;
+
 	private OceanRuntime _runtime;
 	private MeshInstance3D _meshInstance;
+	private MeshInstance3D _normalMeshInstance;
 	private PlaneMesh _plane;
 	private ShaderMaterial _material;
+	private ShaderMaterial _normalMaterial;
 	private Texture2DArrayRD _textureArray;
 	private Rid _boundRid;
 	private Vector2 _lastCenter = new(float.NaN, float.NaN);
 	private Vector2 _lastNextCenter = new(float.NaN, float.NaN);
+	private Vector2 _lastFocus = new(float.NaN, float.NaN);
 	private int _selectedLodIndex;
 	private int _waveContentMode;
 	private int _displayMode;
@@ -31,16 +41,36 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _verticalDisplayScale = 1.0f;
 	private bool _showGrid = true;
 	private bool _showMarkers = true;
+	private bool _lightingEnabled = true;
+	private bool _showNormalVectors;
+	private float _diagnosticRoughness = 0.65f;
 	private int _meshResolution;
 	private float _meshWorldSize;
 	private int _materialLod = -1;
+	private int _materialNormalMethod = -1;
 
 	internal int SelectedLodIndex => _selectedLodIndex;
 	internal void SetSpatialLod(int lod) => _selectedLodIndex = lod;
 	internal void SetWaveContent(int mode)
 	{
 		_waveContentMode = mode;
-		_material?.SetShaderParameter("wave_content_mode", _waveContentMode);
+		ApplyDisplayParameters();
+	}
+	internal void SetLightingEnabled(bool enabled)
+	{
+		_lightingEnabled = enabled;
+		_material?.SetShaderParameter("lighting_enabled", enabled);
+	}
+	internal void SetDiagnosticRoughness(float roughness)
+	{
+		_diagnosticRoughness = Mathf.Clamp(roughness, 0.0f, 1.0f);
+		_material?.SetShaderParameter("diagnostic_roughness", _diagnosticRoughness);
+	}
+	internal void SetNormalVectorsVisible(bool visible)
+	{
+		_showNormalVectors = visible;
+		if (_normalMeshInstance != null)
+			_normalMeshInstance.Visible = visible && _meshInstance.Visible;
 	}
 	internal void SetDisplay(int mode, float horizontalScale, float verticalScale)
 	{
@@ -58,12 +88,47 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private void ApplyDisplayParameters()
 	{
 		if (_material == null) return;
-		_material.SetShaderParameter("display_mode", _displayMode);
-		_material.SetShaderParameter("horizontal_display_scale", _horizontalDisplayScale);
-		_material.SetShaderParameter("vertical_display_scale", _verticalDisplayScale);
+		SetSamplingParameter("display_mode", _displayMode);
+		SetSamplingParameter("horizontal_display_scale", _horizontalDisplayScale);
+		SetSamplingParameter("vertical_display_scale", _verticalDisplayScale);
 		_material.SetShaderParameter("show_surface_grid", _showGrid);
 		_material.SetShaderParameter("show_surface_markers", _showMarkers);
-		_material.SetShaderParameter("wave_content_mode", _waveContentMode);
+		SetSamplingParameter("wave_content_mode", _waveContentMode);
+		_material.SetShaderParameter("lighting_enabled", _lightingEnabled);
+		_material.SetShaderParameter("diagnostic_roughness", _diagnosticRoughness);
+	}
+
+	private void SetSamplingParameter(string name, Variant value)
+	{
+		_material.SetShaderParameter(name, value);
+		_normalMaterial?.SetShaderParameter(name, value);
+	}
+
+	private static ArrayMesh CreateNormalLineMesh()
+	{
+		// COLOR.r marks each static anchor's base (0) and tip (1).
+		var vertices = new Vector3[NormalGridResolution * NormalGridResolution * 2];
+		var endpoints = new Color[vertices.Length];
+		int index = 0;
+		for (int z = 0; z < NormalGridResolution; z++)
+		for (int x = 0; x < NormalGridResolution; x++)
+		{
+			var anchor = new Vector3(
+				(float)x / (NormalGridResolution - 1) - 0.5f,
+				0.0f,
+				(float)z / (NormalGridResolution - 1) - 0.5f);
+			vertices[index] = anchor;
+			endpoints[index++] = new Color(0, 0, 0);
+			vertices[index] = anchor;
+			endpoints[index++] = new Color(1, 0, 0);
+		}
+		var arrays = new Godot.Collections.Array();
+		arrays.Resize((int)Mesh.ArrayType.Max);
+		arrays[(int)Mesh.ArrayType.Vertex] = vertices;
+		arrays[(int)Mesh.ArrayType.Color] = endpoints;
+		var mesh = new ArrayMesh();
+		mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
+		return mesh;
 	}
 
 	public override void _Ready()
@@ -97,6 +162,24 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			Visible = false,
 		};
 		AddChild(_meshInstance);
+		Shader normalShader = GD.Load<Shader>(NormalShaderPath);
+		if (normalShader == null)
+		{
+			GD.PushError($"Could not load normal-vector shader: {NormalShaderPath}");
+			return;
+		}
+		_normalMaterial = new ShaderMaterial { Shader = normalShader };
+		_normalMaterial.SetShaderParameter("animated_wave_field", _textureArray);
+		ApplyDisplayParameters();
+		_normalMeshInstance = new MeshInstance3D
+		{
+			Mesh = CreateNormalLineMesh(),
+			MaterialOverride = _normalMaterial,
+			ExtraCullMargin = 128.0f,
+			CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+			Visible = false,
+		};
+		AddChild(_normalMeshInstance);
 	}
 
 	public override void _Process(double delta)
@@ -108,10 +191,13 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				out int resolution,
 				out int lodCount,
 				out AnimatedWaveLodSlice slice,
-				out AnimatedWaveLodSlice nextSlice))
+				out AnimatedWaveLodSlice nextSlice,
+				out Vector2 focusXZ))
 		{
 			if (_meshInstance != null)
 				_meshInstance.Visible = false;
+			if (_normalMeshInstance != null)
+				_normalMeshInstance.Visible = false;
 			return;
 		}
 
@@ -136,15 +222,36 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			_meshWorldSize = slice.WorldSize;
 			_meshResolution = resolution;
 		}
+		ApplySurfaceSamplingParameters(textureRid, lodCount, slice, nextSlice, focusXZ);
+		_meshInstance.Visible = true;
+		if (_normalMeshInstance != null)
+			_normalMeshInstance.Visible = _showNormalVectors;
+	}
+
+	// Both materials receive the same sampling metadata; only their vertex paths differ.
+	private void ApplySurfaceSamplingParameters(Rid textureRid, int lodCount,
+		AnimatedWaveLodSlice slice, AnimatedWaveLodSlice nextSlice, Vector2 focusXZ)
+	{
 		if (_materialLod != _selectedLodIndex)
 		{
-			_material.SetShaderParameter("lod_world_size", slice.WorldSize);
-			_material.SetShaderParameter("selected_lod", (float)_selectedLodIndex);
+			SetSamplingParameter("lod_world_size", slice.WorldSize);
+			SetSamplingParameter("current_lod_texel_width", slice.TexelWidth);
+			SetSamplingParameter("selected_lod", (float)_selectedLodIndex);
 			bool hasNext = _selectedLodIndex + 1 < lodCount;
-			_material.SetShaderParameter("has_next_lod", hasNext);
-			_material.SetShaderParameter("next_lod", (float)(hasNext ? _selectedLodIndex + 1 : _selectedLodIndex));
-			_material.SetShaderParameter("next_lod_world_size", hasNext ? nextSlice.WorldSize : slice.WorldSize);
+			SetSamplingParameter("has_next_lod", hasNext);
+			SetSamplingParameter("next_lod", (float)(hasNext ? _selectedLodIndex + 1 : _selectedLodIndex));
+			SetSamplingParameter("next_lod_world_size", hasNext ? nextSlice.WorldSize : slice.WorldSize);
+			SetSamplingParameter("next_lod_texel_width", hasNext ? nextSlice.TexelWidth : slice.TexelWidth);
+			_normalMaterial?.SetShaderParameter("diagnostic_normal_length",
+				slice.WorldSize / (NormalGridResolution - 1) * NormalVectorScale);
+			if (_normalMeshInstance != null)
+				_normalMeshInstance.Scale = new Vector3(slice.WorldSize, 1.0f, slice.WorldSize);
 			_materialLod = _selectedLodIndex;
+		}
+		if (_materialNormalMethod != NormalMethod)
+		{
+			SetSamplingParameter("normal_method", NormalMethod);
+			_materialNormalMethod = NormalMethod;
 		}
 
 		if (!_boundRid.IsValid || _boundRid.Id != textureRid.Id)
@@ -157,15 +264,19 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		{
 			_lastCenter = slice.CenterXZ;
 			Position = new Vector3(slice.CenterXZ.X, 0.0f, slice.CenterXZ.Y);
-			_material.SetShaderParameter("lod_center_xz", slice.CenterXZ);
+			SetSamplingParameter("lod_center_xz", slice.CenterXZ);
 		}
-		if (_selectedLodIndex + 1 < lodCount && _lastNextCenter != nextSlice.CenterXZ)
+		Vector2 nextCenter = _selectedLodIndex + 1 < lodCount ? nextSlice.CenterXZ : slice.CenterXZ;
+		if (_lastNextCenter != nextCenter)
 		{
-			_lastNextCenter = nextSlice.CenterXZ;
-			_material.SetShaderParameter("next_lod_center_xz", nextSlice.CenterXZ);
+			_lastNextCenter = nextCenter;
+			SetSamplingParameter("next_lod_center_xz", nextCenter);
 		}
-
-		_meshInstance.Visible = true;
+		if (_lastFocus != focusXZ)
+		{
+			_lastFocus = focusXZ;
+			SetSamplingParameter("lod_focus_xz", focusXZ);
+		}
 	}
 
 	public override void _ExitTree()
