@@ -12,6 +12,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private OceanRuntime _runtime;
 	private AnimatedWaveSurfaceRenderer _surface;
 	private OceanDiagnosticReferenceFrame _reference;
+	private OceanPointQueryDiagnostic _pointQueryDiagnostic;
 	private OceanDiagnosticCameraController _camera;
 	private DirectionalLight3D _sun;
 	private OceanDiagnosticLightDirectionGizmo _lightGizmo;
@@ -53,6 +54,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		if (_runtime == null) { SetProcess(false); return; }
 		_surface = _runtime.GetNodeOrNull<AnimatedWaveSurfaceRenderer>("AnimatedWaveSurfaceRenderer");
 		_reference = _runtime.GetNodeOrNull<OceanDiagnosticReferenceFrame>("OceanDiagnosticReferenceFrame");
+		_pointQueryDiagnostic = _runtime.GetNodeOrNull<OceanPointQueryDiagnostic>("OceanPointQueryDiagnostic");
 		_camera = _runtime.GetNodeOrNull<OceanDiagnosticCameraController>("Camera3D");
 		_sun = _runtime.GetNodeOrNull<DirectionalLight3D>("DiagnosticSun");
 		_lightGizmo = _runtime.GetNodeOrNull<OceanDiagnosticLightDirectionGizmo>("OceanDiagnosticLightDirectionGizmo");
@@ -125,6 +127,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 				{
 					_selectedLod = (int)value;
 					_surface?.SetSpatialLod(_selectedLod);
+					_pointQueryDiagnostic?.SetSpatialLod(_selectedLod);
 					_reference?.SetSpatialLod(_selectedLod);
 					_framed = false;
 				};
@@ -145,6 +148,9 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		frame.Toggled += value => { if (_reference != null) _reference.Visible = value; };
 		var markers = Check(column, "Surface grid + markers", true);
 		markers.Toggled += value => _surface?.SetSurfaceMarkers(value, value);
+		Check(column, "GPU point queries (5)", true).Toggled += value =>
+		{ if (_pointQueryDiagnostic != null) _pointQueryDiagnostic.Visible = value; };
+		column.AddChild(new Label { Text = "White: target   Yellow: height\nCyan: horizontal   Red: invalid" });
 		var insetToggle = Check(column, "2D inset", true);
 		insetToggle.Toggled += value => { if (_inset != null) _inset.Visible = value; };
 		_structure = new Label { Text = "GPU topology: waiting..." };

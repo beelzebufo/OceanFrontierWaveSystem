@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://cufatu6tk1ik5" path="res://Ocean/Debug/OceanDiagnosticReferenceFrame.cs" id="5_reference"]
 [ext_resource type="Script" uid="uid://de6e7eede4427" path="res://Ocean/Debug/OceanWaveDiagnosticScreen.cs" id="6_diagnostics"]
 [ext_resource type="Script" uid="uid://b5w6mg0o0cyd0" path="res://Ocean/Debug/OceanDiagnosticLightDirectionGizmo.cs" id="7_light_gizmo"]
+[ext_resource type="Script" uid="uid://b6gwaay7q6jtl" path="res://Ocean/Debug/OceanPointQueryDiagnostic.cs" id="8_point_queries"]
 
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
@@ -32,6 +33,9 @@ PanelSize = Vector2(320, 320)
 
 [node name="OceanDiagnosticReferenceFrame" type="Node3D" parent="." unique_id=98073916]
 script = ExtResource("5_reference")
+
+[node name="OceanPointQueryDiagnostic" type="Node3D" parent="."]
+script = ExtResource("8_point_queries")
 
 [node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="."]
 script = ExtResource("7_light_gizmo")

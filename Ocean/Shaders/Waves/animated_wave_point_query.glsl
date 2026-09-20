@@ -48,16 +48,20 @@ layout(push_constant, std430) uniform PushConstants
 // width may force a coarser slice.
 int choose_lod(vec2 world_xz, float min_texel_width)
 {
+	int coarsest_covering_lod = -1;
+	vec2 offset = abs(world_xz - pc.focus_xz);
 	for (uint lod = 0u; lod < pc.lod_count; ++lod)
 	{
 		AnimatedWaveLodParams slice = u_lod_data.lods[lod];
 		float world_size = 4.0 * slice.scale;
-		vec2 offset = abs(world_xz - pc.focus_xz);
-		if (max(offset.x, offset.y) <= 0.5 * world_size &&
-			slice.texel_width >= min_texel_width)
-			return int(lod);
+		if (max(offset.x, offset.y) <= 0.5 * world_size)
+		{
+			coarsest_covering_lod = int(lod);
+			if (slice.texel_width >= min_texel_width)
+				return int(lod);
+		}
 	}
-	return -1;
+	return coarsest_covering_lod;
 }
 
 vec3 sample_lod(vec2 world_xz, int lod)
