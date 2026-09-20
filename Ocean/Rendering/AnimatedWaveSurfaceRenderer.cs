@@ -39,7 +39,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private ShaderMaterial _normalMaterial;
 	private ShaderMaterial[] _nestedMaterials;
 	private Node3D[] _nestedLodRoots;
-	private PlaneMesh _nestedPatchMesh;
+	// Regular, +Z edge, and adjacent +Z/+X edges; tiles rotate the latter two.
+	private Mesh[] _nestedPatchMeshes;
 	private Vector2[] _nestedCenters;
 	private Vector2[] _nestedNextCenters;
 	private float[] _nestedWorldSizes;
@@ -319,9 +320,74 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 	}
 
+	private static ArrayMesh CreateStitchedPatchMesh(int quads, bool stitchPositiveZ, bool stitchPositiveX)
+	{
+		// Match Godot PlaneMesh FACE_Y: i/j run from local +X/+Z toward -X/-Z.
+		int width = quads + 1;
+		var vertices = new Vector3[width * width];
+		var normals = new Vector3[vertices.Length];
+		var uvs = new Vector2[vertices.Length];
+		var indices = new int[quads * quads * 6];
+		for (int z = 0; z <= quads; z++)
+		for (int x = 0; x <= quads; x++)
+		{
+			int stitchedX = stitchPositiveZ && z == 0 && (x & 1) != 0 ? x - 1 : x;
+			int stitchedZ = stitchPositiveX && x == 0 && (z & 1) != 0 ? z - 1 : z;
+			int vertex = z * width + x;
+			vertices[vertex] = new Vector3(0.5f - (float)stitchedX / quads,
+				0.0f, 0.5f - (float)stitchedZ / quads);
+			normals[vertex] = Vector3.Up;
+			uvs[vertex] = new Vector2(1.0f - (float)x / quads, 1.0f - (float)z / quads);
+		}
+
+		int index = 0;
+		for (int z = 1; z <= quads; z++)
+		for (int x = 1; x <= quads; x++)
+		{
+			int previous = (z - 1) * width + x - 1;
+			int current = z * width + x - 1;
+			indices[index++] = previous;
+			indices[index++] = previous + 1;
+			indices[index++] = current;
+			indices[index++] = previous + 1;
+			indices[index++] = current + 1;
+			indices[index++] = current;
+		}
+
+		var arrays = new Godot.Collections.Array();
+		arrays.Resize((int)Mesh.ArrayType.Max);
+		arrays[(int)Mesh.ArrayType.Vertex] = vertices;
+		arrays[(int)Mesh.ArrayType.Normal] = normals;
+		arrays[(int)Mesh.ArrayType.TexUV] = uvs;
+		arrays[(int)Mesh.ArrayType.Index] = indices;
+		var mesh = new ArrayMesh();
+		mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+		return mesh;
+	}
+
+	private static void SelectPatch(int x, int z, bool stitchOuter,
+		out int variant, out float rotationY)
+	{
+		variant = 0;
+		rotationY = 0.0f;
+		if (!stitchOuter) return;
+
+		bool north = z == TilesPerSide - 1;
+		bool south = z == 0;
+		bool east = x == TilesPerSide - 1;
+		bool west = x == 0;
+		if (!north && !south && !east && !west) return;
+
+		variant = (north || south) && (east || west) ? 2 : 1;
+		if (north) rotationY = west ? -Mathf.Pi * 0.5f : 0.0f;
+		else if (east) rotationY = Mathf.Pi * 0.5f;
+		else if (south) rotationY = Mathf.Pi;
+		else rotationY = -Mathf.Pi * 0.5f;
+	}
+
 	private void EnsureNestedResources(int resolution, int lodCount)
 	{
-		if (_nestedPatchMesh != null && _nestedResolution == resolution &&
+		if (_nestedPatchMeshes != null && _nestedResolution == resolution &&
 			_nestedLodCount == lodCount) return;
 
 		foreach (Node child in _nestedRoot.GetChildren())
@@ -330,12 +396,18 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			child.QueueFree();
 		}
 
-		int patchResolution = Mathf.Max(1, resolution / TilesPerSide);
-		_nestedPatchMesh = new PlaneMesh
+		int patchResolution = Mathf.Max(2, resolution / TilesPerSide);
+		if ((patchResolution & 1) != 0) patchResolution++;
+		_nestedPatchMeshes = new Mesh[]
 		{
-			Size = Vector2.One,
-			SubdivideWidth = patchResolution - 1,
-			SubdivideDepth = patchResolution - 1,
+			new PlaneMesh
+			{
+				Size = Vector2.One,
+				SubdivideWidth = patchResolution - 1,
+				SubdivideDepth = patchResolution - 1,
+			},
+			CreateStitchedPatchMesh(patchResolution, stitchPositiveZ: true, stitchPositiveX: false),
+			CreateStitchedPatchMesh(patchResolution, stitchPositiveZ: true, stitchPositiveX: true),
 		};
 		_nestedMaterials = new ShaderMaterial[lodCount];
 		_nestedLodRoots = new Node3D[lodCount];
@@ -361,12 +433,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			for (int x = 0; x < TilesPerSide; x++)
 			{
 				if (lod > 0 && (x is 1 or 2) && (z is 1 or 2)) continue;
+				SelectPatch(x, z, lod < lodCount - 1, out int patchVariant, out float rotationY);
 				var tile = new MeshInstance3D
 				{
 					Name = $"Tile{x}_{z}",
-					Mesh = _nestedPatchMesh,
+					Mesh = _nestedPatchMeshes[patchVariant],
 					MaterialOverride = material,
 					Position = new Vector3(x - 1.5f, 0.0f, z - 1.5f),
+					Rotation = new Vector3(0.0f, rotationY, 0.0f),
 					ExtraCullMargin = 128.0f,
 				};
 				lodRoot.AddChild(tile);
@@ -378,7 +452,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_nestedLodCount = lodCount;
 		ApplyDisplayParameters();
 		SetAllSamplingParameter("normal_method", NormalMethod);
-		GD.Print($"[Ocean] Nested surface ready: {lodCount} LODs, {_nestedTileCount} tiles, patch resolution {patchResolution}.");
+		GD.Print($"[Ocean] Nested surface ready: {lodCount} LODs, {_nestedTileCount} tiles, " +
+			$"patch resolution {patchResolution}, {_nestedPatchMeshes.Length} shared patch variants.");
 	}
 
 	private void UpdateNestedMaterials(int lodCount, Vector2 focusXZ)
