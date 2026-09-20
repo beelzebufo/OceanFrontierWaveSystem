@@ -19,6 +19,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const string NormalShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_normal_debug.gdshader";
 
+	[Export(PropertyHint.Enum, "1,2,4,8")]
+	public int GeometryDownSampleFactor { get; set; } = 2;	
+
 	[Export(PropertyHint.Range, "0,15,1")]
 	public int SpatialLodIndex { get; set; } = 4;
 
@@ -294,28 +297,46 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 	}
 
-	private void EnsureSinglePlane(int resolution, int lodCount, AnimatedWaveLodSlice slice)
+	private void EnsureSinglePlane(int resolution, int lodCount,AnimatedWaveLodSlice slice)
 	{
+		int geometryResolution = GetGeometryResolution(resolution);
+
 		if (_plane == null)
 		{
-			_plane = new PlaneMesh
-			{
-				Size = new Vector2(slice.WorldSize, slice.WorldSize),
-				SubdivideWidth = resolution - 1,
-				SubdivideDepth = resolution - 1,
+			_plane = new PlaneMesh {
+						Size = new Vector2( slice.WorldSize, slice.WorldSize),
+				SubdivideWidth = geometryResolution - 1,
+				SubdivideDepth = geometryResolution - 1,
 			};
+
 			_meshInstance.Mesh = _plane;
-			_meshResolution = resolution;
+
+			_meshResolution = geometryResolution;
+
 			_meshWorldSize = slice.WorldSize;
-			GD.Print($"[Ocean] Canonical surface grid ready: LOD {_selectedLodIndex}/{lodCount - 1}, {resolution}x{resolution} quads.");
+
+			GD.Print(
+			$"[Ocean] Canonical surface grid ready: " +
+			$"LOD {_selectedLodIndex}/{lodCount - 1}, " +
+			$"{geometryResolution}x{geometryResolution} quads " +
+			$"(AWF {resolution}², geometry downsample " +
+			$"x{GeometryDownSampleFactor}).");
 		}
-		if (_meshWorldSize != slice.WorldSize || _meshResolution != resolution)
+
+		if (_meshWorldSize != slice.WorldSize || _meshResolution != geometryResolution)
 		{
 			_plane.Size = new Vector2(slice.WorldSize, slice.WorldSize);
-			_plane.SubdivideWidth = resolution - 1;
-			_plane.SubdivideDepth = resolution - 1;
-			_meshWorldSize = slice.WorldSize;
-			_meshResolution = resolution;
+
+			_plane.SubdivideWidth = geometryResolution - 1;
+
+		  	_plane.SubdivideDepth = geometryResolution - 1;
+
+			_meshWorldSize =
+				slice.WorldSize;
+
+			_meshResolution =
+				geometryResolution;
+
 			_materialLod = -1;
 		}
 	}
@@ -396,8 +417,23 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			child.QueueFree();
 		}
 
-		int patchResolution = Mathf.Max(2, resolution / TilesPerSide);
-		if ((patchResolution & 1) != 0) patchResolution++;
+		int geometryResolution = GetGeometryResolution(resolution);
+		
+		int patchResolution = geometryResolution / TilesPerSide;
+
+		// Stitching collapses every second vertex at the outer edge,
+		// therefore patch quad count must remain even.
+		if ((patchResolution & 1) != 0)
+				patchResolution++;
+
+		GD.Print(
+			$"[Ocean] Nested surface ready: " +
+			$"{lodCount} LODs, {_nestedTileCount} tiles, " +
+			$"AWF {resolution}², geometry {geometryResolution}², " +
+			$"patch {patchResolution} quads, " +
+			$"downsample x{GeometryDownSampleFactor}, " +
+			$"{_nestedPatchMeshes.Length} shared patch variants.");
+					
 		_nestedPatchMeshes = new Mesh[]
 		{
 			new PlaneMesh
@@ -540,6 +576,23 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			_lastFocus = focusXZ;
 			SetSamplingParameter("lod_focus_xz", focusXZ);
 		}
+	}
+
+	private int GetGeometryResolution(int animatedWaveResolution)
+	{
+		int factor = GeometryDownSampleFactor;
+
+		if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
+		{
+			factor = 2;
+		}
+
+		int geometryResolution = Mathf.Max( TilesPerSide * 2, animatedWaveResolution / factor);
+
+		// Nested layout requires an integer number of quads per tile.
+		geometryResolution -= geometryResolution % TilesPerSide;
+
+		return Mathf.Max( TilesPerSide * 2, geometryResolution);
 	}
 
 	public override void _ExitTree()

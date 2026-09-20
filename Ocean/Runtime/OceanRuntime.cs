@@ -25,16 +25,16 @@ public partial class OceanRuntime : Node
 
 
 	[Export(PropertyHint.Range, "32,512,1")]
-	public int AnimatedWaveResolution { get; set; } = 256;
+	public int AnimatedWaveResolution { get; set; } = 384;
 
 	[Export(PropertyHint.Range, "1,4,0.25")]
-	public float AnimatedWaveResolutionMultiplier { get; set; } = 2.0f;
+	public float AnimatedWaveResolutionMultiplier { get; set; } = 1.0f;
 
 	[Export(PropertyHint.Range, "1,16,1")]
 	public int AnimatedWaveLodCount { get; set; } = 8;
 
 	[Export(PropertyHint.Range, "0.25,4096,0.25,or_greater")]
-	public float AnimatedWaveBaseWorldSize { get; set; } = 4.0f;
+	public float AnimatedWaveBaseWorldSize { get; set; } = 32.0f;
 
 
 	private readonly FftWaveSource _fftWaveSource = new();

@@ -17,9 +17,7 @@ transform = Transform3D(1, 0, 0, 0, 0.5, 0.8660254, 0, -0.8660254, 0.5, 0, 45, 2
 current = true
 script = ExtResource("4_camera")
 
-[node name="DiagnosticSun" type="DirectionalLight3D" parent="."]
-light_energy = 1.0
-shadow_enabled = false
+[node name="DiagnosticSun" type="DirectionalLight3D" parent="." unique_id=580536801]
 
 [node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
 script = ExtResource("3_surface")
@@ -34,10 +32,10 @@ PanelSize = Vector2(320, 320)
 [node name="OceanDiagnosticReferenceFrame" type="Node3D" parent="." unique_id=98073916]
 script = ExtResource("5_reference")
 
-[node name="OceanPointQueryDiagnostic" type="Node3D" parent="."]
+[node name="OceanPointQueryDiagnostic" type="Node3D" parent="." unique_id=1647717812]
 script = ExtResource("8_point_queries")
 
-[node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="."]
+[node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="." unique_id=853362279]
 script = ExtResource("7_light_gizmo")
 
 [node name="OceanWaveDiagnosticScreen" type="CanvasLayer" parent="." unique_id=11273535]
