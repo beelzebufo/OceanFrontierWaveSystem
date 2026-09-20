@@ -91,6 +91,11 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		scroll.AddChild(column);
 
 		Section(column, "SURFACE");
+		var surfaceLayout = Option(column, "Surface Layout", "Single LOD", "Nested LOD");
+		surfaceLayout.Selected = (int)(_surface?.LayoutMode ??
+			AnimatedWaveSurfaceRenderer.SurfaceLayoutMode.SingleLod);
+		surfaceLayout.ItemSelected += index => _surface?.SetSurfaceLayout(
+			(AnimatedWaveSurfaceRenderer.SurfaceLayoutMode)index);
 		var sunProgress = Spin(column, "Sun progress", 0.35, 0, 1, 0.01);
 		sunProgress.ValueChanged += value => SetSunProgress((float)value);
 		SetSunProgress((float)sunProgress.Value);
@@ -327,14 +332,24 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 	private void UpdateStatus()
 	{
-		if (!_runtime.TryGetAnimatedWaveSurface(_selectedLod, out _, out _, out _, out AnimatedWaveLodSlice slice))
+		bool nested = _surface?.LayoutMode == AnimatedWaveSurfaceRenderer.SurfaceLayoutMode.NestedLod;
+		int diagnosticLod = nested
+			? Math.Clamp(_selectedLod, 0, Math.Max(0, _runtime.RuntimeAnimatedWaveLodCount - 1))
+			: _selectedLod;
+		if (!_runtime.TryGetAnimatedWaveSurface(diagnosticLod, out _, out _, out _, out AnimatedWaveLodSlice slice))
 		{ _status.Text = "Ocean diagnostics: waiting for GPU"; return; }
 		RuntimeWaveSettings settings = _runtime.GetWaveSettingsSnapshot();
 		string content = _waveContentMode == 0 ? "Cumulative" :
 			_selectedLod + 1 < _runtime.RuntimeAnimatedWaveLodCount
 				? $"Own Band L{_selectedLod}-L{_selectedLod + 1}"
 				: "Own Band: coarsest remainder";
-		_status.Text = $"AWF LOD{_selectedLod} | size {slice.WorldSize:0.##}m | texel {slice.TexelWidth:0.###}m | {content} | " +
+		string layoutStatus = $"AWF LOD{diagnosticLod} | size {slice.WorldSize:0.##}m";
+		if (nested && _runtime.TryGetAnimatedWaveSurface(
+			_runtime.RuntimeAnimatedWaveLodCount - 1, out _, out _, out _, out AnimatedWaveLodSlice outerSlice))
+			layoutStatus = $"Nested LOD0-{_runtime.RuntimeAnimatedWaveLodCount - 1} | " +
+				$"{_surface.NestedTileCount} tiles | outer size {outerSlice.WorldSize:0.##}m | " +
+				$"diagnostic LOD{diagnosticLod}";
+		_status.Text = $"{layoutStatus} | texel {slice.TexelWidth:0.###}m | {content} | " +
 			$"center ({slice.CenterXZ.X:0.##},{slice.CenterXZ.Y:0.##}) | t {_runtime.SimulationTime:0.0}s | " +
 			$"chop {settings.Chop:0.00} | H0 rev {_runtime.AppliedH0Revision}" +
 			(_runtime.H0Pending || _draft != null ? " pending" : "");
