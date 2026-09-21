@@ -13,16 +13,132 @@ varying vec2 base_uv;
 
 void vertex()
 {
-	vec2 world_xz = VERTEX.xz;
-	vec3 current_disp;
-	vec3 next_disp;
+	//
+	// world_vertex_coords is enabled for this shader,
+	// therefore VERTEX is already world-space here.
+	//
+
+	vec2 world_xz =
+		VERTEX.xz;
+
+
+	//
+	// MODEL/NODE origin is required by the Crest snapping step.
+	//
+	// Every nested tile is a separate MeshInstance3D, so this is
+	// the origin of the concrete tile currently being rendered.
+	//
+
+	vec2 tile_origin_xz =
+		NODE_POSITION_WORLD.xz;
+
+
 	float lod_alpha;
-	vec3 composed_content;
-	vec3 displayed_displacement = sample_render_displacement(world_xz, current_disp, next_disp, lod_alpha, composed_content);
-	NORMAL = compute_surface_normal(world_xz, current_lod_texel_width, current_disp, next_disp, lod_alpha);
-	VERTEX += displayed_displacement;
-	displacement_height = composed_content.y;
-	base_uv = world_to_lod_uv(world_xz, lod_center_xz, lod_world_size);
+
+
+	//
+	// BEFORE displacement sampling:
+	//
+	// 1. snap base geometry to stable grid;
+	// 2. morph topology toward next coarser grid.
+	//
+
+	world_xz =
+		snap_and_transition_vertex_layout(
+			world_xz,
+			tile_origin_xz,
+			geometry_grid_width,
+			lod_alpha);
+
+
+	//
+	// Sample canonical AWF at the morphed undisplaced position.
+	//
+	// Do NOT call sample_surface_components() here because that
+	// would recalculate lod_alpha after the topology morph.
+	//
+	// Crest calculates alpha before morph and uses the same value
+	// for both topology transition and displacement weights.
+	//
+
+	vec3 current_disp =
+		sample_awf_lod(
+			world_xz,
+			lod_center_xz,
+			lod_world_size,
+			selected_lod);
+
+
+	vec3 next_disp =
+		current_disp;
+
+
+	if (has_next_lod)
+	{
+		next_disp =
+			sample_awf_lod(
+				world_xz,
+				next_lod_center_xz,
+				next_lod_world_size,
+				next_lod);
+	}
+	else
+	{
+		lod_alpha =
+			0.0;
+	}
+
+
+	vec3 composed_content =
+		compose_wave_content(
+			current_disp,
+			next_disp,
+			lod_alpha);
+
+
+	vec3 displayed_displacement =
+		apply_display_displacement(
+			composed_content);
+
+
+	//
+	// Normal is evaluated from the same morphed base position.
+	//
+
+	NORMAL =
+		compute_surface_normal(
+			world_xz,
+			current_lod_texel_width,
+			current_disp,
+			next_disp,
+			lod_alpha);
+
+
+	//
+	// VERTEX itself must first move to the snapped/morphed
+	// undisplaced position, then receive wave displacement.
+	//
+
+	VERTEX.x =
+		world_xz.x;
+
+	VERTEX.z =
+		world_xz.y;
+
+
+	VERTEX +=
+		displayed_displacement;
+
+
+	displacement_height =
+		composed_content.y;
+
+
+	base_uv =
+		world_to_lod_uv(
+			world_xz,
+			lod_center_xz,
+			lod_world_size);
 }
 
 void fragment()

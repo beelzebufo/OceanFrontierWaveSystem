@@ -14,6 +14,8 @@ uniform int wave_content_mode = 0;
 uniform int display_mode = 0;
 uniform float horizontal_display_scale = 1.0;
 uniform float vertical_display_scale = 1.0;
+uniform float lod_scale_alpha = 0.0;
+uniform float geometry_grid_width = 0.0;
 
 const int NORMAL_METHOD_BLENDED_XYZ_FORWARD = 0;
 const int NORMAL_METHOD_CREST_PER_LOD_FORWARD = 1;
@@ -32,11 +34,146 @@ vec3 sample_awf_lod(vec2 world_xz, vec2 center_xz, float world_size, float layer
 
 float compute_surface_lod_alpha(vec2 world_xz)
 {
-	float scale = lod_world_size * 0.25;
-	vec2 offset = abs(world_xz - lod_focus_xz);
-	float raw_alpha = max(offset.x, offset.y) / scale - 1.0;
-	// Validation grid has no Crest OceanBuilder mesh-density remap.
-	return clamp((raw_alpha - 0.15) / (0.85 - 0.15), 0.0, 1.0);
+	float scale =
+		lod_world_size * 0.25;
+
+	vec2 offset =
+		abs(world_xz - lod_focus_xz);
+
+	float raw_alpha =
+		max(offset.x, offset.y) /
+		scale -
+		1.0;
+
+	// Пока сохраняем существующий spatial LOD transition contract.
+	// Mesh-density-derived Crest remap вынесем отдельно после
+	// проверки самого topology morph.
+	float lod_alpha =
+		clamp(
+			(raw_alpha - 0.15) /
+			(0.85 - 0.15),
+			0.0,
+			1.0);
+
+	// Crest: only LOD0 receives the viewpoint-height scale blend.
+	if (selected_lod < 0.5)
+	{
+		lod_alpha =
+			min(
+				lod_alpha +
+				lod_scale_alpha,
+				1.0);
+	}
+
+	return lod_alpha;
+}
+
+//
+// Crest Water 4:
+// OceanVertHelpers.hlsl / SnapAndTransitionVertLayout()
+//
+// Input and output are WORLD XZ.
+//
+// object_origin_xz is this concrete tile's world-space origin.
+// geometry_grid_width is the physical distance between adjacent
+// vertices before the x2 transition.
+//
+
+vec2 snap_and_transition_vertex_layout(
+	vec2 world_xz,
+	vec2 object_origin_xz,
+	float grid_width,
+	out float lod_alpha)
+{
+	if (grid_width <= 0.0)
+	{
+		lod_alpha =
+			compute_surface_lod_alpha(
+				world_xz);
+
+		return world_xz;
+	}
+
+
+	float grid_size_2 =
+		2.0 *
+		grid_width;
+
+	float grid_size_4 =
+		4.0 *
+		grid_width;
+
+
+	//
+	// Crest vertex snapping.
+	//
+	// The ocean root follows the viewpoint continuously, but the
+	// rendered vertex grid remains aligned to a stable world grid.
+	//
+	// Godot fract() has the required x-floor(x) semantics,
+	// including for negative coordinates.
+	//
+
+	world_xz -=
+		fract(
+			object_origin_xz /
+			grid_size_2) *
+		grid_size_2;
+
+
+	//
+	// Compute transition using the snapped undisplaced position.
+	//
+	// For LOD0 this includes lod_scale_alpha.
+	//
+
+	lod_alpha =
+		compute_surface_lod_alpha(
+			world_xz);
+
+
+	//
+	// Crest topology morph.
+	//
+	// Move the appropriate fine-grid vertices toward the grid
+	// layout required by the next coarser scale.
+	//
+
+	vec2 m =
+		fract(
+			world_xz /
+			grid_size_4);
+
+	vec2 offset =
+		m -
+		vec2(0.5);
+
+
+	const float MIN_RADIUS =
+		0.375;
+
+
+	if (abs(offset.x) <
+		MIN_RADIUS)
+	{
+		world_xz.x +=
+			offset.x *
+			lod_alpha *
+			grid_size_4;
+	}
+
+
+	if (abs(offset.y) <
+		MIN_RADIUS)
+	{
+		world_xz.y +=
+			offset.y *
+			lod_alpha *
+			grid_size_4;
+	}
+
+
+	return world_xz;
 }
 
 void sample_surface_components(vec2 world_xz, out vec3 current_disp, out vec3 next_disp, out float lod_alpha)

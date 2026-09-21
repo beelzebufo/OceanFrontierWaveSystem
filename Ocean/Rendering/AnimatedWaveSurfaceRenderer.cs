@@ -20,7 +20,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		"res://Ocean/Shaders/Rendering/animated_wave_normal_debug.gdshader";
 
 	[Export(PropertyHint.Enum, "1,2,4,8")]
-	public int GeometryDownSampleFactor { get; set; } = 2;	
+	public int GeometryDownSampleFactor { get; set; } = 2;
 
 	[Export(PropertyHint.Range, "0,15,1")]
 	public int SpatialLodIndex { get; set; } = 4;
@@ -49,6 +49,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float[] _nestedWorldSizes;
 	private Vector2 _nestedFocus = new(float.NaN, float.NaN);
 	private int _nestedResolution;
+	private int _nestedGeometryResolution;
 	private int _nestedLodCount;
 	private int _nestedTileCount;
 	private Texture2DArrayRD _textureArray;
@@ -71,6 +72,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private int _materialLod = -1;
 	private int _materialLodCount = -1;
 	private int _materialNormalMethod = -1;
+	private float _lodScaleAlpha = float.NaN;
 
 	internal int SelectedLodIndex => _selectedLodIndex;
 	internal int NestedTileCount => _nestedTileCount;
@@ -256,6 +258,13 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 
 		BindAwfTexture(textureRid);
+		float lodScaleAlpha = _runtime.RuntimeLodScaleAlpha;
+		if (!float.IsFinite(_lodScaleAlpha) ||
+			!Mathf.IsEqualApprox(_lodScaleAlpha, lodScaleAlpha))
+		{
+			_lodScaleAlpha = lodScaleAlpha;
+			SetAllSamplingParameter("lod_scale_alpha", lodScaleAlpha);
+		}
 		if (_materialNormalMethod != NormalMethod)
 		{
 			SetAllSamplingParameter("normal_method", NormalMethod);
@@ -281,7 +290,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 
 		EnsureSinglePlane(resolution, lodCount, slice);
-		ApplySurfaceSamplingParameters(lodCount, slice, nextSlice, focusXZ);
+		ApplySurfaceSamplingParameters(resolution, lodCount, slice, nextSlice, focusXZ);
 		_meshInstance.Visible = true;
 		if (_normalMeshInstance != null)
 			_normalMeshInstance.Visible = _showNormalVectors;
@@ -297,14 +306,15 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 	}
 
-	private void EnsureSinglePlane(int resolution, int lodCount,AnimatedWaveLodSlice slice)
+	private void EnsureSinglePlane(int resolution, int lodCount, AnimatedWaveLodSlice slice)
 	{
 		int geometryResolution = GetGeometryResolution(resolution);
 
 		if (_plane == null)
 		{
-			_plane = new PlaneMesh {
-						Size = new Vector2( slice.WorldSize, slice.WorldSize),
+			_plane = new PlaneMesh
+			{
+				Size = new Vector2(slice.WorldSize, slice.WorldSize),
 				SubdivideWidth = geometryResolution - 1,
 				SubdivideDepth = geometryResolution - 1,
 			};
@@ -316,11 +326,11 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			_meshWorldSize = slice.WorldSize;
 
 			GD.Print(
-			$"[Ocean] Canonical surface grid ready: " +
-			$"LOD {_selectedLodIndex}/{lodCount - 1}, " +
-			$"{geometryResolution}x{geometryResolution} quads " +
-			$"(AWF {resolution}², geometry downsample " +
-			$"x{GeometryDownSampleFactor}).");
+				$"[Ocean] Canonical surface grid ready: " +
+				$"LOD {_selectedLodIndex}/{lodCount - 1}, " +
+				$"{geometryResolution}x{geometryResolution} quads " +
+				$"(AWF {resolution}², geometry downsample " +
+				$"x{GeometryDownSampleFactor}).");
 		}
 
 		if (_meshWorldSize != slice.WorldSize || _meshResolution != geometryResolution)
@@ -329,7 +339,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 			_plane.SubdivideWidth = geometryResolution - 1;
 
-		  	_plane.SubdivideDepth = geometryResolution - 1;
+			_plane.SubdivideDepth = geometryResolution - 1;
 
 			_meshWorldSize =
 				slice.WorldSize;
@@ -408,8 +418,15 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private void EnsureNestedResources(int resolution, int lodCount)
 	{
-		if (_nestedPatchMeshes != null && _nestedResolution == resolution &&
-			_nestedLodCount == lodCount) return;
+		int geometryResolution = GetGeometryResolution(resolution);
+
+		if (_nestedPatchMeshes != null &&
+			_nestedResolution == resolution &&
+			_nestedGeometryResolution == geometryResolution &&
+			_nestedLodCount == lodCount)
+		{
+			return;
+		}
 
 		foreach (Node child in _nestedRoot.GetChildren())
 		{
@@ -417,17 +434,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			child.QueueFree();
 		}
 
-		int geometryResolution = GetGeometryResolution(resolution);
-		
 		int patchResolution = geometryResolution / TilesPerSide;
 
-		// Stitching collapses every second vertex at the outer edge,
-		// therefore patch quad count must remain even.
-		if ((patchResolution & 1) != 0)
-				patchResolution++;
-
-
-
+		// GetGeometryResolution() aligns the full grid to TilesPerSide * 2,
+		// therefore every patch always has an even number of quads.
 		_nestedPatchMeshes = new Mesh[]
 		{
 			new PlaneMesh
@@ -436,9 +446,16 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				SubdivideWidth = patchResolution - 1,
 				SubdivideDepth = patchResolution - 1,
 			},
-			CreateStitchedPatchMesh(patchResolution, stitchPositiveZ: true, stitchPositiveX: false),
-			CreateStitchedPatchMesh(patchResolution, stitchPositiveZ: true, stitchPositiveX: true),
+			CreateStitchedPatchMesh(
+				patchResolution,
+				stitchPositiveZ: true,
+				stitchPositiveX: false),
+			CreateStitchedPatchMesh(
+				patchResolution,
+				stitchPositiveZ: true,
+				stitchPositiveX: true),
 		};
+
 		_nestedMaterials = new ShaderMaterial[lodCount];
 		_nestedLodRoots = new Node3D[lodCount];
 		_nestedCenters = new Vector2[lodCount];
@@ -452,9 +469,11 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			var material = new ShaderMaterial { Shader = _surfaceShader };
 			material.SetShaderParameter("animated_wave_field", _textureArray);
 			_nestedMaterials[lod] = material;
+
 			var lodRoot = new Node3D { Name = $"LOD{lod}" };
 			_nestedRoot.AddChild(lodRoot);
 			_nestedLodRoots[lod] = lodRoot;
+
 			_nestedCenters[lod] = new Vector2(float.NaN, float.NaN);
 			_nestedNextCenters[lod] = new Vector2(float.NaN, float.NaN);
 			_nestedWorldSizes[lod] = float.NaN;
@@ -462,8 +481,20 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			for (int z = 0; z < TilesPerSide; z++)
 			for (int x = 0; x < TilesPerSide; x++)
 			{
-				if (lod > 0 && (x is 1 or 2) && (z is 1 or 2)) continue;
-				SelectPatch(x, z, lod < lodCount - 1, out int patchVariant, out float rotationY);
+				if (lod > 0 &&
+					(x is 1 or 2) &&
+					(z is 1 or 2))
+				{
+					continue;
+				}
+
+				SelectPatch(
+					x,
+					z,
+					lod < lodCount - 1,
+					out int patchVariant,
+					out float rotationY);
+
 				var tile = new MeshInstance3D
 				{
 					Name = $"Tile{x}_{z}",
@@ -473,17 +504,26 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 					Rotation = new Vector3(0.0f, rotationY, 0.0f),
 					ExtraCullMargin = 128.0f,
 				};
+
 				lodRoot.AddChild(tile);
 				_nestedTileCount++;
 			}
 		}
 
 		_nestedResolution = resolution;
+		_nestedGeometryResolution = geometryResolution;
 		_nestedLodCount = lodCount;
+
 		ApplyDisplayParameters();
 		SetAllSamplingParameter("normal_method", NormalMethod);
-		GD.Print($"[Ocean] Nested surface ready: {lodCount} LODs, {_nestedTileCount} tiles, " +
-			$"patch resolution {patchResolution}, {_nestedPatchMeshes.Length} shared patch variants.");
+
+		// _Process() can set the altitude alpha before nested materials exist.
+		// Newly created materials must receive the current value immediately.
+		SetAllSamplingParameter(
+			"lod_scale_alpha",
+			float.IsFinite(_lodScaleAlpha)
+				? _lodScaleAlpha
+				: 0.0f);
 
 		GD.Print(
 			$"[Ocean] Nested surface ready: " +
@@ -491,46 +531,114 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			$"AWF {resolution}², geometry {geometryResolution}², " +
 			$"patch {patchResolution} quads, " +
 			$"downsample x{GeometryDownSampleFactor}, " +
-			$"{_nestedPatchMeshes.Length} shared patch variants.");	
+			$"{_nestedPatchMeshes.Length} shared patch variants.");
 	}
 
 	private void UpdateNestedMaterials(int lodCount, Vector2 focusXZ)
 	{
+		int geometryResolution =
+			_nestedGeometryResolution > 0
+				? _nestedGeometryResolution
+				: GetGeometryResolution(_nestedResolution);
+
 		if (_nestedFocus != focusXZ)
 		{
 			_nestedFocus = focusXZ;
 			_nestedRoot.Position = new Vector3(focusXZ.X, 0.0f, focusXZ.Y);
+
 			foreach (ShaderMaterial material in _nestedMaterials)
+			{
 				material.SetShaderParameter("lod_focus_xz", focusXZ);
+			}
 		}
 
 		for (int lod = 0; lod < lodCount; lod++)
 		{
-			if (!_runtime.TryGetAnimatedWaveSurfaceWithNext(lod, out _, out _, out _,
-				out AnimatedWaveLodSlice slice, out AnimatedWaveLodSlice nextSlice, out _))
+			if (!_runtime.TryGetAnimatedWaveSurfaceWithNext(
+					lod,
+					out _,
+					out _,
+					out _,
+					out AnimatedWaveLodSlice slice,
+					out AnimatedWaveLodSlice nextSlice,
+					out _))
+			{
 				continue;
+			}
 
 			ShaderMaterial material = _nestedMaterials[lod];
 			bool hasNext = lod + 1 < lodCount;
+
 			if (_nestedWorldSizes[lod] != slice.WorldSize)
 			{
-				float tileWorldSize = slice.WorldSize / TilesPerSide;
-				_nestedLodRoots[lod].Scale = new Vector3(tileWorldSize, 1.0f, tileWorldSize);
-				material.SetShaderParameter("selected_lod", (float)lod);
-				material.SetShaderParameter("lod_world_size", slice.WorldSize);
-				material.SetShaderParameter("current_lod_texel_width", slice.TexelWidth);
-				material.SetShaderParameter("has_next_lod", hasNext);
-				material.SetShaderParameter("next_lod", (float)(hasNext ? lod + 1 : lod));
-				material.SetShaderParameter("next_lod_world_size", hasNext ? nextSlice.WorldSize : slice.WorldSize);
-				material.SetShaderParameter("next_lod_texel_width", hasNext ? nextSlice.TexelWidth : slice.TexelWidth);
-				_nestedWorldSizes[lod] = slice.WorldSize;
+				float tileWorldSize =
+					slice.WorldSize /
+					TilesPerSide;
+
+				_nestedLodRoots[lod].Scale =
+					new Vector3(
+						tileWorldSize,
+						1.0f,
+						tileWorldSize);
+
+				// Physical spacing between adjacent geometry vertices.
+				// For the production baseline LOD0:
+				// 32m / 192 = 0.1666667m.
+				float geometryGridWidth =
+					slice.WorldSize /
+					geometryResolution;
+
+				material.SetShaderParameter(
+					"geometry_grid_width",
+					geometryGridWidth);
+
+				material.SetShaderParameter(
+					"selected_lod",
+					(float)lod);
+
+				material.SetShaderParameter(
+					"lod_world_size",
+					slice.WorldSize);
+
+				material.SetShaderParameter(
+					"current_lod_texel_width",
+					slice.TexelWidth);
+
+				material.SetShaderParameter(
+					"has_next_lod",
+					hasNext);
+
+				material.SetShaderParameter(
+					"next_lod",
+					(float)(hasNext ? lod + 1 : lod));
+
+				material.SetShaderParameter(
+					"next_lod_world_size",
+					hasNext
+						? nextSlice.WorldSize
+						: slice.WorldSize);
+
+				material.SetShaderParameter(
+					"next_lod_texel_width",
+					hasNext
+						? nextSlice.TexelWidth
+						: slice.TexelWidth);
+
+				_nestedWorldSizes[lod] =
+					slice.WorldSize;
 			}
+
 			if (_nestedCenters[lod] != slice.CenterXZ)
 			{
 				_nestedCenters[lod] = slice.CenterXZ;
 				material.SetShaderParameter("lod_center_xz", slice.CenterXZ);
 			}
-			Vector2 nextCenter = hasNext ? nextSlice.CenterXZ : slice.CenterXZ;
+
+			Vector2 nextCenter =
+				hasNext
+					? nextSlice.CenterXZ
+					: slice.CenterXZ;
+
 			if (_nestedNextCenters[lod] != nextCenter)
 			{
 				_nestedNextCenters[lod] = nextCenter;
@@ -540,43 +648,121 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	}
 
 	// Single surface and its normal overlay share the selected-slice metadata.
-	private void ApplySurfaceSamplingParameters(int lodCount,
-		AnimatedWaveLodSlice slice, AnimatedWaveLodSlice nextSlice, Vector2 focusXZ)
+	private void ApplySurfaceSamplingParameters(
+		int resolution,
+		int lodCount,
+		AnimatedWaveLodSlice slice,
+		AnimatedWaveLodSlice nextSlice,
+		Vector2 focusXZ)
 	{
-		if (_materialLod != _selectedLodIndex || _materialLodCount != lodCount)
+		int geometryResolution =
+			GetGeometryResolution(resolution);
+
+		if (_materialLod != _selectedLodIndex ||
+			_materialLodCount != lodCount)
 		{
-			SetSamplingParameter("lod_world_size", slice.WorldSize);
-			SetSamplingParameter("current_lod_texel_width", slice.TexelWidth);
-			SetSamplingParameter("selected_lod", (float)_selectedLodIndex);
-			bool hasNext = _selectedLodIndex + 1 < lodCount;
-			SetSamplingParameter("has_next_lod", hasNext);
-			SetSamplingParameter("next_lod", (float)(hasNext ? _selectedLodIndex + 1 : _selectedLodIndex));
-			SetSamplingParameter("next_lod_world_size", hasNext ? nextSlice.WorldSize : slice.WorldSize);
-			SetSamplingParameter("next_lod_texel_width", hasNext ? nextSlice.TexelWidth : slice.TexelWidth);
-			_normalMaterial?.SetShaderParameter("diagnostic_normal_length",
-				slice.WorldSize / (NormalGridResolution - 1) * NormalVectorScale);
+			SetSamplingParameter(
+				"lod_world_size",
+				slice.WorldSize);
+
+			float geometryGridWidth =
+				slice.WorldSize /
+				geometryResolution;
+
+			SetSamplingParameter(
+				"geometry_grid_width",
+				geometryGridWidth);
+
+			SetSamplingParameter(
+				"current_lod_texel_width",
+				slice.TexelWidth);
+
+			SetSamplingParameter(
+				"selected_lod",
+				(float)_selectedLodIndex);
+
+			bool hasNext =
+				_selectedLodIndex + 1 <
+				lodCount;
+
+			SetSamplingParameter(
+				"has_next_lod",
+				hasNext);
+
+			SetSamplingParameter(
+				"next_lod",
+				(float)(
+					hasNext
+						? _selectedLodIndex + 1
+						: _selectedLodIndex));
+
+			SetSamplingParameter(
+				"next_lod_world_size",
+				hasNext
+					? nextSlice.WorldSize
+					: slice.WorldSize);
+
+			SetSamplingParameter(
+				"next_lod_texel_width",
+				hasNext
+					? nextSlice.TexelWidth
+					: slice.TexelWidth);
+
+			_normalMaterial?.SetShaderParameter(
+				"diagnostic_normal_length",
+				slice.WorldSize /
+				(NormalGridResolution - 1) *
+				NormalVectorScale);
+
 			if (_normalMeshInstance != null)
-				_normalMeshInstance.Scale = new Vector3(slice.WorldSize, 1.0f, slice.WorldSize);
-			_materialLod = _selectedLodIndex;
-			_materialLodCount = lodCount;
+			{
+				_normalMeshInstance.Scale =
+					new Vector3(
+						slice.WorldSize,
+						1.0f,
+						slice.WorldSize);
+			}
+
+			_materialLod =
+				_selectedLodIndex;
+
+			_materialLodCount =
+				lodCount;
 		}
 
 		if (_lastCenter != slice.CenterXZ)
 		{
 			_lastCenter = slice.CenterXZ;
-			_singleRoot.Position = new Vector3(slice.CenterXZ.X, 0.0f, slice.CenterXZ.Y);
-			SetSamplingParameter("lod_center_xz", slice.CenterXZ);
+			_singleRoot.Position =
+				new Vector3(
+					slice.CenterXZ.X,
+					0.0f,
+					slice.CenterXZ.Y);
+
+			SetSamplingParameter(
+				"lod_center_xz",
+				slice.CenterXZ);
 		}
-		Vector2 nextCenter = _selectedLodIndex + 1 < lodCount ? nextSlice.CenterXZ : slice.CenterXZ;
+
+		Vector2 nextCenter =
+			_selectedLodIndex + 1 < lodCount
+				? nextSlice.CenterXZ
+				: slice.CenterXZ;
+
 		if (_lastNextCenter != nextCenter)
 		{
 			_lastNextCenter = nextCenter;
-			SetSamplingParameter("next_lod_center_xz", nextCenter);
+			SetSamplingParameter(
+				"next_lod_center_xz",
+				nextCenter);
 		}
+
 		if (_lastFocus != focusXZ)
 		{
 			_lastFocus = focusXZ;
-			SetSamplingParameter("lod_focus_xz", focusXZ);
+			SetSamplingParameter(
+				"lod_focus_xz",
+				focusXZ);
 		}
 	}
 
@@ -584,17 +770,33 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	{
 		int factor = GeometryDownSampleFactor;
 
-		if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
+		if (factor != 1 &&
+			factor != 2 &&
+			factor != 4 &&
+			factor != 8)
 		{
 			factor = 2;
 		}
 
-		int geometryResolution = Mathf.Max( TilesPerSide * 2, animatedWaveResolution / factor);
+		int alignment =
+			TilesPerSide * 2;
 
-		// Nested layout requires an integer number of quads per tile.
-		geometryResolution -= geometryResolution % TilesPerSide;
+		int geometryResolution =
+			Mathf.Max(
+				alignment,
+				animatedWaveResolution /
+				factor);
 
-		return Mathf.Max( TilesPerSide * 2, geometryResolution);
+		// Four tiles span one LOD. Each patch must also have an even
+		// quad count because the stitched edge collapses every second
+		// boundary vertex. Align the complete grid to 4 * 2 = 8.
+		geometryResolution -=
+			geometryResolution %
+			alignment;
+
+		return Mathf.Max(
+			alignment,
+			geometryResolution);
 	}
 
 	public override void _ExitTree()

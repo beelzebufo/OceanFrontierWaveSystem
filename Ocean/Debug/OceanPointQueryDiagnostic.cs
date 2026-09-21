@@ -77,19 +77,103 @@ public partial class OceanPointQueryDiagnostic : Node3D
 		if (!_runtime.TryGetAnimatedWaveSurfaceWithNext(_selectedLod, out _, out _, out _,
 			out AnimatedWaveLodSlice slice, out _, out Vector2 focusXZ)) return;
 
-		// The cardinal points sit inside the selected visible square. For nested
-		// layout they also sit beyond the next finer square's half-width.
-		float offset = slice.WorldSize * 0.28f;
-		_targets[0] = focusXZ;
-		_targets[1] = focusXZ + new Vector2(offset, 0.0f);
-		_targets[2] = focusXZ + new Vector2(-offset, 0.0f);
-		_targets[3] = focusXZ + new Vector2(0.0f, offset);
-		_targets[4] = focusXZ + new Vector2(0.0f, -offset);
-		float minTexelWidth = _surface.LayoutMode == AnimatedWaveSurfaceRenderer.SurfaceLayoutMode.SingleLod
-			? slice.TexelWidth : 0.0f;
-		_targets.CopyTo(_submittedTargets, 0);
-		_submittedWorldSize = slice.WorldSize;
-		_pendingGeneration = _runtime.PointQueries.SubmitBatch(_targets, minTexelWidth);
+		//
+// Diagnostic marker layout must NOT expand when the
+// whole ocean LOD stack changes scale with viewpoint height.
+//
+// Example:
+//
+// runtime scale x1:
+//     selected LOD0 = 32m
+//
+// runtime scale x2:
+//     selected LOD0 = 64m
+//
+// The diagnostic markers should stay at the same world-space
+// locations so we can observe the surface transition underneath them.
+//
+
+float lodScale =
+	Mathf.Max(
+		1.0f,
+		_runtime.RuntimeLodScale);
+
+
+//
+// Remove the runtime whole-stack scale from the slice size.
+//
+// For selected LOD0:
+//
+//     32m / x1 = 32m
+//     64m / x2 = 32m
+//     128m / x4 = 32m
+//
+// For selected LOD1 it similarly remains 64m, etc.
+//
+
+float diagnosticWorldSize =
+	slice.WorldSize /
+	lodScale;
+
+
+float offset =
+	diagnosticWorldSize *
+	0.28f;
+
+
+_targets[0] =
+	focusXZ;
+
+_targets[1] =
+	focusXZ +
+	new Vector2(
+		offset,
+		0.0f);
+
+_targets[2] =
+	focusXZ +
+	new Vector2(
+		-offset,
+		0.0f);
+
+_targets[3] =
+	focusXZ +
+	new Vector2(
+		0.0f,
+		offset);
+
+_targets[4] =
+	focusXZ +
+	new Vector2(
+		0.0f,
+		-offset);
+
+
+float minTexelWidth =
+	_surface.LayoutMode ==
+	AnimatedWaveSurfaceRenderer.SurfaceLayoutMode.SingleLod
+		? slice.TexelWidth
+		: 0.0f;
+
+
+_targets.CopyTo(
+	_submittedTargets,
+	0);
+
+
+//
+// Marker physical size is also based on the unscaled
+// diagnostic size, not on current runtime LOD scale.
+//
+
+_submittedWorldSize =
+	diagnosticWorldSize;
+
+
+_pendingGeneration =
+	_runtime.PointQueries.SubmitBatch(
+		_targets,
+		minTexelWidth);
 	}
 
 	private void ShowCompleted()
