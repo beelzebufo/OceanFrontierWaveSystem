@@ -34,6 +34,11 @@ uniform float visual_normal_scale = 40.0;
 // Conservative validation default; Crest's source default is 0.36.
 uniform float visual_normal_strength = 0.08;
 
+// Ocean simulation time supplied by OceanRuntime.
+// Unlike Godot TIME, this freezes with SimulationPaused
+// and respects SimulationTimeScale.
+uniform float visual_time = 0.0;
+
 
 varying float displacement_height;
 
@@ -94,7 +99,7 @@ vec2 sample_visual_normal_pair(
         (
             world_xz +
             direction_0 *
-            TIME *
+            visual_time *
             scroll_speed
         ) /
         stretch;
@@ -104,7 +109,7 @@ vec2 sample_visual_normal_pair(
         (
             world_xz +
             direction_1 *
-            TIME *
+            visual_time *
             scroll_speed
         ) /
         stretch;

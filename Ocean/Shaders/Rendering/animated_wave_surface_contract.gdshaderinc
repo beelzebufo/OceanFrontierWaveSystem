@@ -80,6 +80,7 @@ vec2 transition_vertex_layout(
         compute_surface_lod_alpha(
             world_xz);
 
+return world_xz;
 
     if (grid_width <= 0.0)
     {

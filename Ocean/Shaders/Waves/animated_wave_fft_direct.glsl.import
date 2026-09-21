@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://41cra6kxpshi"
+path="res://.godot/imported/animated_wave_fft_direct.glsl-d0fff69bd1ebfb522c17e140cdb9d822.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/animated_wave_fft_direct.glsl"
+dest_files=["res://.godot/imported/animated_wave_fft_direct.glsl-d0fff69bd1ebfb522c17e140cdb9d822.res"]
+
+[params]
+

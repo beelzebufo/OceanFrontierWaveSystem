@@ -624,13 +624,22 @@ public partial class OceanRuntime : Node
 					//
 					// First canonical AnimatedWaveField composition.
 					//
-					// IMPORTANT:
-					// initialLodScale is already applied here.
+					// Crest Animated Waves path:
 					//
+					// raw FFT	
+					// -> direct per-LOD wave contributions
+// -> coarse-to-fine combine
+// -> canonical AnimatedWaveField
+//
+// IMPORTANT:
+// initialLodScale and initialLodScaleAlpha belong to
+// the same initial spatial LOD state.
+//
 
 					composer.ComposeFft(
 						initialFocusXZ,
-						initialLodScale);
+						initialLodScale,
+						initialLodScaleAlpha);
 
 
 					var lod0 =
@@ -883,18 +892,25 @@ public partial class OceanRuntime : Node
 		// 3. Raw FFT source
 		//    -> canonical AnimatedWaveField.
 		//
-		// ComposeFft:
+		// Crest Animated Waves composition:
 		//
 		// - applies the current whole-stack LOD scale;
 		// - updates camera-relative LOD layout;
-		// - uploads LOD metadata;
-		// - samples appropriate FFT bands;
-		// - writes AnimatedWaveField.
+		// - uploads LOD metadata once;
+		// - assigns FFT bands to direct spatial LOD inputs;
+		// - combines coarse -> fine;
+		// - writes the cumulative canonical AnimatedWaveField.
 		//
+		// lodScaleAlpha drives Crest's final-two-LOD wavelength
+		// transition during whole-stack scale changes.
+		//
+
+
 
 		_animatedWaveComposer.ComposeFft(
 			focusXZ,
-			lodScale);
+			lodScale,
+			lodScaleAlpha);
 
 
 		//

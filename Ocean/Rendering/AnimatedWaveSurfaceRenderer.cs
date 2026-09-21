@@ -504,6 +504,33 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			true;
 	}
 
+	private void ApplyVisualTime()
+	{
+		if (_runtime == null)
+		{
+			return;
+		}
+
+
+		//
+		// Renderer-only normal-map animation follows authoritative
+		// ocean simulation time instead of Godot shader TIME.
+		//
+		// Therefore:
+		//
+		// Pause = ON
+		//     -> visual normal animation freezes.
+		//
+		// Time scale
+		//     -> affects visual normal animation consistently
+		//        with FFT wave evolution.
+		//
+
+			SetSurfaceParameter(
+			"visual_time",
+			_runtime.SimulationTime);
+	}
+
 
 	private void SetSamplingParameter(
 		string name,
@@ -915,6 +942,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 		ApplyVisualMicroNormalParameters();
 
+		ApplyVisualTime();
 
 		float lodScaleAlpha =
 			_runtime.RuntimeLodScaleAlpha;
@@ -1690,7 +1718,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		ApplyVisualMicroNormalParameters(
 			force: true);
 
-
+		ApplyVisualTime();
+		
 		GD.Print(
 			$"[Ocean] Nested surface ready: " +
 			$"{lodCount} LODs, {_nestedTileCount} tiles, " +
