@@ -16,6 +16,7 @@ uniform float horizontal_display_scale = 1.0;
 uniform float vertical_display_scale = 1.0;
 uniform float lod_scale_alpha = 0.0;
 uniform float geometry_grid_width = 0.0;
+uniform vec2 geometry_snap_offset_xz = vec2(0.0);
 
 const int NORMAL_METHOD_BLENDED_XYZ_FORWARD = 0;
 const int NORMAL_METHOD_CREST_PER_LOD_FORWARD = 1;
@@ -67,9 +68,18 @@ vec2 transition_vertex_layout(
     float grid_width,
     out float lod_alpha)
 {
+    //
+    // One common translation for the complete nested hierarchy.
+    //
+
+    world_xz -=
+        geometry_snap_offset_xz;
+
+
     lod_alpha =
         compute_surface_lod_alpha(
             world_xz);
+
 
     if (grid_width <= 0.0)
     {
@@ -79,6 +89,12 @@ vec2 transition_vertex_layout(
     float grid_size_4 =
         4.0 *
         grid_width;
+
+    //
+    // Keep the common-focus topology phase. Positional snapping must not be
+    // derived independently from this LOD's geometry grid width.
+    //
+
 
     vec2 relative_xz =
         world_xz -

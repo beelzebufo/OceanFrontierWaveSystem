@@ -18,6 +18,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private OceanPointQueryDiagnostic _pointQueryDiagnostic;
 	private OceanDiagnosticCameraController _camera;
 	private DirectionalLight3D _sun;
+	private RigidBody3D _diagnosticHull;
 	private OceanDiagnosticLightDirectionGizmo _lightGizmo;
 	private FftDisplacementDebugView _inset;
 
@@ -65,6 +66,9 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 	private bool _initializedControls;
 
+	
+			
+
 
 	public override void _Ready()
 	{
@@ -98,6 +102,9 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			_runtime.GetNodeOrNull<OceanDiagnosticCameraController>(
 				"Camera3D");
 
+		_diagnosticHull =
+			_runtime.GetNodeOrNull<RigidBody3D>(
+				"DiagnosticBuoyancyHull");
 
 		_sun =
 			_runtime.GetNodeOrNull<DirectionalLight3D>(
@@ -156,6 +163,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 		_runtime.LodScaleOverrideEnabled =
 			true;
+
 
 
 		BuildUi();
@@ -224,12 +232,43 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			"Side Z",
 			OceanDiagnosticCameraController.ViewMode.SideZ);
 
+		var vesselCamera =
+	Check(
+		top,
+		"Vessel Camera",
+		false);
+
+vesselCamera.Toggled +=
+	value =>
+	{
+		if (value)
+		{
+			if (_diagnosticHull != null)
+			{
+				_camera?.EnterVesselMode(
+					_diagnosticHull);
+
+				_overviewRequested = false;
+				_framed = true;
+			}
+		}
+		else
+		{
+			_camera?.ExitVesselMode();
+
+			_framed = false;
+		}
+	};
+
+
 
 		Button(
 			top,
 			"Overview",
 			() =>
-			{
+			{	
+				_camera?.ExitVesselMode();
+
 				_overviewRequested =
 					true;
 
@@ -394,6 +433,37 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 		scroll.AddChild(
 			column);
+
+		//
+		// VESSEL CAMERA
+		//
+
+		Section(
+			column,
+			"VESSEL CAMERA");
+
+
+		Check(
+			column,
+			"Mast 20 m",
+			false)
+			.Toggled +=
+				value =>
+					_camera?.SetVesselMastEnabled(
+						value);
+
+
+		Spin(
+			column,
+			"Camera damping",
+			0.35,
+			0.0,
+			2.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+					_camera?.SetVesselCameraDamping(
+						(float)value);
 
 
 		//
@@ -1293,23 +1363,30 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 
 	private void AddViewButton(
-		HBoxContainer row,
-		string title,
-		OceanDiagnosticCameraController.ViewMode mode)
-	{
-		Button(
-			row,
-			title,
-			() =>
-			{
-				_viewMode =
-					mode;
+	HBoxContainer row,
+	string title,
+	OceanDiagnosticCameraController.ViewMode mode)
+{
+	Button(
+		row,
+		title,
+		() =>
+		{
+			_camera?.ExitVesselMode();
 
 
-				_framed =
-					false;
-			});
-	}
+			_viewMode =
+				mode;
+
+
+			_overviewRequested =
+				false;
+
+
+			_framed =
+				false;
+		});
+}
 
 
 	private void SetSunProgress(

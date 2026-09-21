@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Waves.AnimatedWaves;
@@ -108,6 +109,12 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float[] _nestedWorldSizes;
 
 	private Vector2 _nestedFocus =
+		new(float.NaN, float.NaN);
+
+	private Vector2 _nestedSnappedFocus =
+		new(float.NaN, float.NaN);
+
+	private Vector2 _nestedGeometrySnapOffset =
 		new(float.NaN, float.NaN);
 
 	private int _nestedResolution;
@@ -1510,6 +1517,18 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				float.NaN);
 
 
+		_nestedSnappedFocus =
+			new Vector2(
+				float.NaN,
+				float.NaN);
+
+
+		_nestedGeometrySnapOffset =
+			new Vector2(
+				float.NaN,
+				float.NaN);
+
+
 		for (int lod = 0;
 			 lod < lodCount;
 			 lod++)
@@ -1694,8 +1713,46 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 					_nestedResolution);
 
 
-		if (_nestedFocus !=
-			focusXZ)
+		if (!_runtime.TryGetAnimatedWaveSurfaceWithNext(
+				0,
+				out _,
+				out _,
+				out _,
+				out AnimatedWaveLodSlice lod0Slice,
+				out _,
+				out _))
+		{
+			return;
+		}
+
+
+		float lod0GeometryGridWidth =
+			lod0Slice.WorldSize /
+			geometryResolution;
+
+
+		float renderSnapStep =
+			2.0f *
+			lod0GeometryGridWidth;
+
+
+		var snappedFocusXZ =
+			new Vector2(
+				SnapDown(
+					focusXZ.X,
+					renderSnapStep),
+
+				SnapDown(
+					focusXZ.Y,
+					renderSnapStep));
+
+
+		Vector2 geometrySnapOffsetXZ =
+			focusXZ -
+			snappedFocusXZ;
+
+
+		if (_nestedFocus != focusXZ)
 		{
 			_nestedFocus =
 				focusXZ;
@@ -1706,6 +1763,20 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 					focusXZ.X,
 					0.0f,
 					focusXZ.Y);
+		}
+
+
+		if (_nestedSnappedFocus !=
+				snappedFocusXZ ||
+			_nestedGeometrySnapOffset !=
+				geometrySnapOffsetXZ)
+		{
+			_nestedSnappedFocus =
+				snappedFocusXZ;
+
+
+			_nestedGeometrySnapOffset =
+				geometrySnapOffsetXZ;
 
 
 			foreach (ShaderMaterial material in
@@ -1713,7 +1784,12 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			{
 				material.SetShaderParameter(
 					"lod_focus_xz",
-					focusXZ);
+					snappedFocusXZ);
+
+
+				material.SetShaderParameter(
+					"geometry_snap_offset_xz",
+					geometrySnapOffsetXZ);
 			}
 		}
 
@@ -1982,7 +2058,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				slice.CenterXZ);
 		}
 
-
 		Vector2 nextCenter =
 			_selectedLodIndex +
 			1 <
@@ -2015,6 +2090,30 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				"lod_focus_xz",
 				focusXZ);
 		}
+
+
+		SetSamplingParameter(
+			"geometry_snap_offset_xz",
+			Vector2.Zero);
+	}
+
+
+	private static float SnapDown(
+		float value,
+		float step)
+	{
+		if (!float.IsFinite(step) ||
+			step <= 0.0f)
+		{
+			return value;
+		}
+
+
+		return
+			MathF.Floor(
+				value /
+				step) *
+			step;
 	}
 
 
