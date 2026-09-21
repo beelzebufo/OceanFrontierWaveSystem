@@ -9,6 +9,19 @@
 [ext_resource type="Script" uid="uid://de6e7eede4427" path="res://Ocean/Debug/OceanWaveDiagnosticScreen.cs" id="6_diagnostics"]
 [ext_resource type="Script" uid="uid://b5w6mg0o0cyd0" path="res://Ocean/Debug/OceanDiagnosticLightDirectionGizmo.cs" id="7_light_gizmo"]
 [ext_resource type="Script" uid="uid://b6gwaay7q6jtl" path="res://Ocean/Debug/OceanPointQueryDiagnostic.cs" id="8_point_queries"]
+[ext_resource type="Script" path="res://Ocean/Physics/OceanBuoyancy.cs" id="9_buoyancy"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_diagnostic_hull"]
+size = Vector3(3.5, 1.7, 13)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_diagnostic_hull"]
+albedo_color = Color(0.12, 0.32, 0.52, 1)
+metallic = 0.15
+roughness = 0.42
+
+[sub_resource type="BoxMesh" id="BoxMesh_diagnostic_hull"]
+material = SubResource("StandardMaterial3D_diagnostic_hull")
+size = Vector3(3.5, 1.7, 13)
 
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
@@ -38,6 +51,21 @@ script = ExtResource("5_reference")
 
 [node name="OceanPointQueryDiagnostic" type="Node3D" parent="." unique_id=1647717812]
 script = ExtResource("8_point_queries")
+
+[node name="DiagnosticBuoyancyHull" type="RigidBody3D" parent="."]
+position = Vector3(0, 0.5, 0)
+mass = 7000.0
+can_sleep = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="DiagnosticBuoyancyHull"]
+shape = SubResource("BoxShape3D_diagnostic_hull")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="DiagnosticBuoyancyHull"]
+mesh = SubResource("BoxMesh_diagnostic_hull")
+
+[node name="OceanBuoyancy" type="Node" parent="DiagnosticBuoyancyHull"]
+script = ExtResource("9_buoyancy")
+ShowProbeVisualization = true
 
 [node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="." unique_id=853362279]
 script = ExtResource("7_light_gizmo")
