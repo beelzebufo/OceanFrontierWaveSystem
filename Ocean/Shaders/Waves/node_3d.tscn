@@ -26,6 +26,7 @@ SpatialLodIndex = 0
 LayoutMode = 1
 VisualMicroNormalsEnabled = false
 VisualNormalMap = ExtResource("4_8gmc7")
+VisualNormalStrength = 0.1
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")

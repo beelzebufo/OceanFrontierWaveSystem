@@ -72,12 +72,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 
 	//
-	// Crest default:
-	//     _NormalsStrength = 0.36
-	//
+	// Conservative validation default; Crest's source default is 0.36.
 
 	[Export(PropertyHint.Range, "0,2,0.01")]
-	public float VisualNormalStrength { get; set; } = 0.36f;
+	public float VisualNormalStrength { get; set; } = 0.08f;
 
 
 	private OceanRuntime _runtime;
@@ -119,6 +117,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 
 	private Texture2DArrayRD _textureArray;
+	private Texture2D _visualNormalFallback;
 	private Rid _boundRid;
 
 
@@ -423,6 +422,11 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			VisualNormalMap != null;
 
 
+		Texture2D textureToBind =
+			VisualNormalMap ??
+			_visualNormalFallback;
+
+
 		bool textureChanged =
 			!ReferenceEquals(
 				_appliedVisualNormalMap,
@@ -439,21 +443,17 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		}
 
 
-		//
-		// When the texture becomes null we can leave the old GPU binding
-		// untouched because visual_micro_normals_enabled is false.
-		//
-		// When another texture is assigned, bind the new one immediately.
-		//
+		// Keep the sampler valid even while the optional source map is null.
+		// Rebind immediately when the source changes in either direction.
 
-		if (VisualNormalMap != null &&
+		if (textureToBind != null &&
 			(force ||
 			 !_visualNormalStateInitialized ||
 			 textureChanged))
 		{
 			SetSurfaceParameter(
 				"visual_normal_map",
-				VisualNormalMap);
+				textureToBind);
 		}
 
 
@@ -706,6 +706,29 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 		_selectedLodIndex =
 			SpatialLodIndex;
+
+
+		Image fallbackImage =
+			Image.CreateEmpty(
+				1,
+				1,
+				false,
+				Image.Format.Rgba8);
+
+
+		fallbackImage.SetPixel(
+			0,
+			0,
+			new Color(
+				0.5f,
+				0.5f,
+				1.0f,
+				1.0f));
+
+
+		_visualNormalFallback =
+			ImageTexture.CreateFromImage(
+				fallbackImage);
 
 
 		_material =

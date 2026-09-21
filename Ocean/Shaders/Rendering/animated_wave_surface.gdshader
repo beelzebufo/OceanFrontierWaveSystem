@@ -31,9 +31,8 @@ uniform sampler2D visual_normal_map :
 uniform float visual_normal_scale = 40.0;
 
 
-// Crest default:
-//     _NormalsStrength = 0.36
-uniform float visual_normal_strength = 0.36;
+// Conservative validation default; Crest's source default is 0.36.
+uniform float visual_normal_strength = 0.08;
 
 
 varying float displacement_height;
@@ -283,7 +282,8 @@ vec2 sample_visual_micro_normal(
 vec3 apply_visual_micro_normal(
     vec3 view_normal,
     vec2 world_xz,
-    float lod_alpha)
+    float lod_alpha,
+    mat4 view_matrix)
 {
     if (!visual_micro_normals_enabled ||
         visual_normal_strength <= 0.0)
@@ -300,7 +300,7 @@ vec3 apply_visual_micro_normal(
 
     vec3 micro_view =
         (
-            VIEW_MATRIX *
+            view_matrix *
             vec4(
                 micro_normal.x,
                 0.0,
@@ -460,7 +460,8 @@ void fragment()
         apply_visual_micro_normal(
             NORMAL,
             undisplaced_world_xz,
-            visual_normal_lod_alpha);
+            visual_normal_lod_alpha,
+            VIEW_MATRIX);
 
 
     float signed_height =
