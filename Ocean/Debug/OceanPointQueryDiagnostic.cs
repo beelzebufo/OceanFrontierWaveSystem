@@ -1,4 +1,5 @@
 using Godot;
+using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Rendering;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Waves.AnimatedWaves;
@@ -19,6 +20,7 @@ public partial class OceanPointQueryDiagnostic : Node3D
 	private readonly MeshInstance3D[] _horizontalLines = new MeshInstance3D[PointCount];
 	private OceanRuntime _runtime;
 	private AnimatedWaveSurfaceRenderer _surface;
+	private OceanPointQueryService.OwnerHandle _queryOwner;
 	private int _selectedLod;
 	private long _pendingGeneration;
 	private float _submittedWorldSize;
@@ -28,6 +30,7 @@ public partial class OceanPointQueryDiagnostic : Node3D
 		_runtime = GetParent() as OceanRuntime;
 		_surface = GetParent().GetNodeOrNull<AnimatedWaveSurfaceRenderer>("AnimatedWaveSurfaceRenderer");
 		if (_runtime == null || _surface == null) { SetProcess(false); return; }
+		_queryOwner = _runtime.PointQueries.RegisterOwner(PointCount);
 		_selectedLod = _surface.SpatialLodIndex;
 
 		var sphere = new SphereMesh { Radius = 0.5f, Height = 1.0f };
@@ -42,6 +45,15 @@ public partial class OceanPointQueryDiagnostic : Node3D
 			_surfaceMarkers[i] = Marker(sphere, resultMaterial);
 			_invalidMarkers[i] = Marker(sphere, invalidMaterial);
 			_horizontalLines[i] = Marker(line, offsetMaterial);
+		}
+	}
+
+	public override void _ExitTree()
+	{
+		if (_queryOwner != null)
+		{
+			_runtime?.PointQueries.UnregisterOwner(_queryOwner);
+			_queryOwner = null;
 		}
 	}
 
@@ -65,7 +77,7 @@ public partial class OceanPointQueryDiagnostic : Node3D
 	{
 		if (!Visible || _runtime == null || _surface == null) return;
 
-		if (_pendingGeneration != 0 && _runtime.PointQueries.TryCopyLatest(_completed,
+		if (_pendingGeneration != 0 && _runtime.PointQueries.TryCopyLatest(_queryOwner, _completed,
 			out int count, out long generation, out _, out _) &&
 			generation == _pendingGeneration && count == PointCount)
 		{
@@ -170,8 +182,9 @@ _submittedWorldSize =
 	diagnosticWorldSize;
 
 
-_pendingGeneration =
+	_pendingGeneration =
 	_runtime.PointQueries.SubmitBatch(
+		_queryOwner,
 		_targets,
 		minTexelWidth);
 	}

@@ -1,208 +1,191 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Godot;
 
 namespace OceanFrontier.Water.Queries;
 
 /// <summary>
-/// Latest-wins batches of world XZ positions.
-///
-/// GPU work and callbacks run on the render thread.
-/// Callers submit and copy completed results on the main thread.
-///
-/// Result Vector4:
-/// xyz = displacement
-/// w   = 1 when valid, 0 when outside the AnimatedWaveField.
+/// Batched, multi-owner point queries against the final AnimatedWaveField.
+/// GPU work and callbacks run on the render thread. Public methods are thread-safe.
 /// </summary>
 public sealed class OceanPointQueryService
 {
 	public const int Capacity = 256;
 
 	private const int SlotCount = 4;
-
-	private const int StrideBytes =
-		4 * sizeof(float);
-
+	private const int StrideBytes = 4 * sizeof(float);
 	private const int WorkgroupSize = 64;
-
-	//
-	// Push constants:
-	//
-	// uint count                 4
-	// uint lod_count             4
-	// vec2 focus_xz              8
-	// float lod_scale_alpha      4
-	// float padding_0            4
-	// float padding_1            4
-	// float padding_2            4
-	//
-	// total = 32 bytes
-	//
-
 	private const int PushConstantBytes = 32;
 
+	/// <summary>A stable registration for one independent query consumer.</summary>
+	public sealed class OwnerHandle
+	{
+		internal OwnerHandle(OceanPointQueryService service, long id, int capacity)
+		{
+			Service = service;
+			Id = id;
+			Capacity = capacity;
+		}
+
+		internal OceanPointQueryService Service { get; }
+		public long Id { get; }
+		public int Capacity { get; }
+	}
+
+	private sealed class OwnerState
+	{
+		public OwnerState(OwnerHandle handle)
+		{
+			Handle = handle;
+			PendingPositions = new Vector2[handle.Capacity];
+			LatestResults = new Vector4[handle.Capacity];
+		}
+
+		public OwnerHandle Handle { get; }
+		public Vector2[] PendingPositions { get; }
+		public Vector4[] LatestResults { get; }
+		public int PendingCount;
+		public float PendingMinTexelWidth;
+		public long NextGeneration;
+		public long PendingGeneration;
+		public long DispatchedGeneration;
+		public int LatestCount;
+		public long LatestGeneration;
+		public long LatestFrame;
+		public int LatestReadbackFrames = -1;
+		public bool HasLatest;
+	}
+
+	private struct Segment
+	{
+		public long OwnerId;
+		public int Offset;
+		public int Count;
+		public long Generation;
+	}
 
 	private sealed class Slot
 	{
 		public Rid Input;
-
 		public Rid Output;
-
 		public Rid UniformSet;
-
 		public Callable Callback;
-
-		public readonly byte[] Upload =
-			new byte[
-				Capacity *
-				StrideBytes];
-
+		public readonly byte[] Upload = new byte[Capacity * StrideBytes];
+		public readonly Segment[] Segments = new Segment[Capacity];
 		public bool InFlight;
-
 		public int Count;
-
-		public long Generation;
-
+		public int SegmentCount;
 		public long SubmittedFrame;
 	}
 
-
-	private readonly object _sync =
-		new();
-
-
-	private readonly Vector2[] _pendingPositions =
-		new Vector2[Capacity];
-
-
-	private readonly Vector4[] _latestResults =
-		new Vector4[Capacity];
-
-
-	private readonly Slot[] _slots =
-		new Slot[SlotCount];
-
-
-	private readonly byte[] _pushBytes =
-		new byte[PushConstantBytes];
-
+	private readonly object _sync = new();
+	private readonly Dictionary<long, OwnerState> _owners = new();
+	private readonly Slot[] _slots = new Slot[SlotCount];
+	private readonly byte[] _pushBytes = new byte[PushConstantBytes];
 
 	private RenderingDevice _rd;
-
 	private Rid _shader;
-
 	private Rid _pipeline;
-
 	private Rid _sampler;
-
-
 	private int _lodCount;
-
-
-	private int _pendingCount;
-
-	private float _pendingMinTexelWidth;
-
-	private long _pendingGeneration;
-
-	private long _nextGeneration;
-
-	private long _dispatchedGeneration;
-
-
+	private int _reservedCapacity;
+	private long _nextOwnerId;
 	private long _renderFrame;
-
-
 	private int _submittedCount;
-
-
-	private int _latestCount;
-
-	private long _latestGeneration;
-
-	private long _latestFrame;
-
-	private int _latestReadbackFrames =
-		-1;
-
-	private bool _hasLatest;
-
+	private int _latestReadbackFrames = -1;
+	private bool _hasCompletedResult;
 
 	/// <summary>
-	/// Replaces an undispatched batch.
-	///
-	/// minTexelWidth == 0:
-	///     use the finest covering spatial LOD.
-	///
-	/// minTexelWidth > 0:
-	///     request a covering LOD whose texel width is at least
-	///     the requested value.
-	///
-	/// If the requested width is coarser than every available
-	/// covering LOD, the query shader falls back to the coarsest
-	/// covering LOD.
-	///
-	/// Returns the generation assigned to this batch.
+	/// Reserves part of the shared 256-point capacity for a consumer.
+	/// Registration creates CPU arrays only; all GPU resources remain shared.
 	/// </summary>
-	public long SubmitBatch(
-		ReadOnlySpan<Vector2> worldXZ,
-		float minTexelWidth = 0.0f)
+	public OwnerHandle RegisterOwner(int capacity)
 	{
-		if (worldXZ.Length is < 1 or > Capacity)
+		if (capacity is < 1 or > Capacity)
 		{
-			throw new ArgumentOutOfRangeException(
-				nameof(worldXZ));
+			throw new ArgumentOutOfRangeException(nameof(capacity));
 		}
-
-
-		if (!float.IsFinite(minTexelWidth) ||
-			minTexelWidth < 0.0f)
-		{
-			throw new ArgumentOutOfRangeException(
-				nameof(minTexelWidth));
-		}
-
-
-		foreach (Vector2 position in worldXZ)
-		{
-			if (!float.IsFinite(position.X) ||
-				!float.IsFinite(position.Y))
-			{
-				throw new ArgumentException(
-					"Query positions must be finite.",
-					nameof(worldXZ));
-			}
-		}
-
 
 		lock (_sync)
 		{
-			worldXZ.CopyTo(
-				_pendingPositions);
+			if (_reservedCapacity + capacity > Capacity)
+			{
+				throw new InvalidOperationException(
+					$"Point query owner capacity exceeds the shared limit of {Capacity}.");
+			}
 
-
-			_pendingCount =
-				worldXZ.Length;
-
-
-			_pendingMinTexelWidth =
-				minTexelWidth;
-
-
-			_pendingGeneration =
-				++_nextGeneration;
-
-
-			return
-				_pendingGeneration;
+			long id = ++_nextOwnerId;
+			var handle = new OwnerHandle(this, id, capacity);
+			_owners.Add(id, new OwnerState(handle));
+			_reservedCapacity += capacity;
+			return handle;
 		}
 	}
 
+	/// <summary>Removes an owner. In-flight results for it are discarded.</summary>
+	public bool UnregisterOwner(OwnerHandle owner)
+	{
+		if (owner == null || !ReferenceEquals(owner.Service, this))
+		{
+			return false;
+		}
+
+		lock (_sync)
+		{
+			if (!_owners.Remove(owner.Id, out OwnerState state))
+			{
+				return false;
+			}
+
+			_reservedCapacity -= state.Handle.Capacity;
+			return true;
+		}
+	}
 
 	/// <summary>
-	/// Copies the latest completed GPU batch without waiting.
+	/// Replaces this owner's undispatched batch and returns its generation.
+	/// minTexelWidth is stored once per owner submission and written into every
+	/// 16-byte GPU query element, so the buffer layout already supports a future
+	/// per-point sampling scale without changing the shader layout.
 	/// </summary>
+	public long SubmitBatch(
+		OwnerHandle owner,
+		ReadOnlySpan<Vector2> worldXZ,
+		float minTexelWidth = 0.0f)
+	{
+		if (!float.IsFinite(minTexelWidth) || minTexelWidth < 0.0f)
+		{
+			throw new ArgumentOutOfRangeException(nameof(minTexelWidth));
+		}
+
+		foreach (Vector2 position in worldXZ)
+		{
+			if (!float.IsFinite(position.X) || !float.IsFinite(position.Y))
+			{
+				throw new ArgumentException("Query positions must be finite.", nameof(worldXZ));
+			}
+		}
+
+		lock (_sync)
+		{
+			OwnerState state = GetOwner(owner);
+			if (worldXZ.Length is < 1 || worldXZ.Length > state.Handle.Capacity)
+			{
+				throw new ArgumentOutOfRangeException(nameof(worldXZ));
+			}
+
+			worldXZ.CopyTo(state.PendingPositions);
+			state.PendingCount = worldXZ.Length;
+			state.PendingMinTexelWidth = minTexelWidth;
+			state.PendingGeneration = ++state.NextGeneration;
+			return state.PendingGeneration;
+		}
+	}
+
+	/// <summary>Copies only this owner's latest completed result without waiting.</summary>
 	public bool TryCopyLatest(
+		OwnerHandle owner,
 		Span<Vector4> destination,
 		out int count,
 		out long generation,
@@ -211,45 +194,28 @@ public sealed class OceanPointQueryService
 	{
 		lock (_sync)
 		{
-			count =
-				_latestCount;
+			OwnerState state = GetOwner(owner);
+			count = state.LatestCount;
+			generation = state.LatestGeneration;
+			submittedFrame = state.LatestFrame;
+			readbackFrames = state.LatestReadbackFrames;
 
-			generation =
-				_latestGeneration;
-
-			submittedFrame =
-				_latestFrame;
-
-			readbackFrames =
-				_latestReadbackFrames;
-
-
-			if (!_hasLatest)
+			if (!state.HasLatest)
 			{
 				return false;
 			}
 
-
 			if (destination.Length < count)
 			{
 				throw new ArgumentException(
-					"Destination is smaller than the completed batch.",
+					"Destination is smaller than the completed owner batch.",
 					nameof(destination));
 			}
 
-
-			_latestResults
-				.AsSpan(
-					0,
-					count)
-				.CopyTo(
-					destination);
-
-
+			state.LatestResults.AsSpan(0, count).CopyTo(destination);
 			return true;
 		}
 	}
-
 
 	public void GetDiagnostics(
 		out int submittedCount,
@@ -258,675 +224,374 @@ public sealed class OceanPointQueryService
 	{
 		lock (_sync)
 		{
-			submittedCount =
-				_submittedCount;
-
-			readbackFrames =
-				_latestReadbackFrames;
-
-			hasCompletedResult =
-				_hasLatest;
+			submittedCount = _submittedCount;
+			readbackFrames = _latestReadbackFrames;
+			hasCompletedResult = _hasCompletedResult;
 		}
 	}
 
-
-	/// <summary>
-	/// Render thread only.
-	///
-	/// AnimatedWaveField and LOD metadata are borrowed from
-	/// AnimatedWaveComposer and must outlive this service.
-	/// </summary>
-	internal void Initialize(
-		RenderingDevice rd,
-		Rid field,
-		Rid lodBuffer,
-		int lodCount)
+	private OwnerState GetOwner(OwnerHandle owner)
 	{
-		if (rd == null ||
-			!field.IsValid ||
-			!lodBuffer.IsValid ||
-			lodCount < 1)
+		if (owner == null ||
+			!ReferenceEquals(owner.Service, this) ||
+			!_owners.TryGetValue(owner.Id, out OwnerState state))
 		{
-			throw new ArgumentException(
-				"Point query GPU inputs are invalid.");
+			throw new InvalidOperationException("Point query owner is not registered.");
 		}
 
+		return state;
+	}
+
+	/// <summary>Render thread only. Borrowed composer resources must outlive this service.</summary>
+	internal void Initialize(RenderingDevice rd, Rid field, Rid lodBuffer, int lodCount)
+	{
+		if (rd == null || !field.IsValid || !lodBuffer.IsValid || lodCount < 1)
+		{
+			throw new ArgumentException("Point query GPU inputs are invalid.");
+		}
 
 		Release();
-
-
-		_rd =
-			rd;
-
-		_lodCount =
-			lodCount;
-
+		_rd = rd;
+		_lodCount = lodCount;
 
 		try
 		{
-			RDShaderFile file =
-				GD.Load<RDShaderFile>(
-					"res://Ocean/Shaders/Waves/animated_wave_point_query.glsl");
-
-
+			RDShaderFile file = GD.Load<RDShaderFile>(
+				"res://Ocean/Shaders/Waves/animated_wave_point_query.glsl");
 			if (file == null)
 			{
-				throw new InvalidOperationException(
-					"Point query shader was not loaded.");
+				throw new InvalidOperationException("Point query shader was not loaded.");
 			}
 
-
-			RDShaderSpirV spirv =
-				file.GetSpirV();
-
-
-			string error =
-				spirv.GetStageCompileError(
-					RenderingDevice.ShaderStage.Compute);
-
-
+			RDShaderSpirV spirv = file.GetSpirV();
+			string error = spirv.GetStageCompileError(RenderingDevice.ShaderStage.Compute);
 			if (!string.IsNullOrEmpty(error))
 			{
 				throw new InvalidOperationException(
 					$"Point query shader compilation failed:\n{error}");
 			}
 
-
-			if (spirv.GetStageBytecode(
-					RenderingDevice.ShaderStage.Compute).Length == 0)
+			if (spirv.GetStageBytecode(RenderingDevice.ShaderStage.Compute).Length == 0)
 			{
 				throw new InvalidOperationException(
-					"Point query shader has no compute bytecode. " +
-					"Reimport it in Godot.");
+					"Point query shader has no compute bytecode. Reimport it in Godot.");
 			}
 
-
-			_shader =
-				rd.ShaderCreateFromSpirV(
-					spirv);
-
-
+			_shader = rd.ShaderCreateFromSpirV(spirv);
 			if (!_shader.IsValid)
 			{
-				throw new InvalidOperationException(
-					"Point query shader creation failed.");
+				throw new InvalidOperationException("Point query shader creation failed.");
 			}
 
-
-			_pipeline =
-				rd.ComputePipelineCreate(
-					_shader);
-
-
+			_pipeline = rd.ComputePipelineCreate(_shader);
 			if (!_pipeline.IsValid)
 			{
-				throw new InvalidOperationException(
-					"Point query pipeline creation failed.");
+				throw new InvalidOperationException("Point query pipeline creation failed.");
 			}
 
-
-			var samplerState =
-				new RDSamplerState
-				{
-					MinFilter =
-						RenderingDevice.SamplerFilter.Linear,
-
-					MagFilter =
-						RenderingDevice.SamplerFilter.Linear,
-
-					MipFilter =
-						RenderingDevice.SamplerFilter.Nearest,
-
-					RepeatU =
-						RenderingDevice.SamplerRepeatMode.ClampToEdge,
-
-					RepeatV =
-						RenderingDevice.SamplerRepeatMode.ClampToEdge,
-
-					RepeatW =
-						RenderingDevice.SamplerRepeatMode.ClampToEdge,
-				};
-
-
-			_sampler =
-				rd.SamplerCreate(
-					samplerState);
-
-
+			_sampler = rd.SamplerCreate(new RDSamplerState
+			{
+				MinFilter = RenderingDevice.SamplerFilter.Linear,
+				MagFilter = RenderingDevice.SamplerFilter.Linear,
+				MipFilter = RenderingDevice.SamplerFilter.Nearest,
+				RepeatU = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+				RepeatV = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+				RepeatW = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+			});
 			if (!_sampler.IsValid)
 			{
-				throw new InvalidOperationException(
-					"Point query sampler creation failed.");
+				throw new InvalidOperationException("Point query sampler creation failed.");
 			}
 
-
-			for (int i = 0;
-				 i < SlotCount;
-				 i++)
+			for (int i = 0; i < SlotCount; i++)
 			{
-				var slot =
-					new Slot();
-
-
-				_slots[i] =
-					slot;
-
-
-				slot.Input =
-					rd.StorageBufferCreate(
-						Capacity *
-						StrideBytes,
-						slot.Upload);
-
-
-				slot.Output =
-					rd.StorageBufferCreate(
-						Capacity *
-						StrideBytes,
-						new byte[
-							Capacity *
-							StrideBytes]);
-
-
-				if (!slot.Input.IsValid ||
-					!slot.Output.IsValid)
+				var slot = new Slot();
+				_slots[i] = slot;
+				slot.Input = rd.StorageBufferCreate(Capacity * StrideBytes, slot.Upload);
+				slot.Output = rd.StorageBufferCreate(
+					Capacity * StrideBytes,
+					new byte[Capacity * StrideBytes]);
+				if (!slot.Input.IsValid || !slot.Output.IsValid)
 				{
-					throw new InvalidOperationException(
-						"Point query buffer creation failed.");
+					throw new InvalidOperationException("Point query buffer creation failed.");
 				}
 
+				var sampledField = Uniform(
+					RenderingDevice.UniformType.SamplerWithTexture, 0, _sampler, field);
+				var lodData = Uniform(
+					RenderingDevice.UniformType.StorageBuffer, 1, lodBuffer);
+				var queryData = Uniform(
+					RenderingDevice.UniformType.StorageBuffer, 2, slot.Input);
+				var resultData = Uniform(
+					RenderingDevice.UniformType.StorageBuffer, 3, slot.Output);
 
-				var sampledField =
-					new RDUniform
+				slot.UniformSet = rd.UniformSetCreate(
+					new Godot.Collections.Array<RDUniform>
 					{
-						UniformType =
-							RenderingDevice.UniformType.SamplerWithTexture,
-
-						Binding =
-							0,
-					};
-
-
-				sampledField.AddId(
-					_sampler);
-
-				sampledField.AddId(
-					field);
-
-
-				var lodData =
-					new RDUniform
-					{
-						UniformType =
-							RenderingDevice.UniformType.StorageBuffer,
-
-						Binding =
-							1,
-					};
-
-
-				lodData.AddId(
-					lodBuffer);
-
-
-				var queryData =
-					new RDUniform
-					{
-						UniformType =
-							RenderingDevice.UniformType.StorageBuffer,
-
-						Binding =
-							2,
-					};
-
-
-				queryData.AddId(
-					slot.Input);
-
-
-				var resultData =
-					new RDUniform
-					{
-						UniformType =
-							RenderingDevice.UniformType.StorageBuffer,
-
-						Binding =
-							3,
-					};
-
-
-				resultData.AddId(
-					slot.Output);
-
-
-				slot.UniformSet =
-					rd.UniformSetCreate(
-						new Godot.Collections.Array<RDUniform>
-						{
-							sampledField,
-							lodData,
-							queryData,
-							resultData,
-						},
-						_shader,
-						0);
-
-
+						sampledField,
+						lodData,
+						queryData,
+						resultData,
+					},
+					_shader,
+					0);
 				if (!slot.UniformSet.IsValid)
 				{
-					throw new InvalidOperationException(
-						"Point query uniform set creation failed.");
+					throw new InvalidOperationException("Point query uniform set creation failed.");
 				}
 
-
-				slot.Callback =
-					Callable.From<byte[]>(
-						data =>
-							OnReadback(
-								slot,
-								data));
+				slot.Callback = Callable.From<byte[]>(data => OnReadback(slot, data));
 			}
 
-
 			GD.Print(
-				$"[Ocean Query] Ready: " +
-				$"{Capacity} points, " +
+				$"[Ocean Query] Ready: {Capacity} shared points, " +
 				$"{SlotCount} persistent slots.");
 		}
 		catch
 		{
 			Release();
-
 			throw;
 		}
 	}
 
+	private static RDUniform Uniform(
+		RenderingDevice.UniformType type,
+		int binding,
+		params Rid[] ids)
+	{
+		var uniform = new RDUniform { UniformType = type, Binding = binding };
+		foreach (Rid id in ids)
+		{
+			uniform.AddId(id);
+		}
+
+		return uniform;
+	}
 
 	/// <summary>
-	/// Render thread only.
-	///
-	/// Called immediately after AnimatedWaveComposer.ComposeFft().
-	///
-	/// lodScaleAlpha is the same Crest-like viewpoint altitude
-	/// transition used by the surface renderer:
-	///
-	///     0 = pure current LOD0
-	///     1 = pure next LOD for LOD0 sampling
-	///
-	/// This keeps physics queries consistent with rendered surface
-	/// during whole-stack x2 scale transitions.
+	/// Render thread only. Flattens every owner's newest undispatched batch into
+	/// exactly one compute dispatch after AnimatedWaveComposer.ComposeFft().
 	/// </summary>
-	internal void DispatchAfterCompose(
-		Vector2 focusXZ,
-		float lodScaleAlpha)
+	internal void DispatchAfterCompose(Vector2 focusXZ, float lodScaleAlpha)
 	{
 		if (_rd == null)
 		{
 			return;
 		}
 
-
 		if (!float.IsFinite(lodScaleAlpha))
 		{
-			throw new ArgumentOutOfRangeException(
-				nameof(lodScaleAlpha));
+			throw new ArgumentOutOfRangeException(nameof(lodScaleAlpha));
 		}
 
-
-		lodScaleAlpha =
-			Mathf.Clamp(
-				lodScaleAlpha,
-				0.0f,
-				1.0f);
-
-
-		long frame =
-			Interlocked.Increment(
-				ref _renderFrame);
-
-
-		Slot slot =
-			null;
-
+		lodScaleAlpha = Mathf.Clamp(lodScaleAlpha, 0.0f, 1.0f);
+		long frame = Interlocked.Increment(ref _renderFrame);
+		Slot slot = null;
 
 		lock (_sync)
 		{
-			if (_pendingGeneration ==
-				_dispatchedGeneration)
+			bool hasPending = false;
+			foreach (OwnerState owner in _owners.Values)
 			{
-				return;
-			}
-
-
-			foreach (Slot candidate in _slots)
-			{
-				if (candidate != null &&
-					!candidate.InFlight)
+				if (owner.PendingGeneration != owner.DispatchedGeneration)
 				{
-					slot =
-						candidate;
-
+					hasPending = true;
 					break;
 				}
 			}
 
-
-			if (slot == null)
+			if (!hasPending)
 			{
-				//
-				// All persistent slots are still in flight.
-				//
-				// Keep the newest pending batch. It will be
-				// dispatched on a later render update.
-				//
-
 				return;
 			}
 
-
-			slot.Count =
-				_pendingCount;
-
-			slot.Generation =
-				_pendingGeneration;
-
-			slot.SubmittedFrame =
-				frame;
-
-			slot.InFlight =
-				true;
-
-
-			for (int i = 0;
-				 i < slot.Count;
-				 i++)
+			foreach (Slot candidate in _slots)
 			{
-				int offset =
-					i *
-					StrideBytes;
-
-
-				BitConverter.TryWriteBytes(
-					slot.Upload.AsSpan(
-						offset,
-						sizeof(float)),
-					_pendingPositions[i].X);
-
-
-				BitConverter.TryWriteBytes(
-					slot.Upload.AsSpan(
-						offset + sizeof(float),
-						sizeof(float)),
-					_pendingPositions[i].Y);
-
-
-				BitConverter.TryWriteBytes(
-					slot.Upload.AsSpan(
-						offset + 2 * sizeof(float),
-						sizeof(float)),
-					_pendingMinTexelWidth);
-
-
-				BitConverter.TryWriteBytes(
-					slot.Upload.AsSpan(
-						offset + 3 * sizeof(float),
-						sizeof(float)),
-					0.0f);
+				if (candidate != null && !candidate.InFlight)
+				{
+					slot = candidate;
+					break;
+				}
 			}
-		}
 
+			if (slot == null)
+			{
+				return;
+			}
+
+			slot.Count = 0;
+			slot.SegmentCount = 0;
+			slot.SubmittedFrame = frame;
+
+			foreach (OwnerState owner in _owners.Values)
+			{
+				if (owner.PendingGeneration == owner.DispatchedGeneration)
+				{
+					continue;
+				}
+
+				int offset = slot.Count;
+				slot.Segments[slot.SegmentCount++] = new Segment
+				{
+					OwnerId = owner.Handle.Id,
+					Offset = offset,
+					Count = owner.PendingCount,
+					Generation = owner.PendingGeneration,
+				};
+
+				for (int i = 0; i < owner.PendingCount; i++)
+				{
+					WriteQuery(
+						slot.Upload,
+						offset + i,
+						owner.PendingPositions[i],
+						owner.PendingMinTexelWidth);
+				}
+
+				slot.Count += owner.PendingCount;
+			}
+
+			slot.InFlight = true;
+		}
 
 		try
 		{
-			uint bytes =
-				(uint)(
-					slot.Count *
-					StrideBytes);
-
-
-			Error uploadError =
-				_rd.BufferUpdate(
-					slot.Input,
-					0,
-					bytes,
-					slot.Upload.AsSpan(
-						0,
-						(int)bytes));
-
-
+			uint bytes = (uint)(slot.Count * StrideBytes);
+			Error uploadError = _rd.BufferUpdate(
+				slot.Input, 0, bytes, slot.Upload.AsSpan(0, (int)bytes));
 			if (uploadError != Error.Ok)
 			{
-				throw new InvalidOperationException(
-					$"Point query upload failed: " +
-					$"{uploadError}.");
+				throw new InvalidOperationException($"Point query upload failed: {uploadError}.");
 			}
 
-
-			//
-			// 32-byte push constant block.
-			//
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					0,
-					sizeof(uint)),
-				(uint)slot.Count);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					4,
-					sizeof(uint)),
-				(uint)_lodCount);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					8,
-					sizeof(float)),
-				focusXZ.X);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					12,
-					sizeof(float)),
-				focusXZ.Y);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					16,
-					sizeof(float)),
-				lodScaleAlpha);
-
-
-			//
-			// Explicit padding.
-			//
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					20,
-					sizeof(float)),
-				0.0f);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					24,
-					sizeof(float)),
-				0.0f);
-
-
-			BitConverter.TryWriteBytes(
-				_pushBytes.AsSpan(
-					28,
-					sizeof(float)),
-				0.0f);
-
-
-			long list =
-				_rd.ComputeListBegin();
-
-
-			_rd.ComputeListBindComputePipeline(
-				list,
-				_pipeline);
-
-
-			_rd.ComputeListBindUniformSet(
-				list,
-				slot.UniformSet,
-				0);
-
-
-			_rd.ComputeListSetPushConstant(
-				list,
-				_pushBytes,
-				(uint)_pushBytes.Length);
-
-
+			WritePushConstants(slot.Count, focusXZ, lodScaleAlpha);
+			long list = _rd.ComputeListBegin();
+			_rd.ComputeListBindComputePipeline(list, _pipeline);
+			_rd.ComputeListBindUniformSet(list, slot.UniformSet, 0);
+			_rd.ComputeListSetPushConstant(list, _pushBytes, (uint)_pushBytes.Length);
 			_rd.ComputeListDispatch(
 				list,
-				(uint)(
-					(slot.Count +
-					 WorkgroupSize -
-					 1) /
-					WorkgroupSize),
+				(uint)((slot.Count + WorkgroupSize - 1) / WorkgroupSize),
 				1,
 				1);
-
-
 			_rd.ComputeListEnd();
 
-
-			Error readbackError =
-				_rd.BufferGetDataAsync(
-					slot.Output,
-					slot.Callback,
-					0,
-					bytes);
-
-
+			Error readbackError = _rd.BufferGetDataAsync(
+				slot.Output, slot.Callback, 0, bytes);
 			if (readbackError != Error.Ok)
 			{
 				throw new InvalidOperationException(
-					$"Point query async readback failed: " +
-					$"{readbackError}.");
+					$"Point query async readback failed: {readbackError}.");
 			}
-
 
 			lock (_sync)
 			{
-				_dispatchedGeneration =
-					slot.Generation;
+				for (int i = 0; i < slot.SegmentCount; i++)
+				{
+					Segment segment = slot.Segments[i];
+					if (_owners.TryGetValue(segment.OwnerId, out OwnerState owner))
+					{
+						owner.DispatchedGeneration = Math.Max(
+							owner.DispatchedGeneration,
+							segment.Generation);
+					}
+				}
 
-				_submittedCount =
-					slot.Count;
+				_submittedCount = slot.Count;
 			}
 		}
 		catch
 		{
 			lock (_sync)
 			{
-				slot.InFlight =
-					false;
+				slot.InFlight = false;
 			}
 
 			throw;
 		}
 	}
 
+	private static void WriteQuery(
+		byte[] upload,
+		int index,
+		Vector2 position,
+		float minTexelWidth)
+	{
+		int offset = index * StrideBytes;
+		BitConverter.TryWriteBytes(upload.AsSpan(offset, 4), position.X);
+		BitConverter.TryWriteBytes(upload.AsSpan(offset + 4, 4), position.Y);
+		BitConverter.TryWriteBytes(upload.AsSpan(offset + 8, 4), minTexelWidth);
+		BitConverter.TryWriteBytes(upload.AsSpan(offset + 12, 4), 0.0f);
+	}
 
-	private void OnReadback(
-		Slot slot,
-		byte[] data)
+	private void WritePushConstants(int count, Vector2 focusXZ, float lodScaleAlpha)
+	{
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(0, 4), (uint)count);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(4, 4), (uint)_lodCount);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(8, 4), focusXZ.X);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(12, 4), focusXZ.Y);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(16, 4), lodScaleAlpha);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(20, 4), 0.0f);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(24, 4), 0.0f);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(28, 4), 0.0f);
+	}
+
+	private void OnReadback(Slot slot, byte[] data)
 	{
 		lock (_sync)
 		{
-			if (_rd == null ||
-				Array.IndexOf(
-					_slots,
-					slot) < 0)
+			if (_rd == null || Array.IndexOf(_slots, slot) < 0)
 			{
 				return;
 			}
 
+			bool complete = data != null && data.Length == slot.Count * StrideBytes;
+			int latency = (int)Math.Max(
+				0,
+				Interlocked.Read(ref _renderFrame) - slot.SubmittedFrame);
+			bool routedAny = false;
 
-			if (data != null &&
-				data.Length ==
-					slot.Count *
-					StrideBytes &&
-				slot.Generation >
-					_latestGeneration)
+			if (complete)
 			{
-				for (int i = 0;
-					 i < slot.Count;
-					 i++)
+				for (int segmentIndex = 0; segmentIndex < slot.SegmentCount; segmentIndex++)
 				{
-					int offset =
-						i *
-						StrideBytes;
+					Segment segment = slot.Segments[segmentIndex];
+					if (!_owners.TryGetValue(segment.OwnerId, out OwnerState owner) ||
+						segment.Generation <= owner.LatestGeneration)
+					{
+						continue;
+					}
 
+					for (int i = 0; i < segment.Count; i++)
+					{
+						int offset = (segment.Offset + i) * StrideBytes;
+						owner.LatestResults[i] = new Vector4(
+							BitConverter.ToSingle(data, offset),
+							BitConverter.ToSingle(data, offset + 4),
+							BitConverter.ToSingle(data, offset + 8),
+							BitConverter.ToSingle(data, offset + 12));
+					}
 
-					_latestResults[i] =
-						new Vector4(
-							BitConverter.ToSingle(
-								data,
-								offset),
-
-							BitConverter.ToSingle(
-								data,
-								offset + 4),
-
-							BitConverter.ToSingle(
-								data,
-								offset + 8),
-
-							BitConverter.ToSingle(
-								data,
-								offset + 12));
+					owner.LatestCount = segment.Count;
+					owner.LatestGeneration = segment.Generation;
+					owner.LatestFrame = slot.SubmittedFrame;
+					owner.LatestReadbackFrames = latency;
+					owner.HasLatest = true;
+					routedAny = true;
 				}
-
-
-				_latestCount =
-					slot.Count;
-
-
-				_latestGeneration =
-					slot.Generation;
-
-
-				_latestFrame =
-					slot.SubmittedFrame;
-
-
-				_latestReadbackFrames =
-					(int)Math.Max(
-						0,
-						Interlocked.Read(
-							ref _renderFrame) -
-						slot.SubmittedFrame);
-
-
-				_hasLatest =
-					true;
 			}
 
+			if (routedAny)
+			{
+				_latestReadbackFrames = latency;
+				_hasCompletedResult = true;
+			}
 
-			slot.InFlight =
-				false;
+			slot.InFlight = false;
 		}
 	}
 
-
-	/// <summary>
-	/// Render thread only.
-	///
-	/// Composer-owned field and LOD resources must outlive
-	/// these uniform sets.
-	/// </summary>
+	/// <summary>Render thread only. Owner registrations survive GPU reinitialization.</summary>
 	internal void Release()
 	{
 		lock (_sync)
@@ -938,100 +603,41 @@ public sealed class OceanPointQueryService
 					continue;
 				}
 
-
 				if (_rd != null)
 				{
-					if (slot.UniformSet.IsValid)
-					{
-						_rd.FreeRid(
-							slot.UniformSet);
-					}
-
-
-					if (slot.Input.IsValid)
-					{
-						_rd.FreeRid(
-							slot.Input);
-					}
-
-
-					if (slot.Output.IsValid)
-					{
-						_rd.FreeRid(
-							slot.Output);
-					}
+					if (slot.UniformSet.IsValid) _rd.FreeRid(slot.UniformSet);
+					if (slot.Input.IsValid) _rd.FreeRid(slot.Input);
+					if (slot.Output.IsValid) _rd.FreeRid(slot.Output);
 				}
 
-
-				slot.InFlight =
-					false;
+				slot.InFlight = false;
 			}
-
 
 			if (_rd != null)
 			{
-				if (_sampler.IsValid)
-				{
-					_rd.FreeRid(
-						_sampler);
-				}
-
-
-				if (_pipeline.IsValid)
-				{
-					_rd.FreeRid(
-						_pipeline);
-				}
-
-
-				if (_shader.IsValid)
-				{
-					_rd.FreeRid(
-						_shader);
-				}
+				if (_sampler.IsValid) _rd.FreeRid(_sampler);
+				if (_pipeline.IsValid) _rd.FreeRid(_pipeline);
+				if (_shader.IsValid) _rd.FreeRid(_shader);
 			}
 
+			Array.Clear(_slots);
+			_sampler = default;
+			_pipeline = default;
+			_shader = default;
+			_rd = null;
+			_submittedCount = 0;
+			_latestReadbackFrames = -1;
+			_hasCompletedResult = false;
 
-			Array.Clear(
-				_slots);
-
-
-			_sampler =
-				default;
-
-			_pipeline =
-				default;
-
-			_shader =
-				default;
-
-			_rd =
-				null;
-
-
-			_submittedCount =
-				0;
-
-
-			_hasLatest =
-				false;
-
-
-			_latestCount =
-				0;
-
-			_latestGeneration =
-				0;
-
-			_latestFrame =
-				0;
-
-			_latestReadbackFrames =
-				-1;
-
-
-			_dispatchedGeneration =
-				0;
+			foreach (OwnerState owner in _owners.Values)
+			{
+				owner.DispatchedGeneration = 0;
+				owner.LatestCount = 0;
+				owner.LatestGeneration = 0;
+				owner.LatestFrame = 0;
+				owner.LatestReadbackFrames = -1;
+				owner.HasLatest = false;
+			}
 		}
 	}
 }
