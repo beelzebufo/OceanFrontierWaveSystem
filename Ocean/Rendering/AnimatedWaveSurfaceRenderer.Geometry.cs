@@ -320,7 +320,8 @@ public partial class AnimatedWaveSurfaceRenderer
 				6);
 
 
-		// Direct Crest checkerboard triangle layout.
+		// Direct Crest checkerboard diagonal layout. Reverse each triangle's
+		// winding for Godot so the ocean top surface is front-facing from +Y.
 		for (int j = 0;
 			 j < sideLengthSquaresZ;
 			 j++)
@@ -368,22 +369,22 @@ public partial class AnimatedWaveSurfaceRenderer
 				if (!flipEdge)
 				{
 					indices.Add(i3);
-					indices.Add(i1);
 					indices.Add(i0);
+					indices.Add(i1);
 
 					indices.Add(i0);
-					indices.Add(i2);
 					indices.Add(i3);
+					indices.Add(i2);
 				}
 				else
 				{
 					indices.Add(i3);
-					indices.Add(i1);
 					indices.Add(i2);
+					indices.Add(i1);
 
 					indices.Add(i0);
-					indices.Add(i2);
 					indices.Add(i1);
+					indices.Add(i2);
 				}
 			}
 		}
