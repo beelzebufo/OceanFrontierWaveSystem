@@ -43,30 +43,29 @@ varying vec2 base_uv;
 
 // Undisplaced world-space position after topology morph.
 //
-// This is deliberately captured before wave displacement.
-// Crest also samples visual normals from the undisplaced
+// Crest samples visual normals using the undisplaced
 // horizontal position.
 varying vec2 undisplaced_world_xz;
 
 
-// Same spatial / altitude transition alpha used by this vertex.
+// Same transition alpha used by displacement/topology.
 //
-// Used by visual normals to transition continuously to the
-// next x2 tiled-normal scale.
+// Visual normals use it to blend continuously into
+// the next x2 texture scale.
 varying float visual_normal_lod_alpha;
 
 
 
 //
-// Crest Water 4 reference:
+// Crest Water 4:
 //
 // OceanNormalMapping.hlsl
 //
 //     v0 = ( 0.94,  0.34)
 //     v1 = (-0.85, -0.53)
 //
-// Two differently directed scrolling samples prevent the
-// normal pattern from looking like one translated texture.
+// Two differently directed samples avoid the appearance
+// of one normal texture simply translating over the ocean.
 //
 
 vec2 sample_visual_normal_pair(
@@ -113,10 +112,8 @@ vec2 sample_visual_normal_pair(
 
 
     //
-    // Crest uses UnpackNormal(...).xy.
-    //
-    // For a Godot normal texture the stored RG components are
-    // still in the 0..1 range, so convert them to -1..1.
+    // Equivalent to Crest UnpackNormal(...).xy
+    // for an ordinary RGB normal texture.
     //
 
     vec2 normal_0 =
@@ -135,12 +132,6 @@ vec2 sample_visual_normal_pair(
         1.0;
 
 
-    //
-    // Match Crest:
-    //
-    // norm = sample0.xy + sample1.xy
-    //
-
     return
         normal_0 +
         normal_1;
@@ -149,13 +140,13 @@ vec2 sample_visual_normal_pair(
 
 
 //
-// Crest computes the two scroll speeds from the physical
-// Animated Waves texel width:
+// Crest:
 //
-// speedLow  = pow(log(1 + 2 * texelWidth) * 1.875, 1.4)
-// speedHigh = pow(log(1 + 4 * texelWidth) * 1.875, 1.4)
+// speedLow =
+//     pow(log(1 + 2 * texelWidth) * 1.875, 1.4)
 //
-// The second speed corresponds to the next x2 visual scale.
+// speedHigh =
+//     pow(log(1 + 4 * texelWidth) * 1.875, 1.4)
 //
 
 float visual_normal_scroll_speed(
@@ -180,8 +171,6 @@ float visual_normal_scroll_speed(
 
 
 //
-// Renderer-only micro-normal slope.
-//
 // Crest:
 //
 //     nstretch =
@@ -189,27 +178,17 @@ float visual_normal_scroll_speed(
 //         cascadeScale /
 //         100
 //
-// Our physical LOD world width is:
+// Our:
 //
-//     worldSize = 4 * cascadeScale
+//     lodWorldSize =
+//         4 * cascadeScale
 //
 // therefore:
 //
-//     cascadeScale = worldSize / 4
-//
-// and:
-//
 //     stretch =
 //         normalScale *
-//         worldSize /
+//         lodWorldSize /
 //         400
-//
-// For current baseline:
-//
-//     worldSize = 32m
-//     normalScale = 40
-//
-//     stretch = 3.2m
 //
 
 vec2 sample_visual_micro_normal(
@@ -242,11 +221,7 @@ vec2 sample_visual_micro_normal(
 
 
     //
-    // Crest blends into the next x2 tiled-normal scale as the
-    // geometry approaches the next spatial LOD.
-    //
-    // This does NOT require another AWF slice. It is just another
-    // sampling scale of the same repeating normal texture.
+    // Blend into the next x2 normal-map scale.
     //
 
     float blend =
@@ -294,21 +269,15 @@ vec2 sample_visual_micro_normal(
 
 
 //
-// Add renderer-only micro slope to the geometric AWF normal.
+// Fragment NORMAL is view-space.
 //
-// Godot's fragment NORMAL is view-space.
+// The micro-normal slope is defined in our world-aligned
+// ocean XZ frame, so transform only that perturbation
+// into view-space and add it to the existing geometric
+// AWF normal.
 //
-// Crest performs its addition in the ocean/world-aligned frame:
-//
-//     n_pixel.xz += microNormal.xy
-//
-// so:
-//
-// view normal
-//     -> world
-//     -> modify XZ
-//     -> normalize
-//     -> view
+// This avoids converting the complete normal
+// view -> world -> view.
 //
 
 vec3 apply_visual_micro_normal(
@@ -323,32 +292,26 @@ vec3 apply_visual_micro_normal(
     }
 
 
-    vec3 world_normal =
-        normalize(
-            mat3(
-                INV_VIEW_MATRIX) *
-            view_normal);
-
-
     vec2 micro_normal =
         sample_visual_micro_normal(
             world_xz,
             lod_alpha);
 
 
-    world_normal.xz +=
-        micro_normal;
-
-
-    world_normal =
-        normalize(
-            world_normal);
+    vec3 micro_view =
+        (
+            VIEW_MATRIX *
+            vec4(
+                micro_normal.x,
+                0.0,
+                micro_normal.y,
+                0.0)
+        ).xyz;
 
 
     return normalize(
-        mat3(
-            VIEW_MATRIX) *
-        world_normal);
+        view_normal +
+        micro_view);
 }
 
 
@@ -357,7 +320,7 @@ void vertex()
 {
     //
     // world_vertex_coords is enabled:
-    // VERTEX is already world-space.
+    // VERTEX is already in world space.
     //
 
     vec2 world_xz =
@@ -368,10 +331,9 @@ void vertex()
 
 
     //
-    // Project-specific common-focus topology morph.
+    // Common-focus topology morph.
     //
-    // No NODE_POSITION_WORLD/per-tile snapping:
-    // our nested rings already use explicit stitched edges.
+    // No per-tile NODE_POSITION_WORLD snapping.
     //
 
     world_xz =
@@ -382,8 +344,8 @@ void vertex()
 
 
     //
-    // Canonical AWF is sampled after topology morph but before
-    // displacement is applied.
+    // Canonical AWF sampling happens at the morphed,
+    // undisplaced XZ position.
     //
 
     vec3 current_disp =
@@ -427,9 +389,7 @@ void vertex()
 
 
     //
-    // Geometric surface normal remains entirely AWF-derived.
-    //
-    // Visual normal texture is NOT applied here.
+    // Geometric surface normal remains AWF-derived.
     //
 
     NORMAL =
@@ -442,7 +402,7 @@ void vertex()
 
 
     //
-    // Save renderer-only fragment inputs before displacement.
+    // Renderer-only inputs for fragment micro normals.
     //
 
     undisplaced_world_xz =
@@ -485,15 +445,15 @@ void vertex()
 void fragment()
 {
     //
-    // Visual micro normal modifies only the shading normal.
+    // Renderer-only detail.
     //
-    // It has no effect on:
+    // Does not affect:
     //
-    // - mesh displacement;
-    // - AnimatedWaveField;
-    // - GPU point queries;
-    // - physics;
-    // - geometric normal diagnostic.
+    // - AnimatedWaveField
+    // - displacement
+    // - GPU queries
+    // - physics
+    // - geometric normal diagnostics
     //
 
     NORMAL =
