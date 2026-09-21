@@ -1,3 +1,8 @@
+// Portions of this file are directly ported from Crest Water 4.
+// Source: wave-harmonic/crest commit db0658ff0b2e93e4a9e28cc2867509658b0ecc00
+// File: OceanVertHelpers.hlsl
+// Crest is licensed under the MIT License. See THIRD_PARTY_NOTICES_CREST4.txt.
+
 uniform sampler2DArray animated_wave_field : filter_linear, repeat_disable;
 uniform vec2 lod_center_xz;
 uniform float lod_world_size;
@@ -16,7 +21,16 @@ uniform float horizontal_display_scale = 1.0;
 uniform float vertical_display_scale = 1.0;
 uniform float lod_scale_alpha = 0.0;
 uniform float geometry_grid_width = 0.0;
-uniform vec2 geometry_snap_offset_xz = vec2(0.0);
+
+// Crest OceanRenderer computes these from the base mesh density:
+//
+//     baseMeshDensity = lodDataResolution * 0.25 / geometryDownSampleFactor
+//     blackPoint      = 0.4 / (baseMeshDensity / 8)
+//     whiteRange      = 1 - blackPoint - blackPoint
+//
+// Geometry.cs uploads the exact values when nested resources are built.
+uniform float lod_alpha_black_point_fade = 0.06666667;
+uniform float lod_alpha_black_point_white_point_fade = 0.86666667;
 
 const int NORMAL_METHOD_BLENDED_XYZ_FORWARD = 0;
 const int NORMAL_METHOD_CREST_PER_LOD_FORWARD = 1;
@@ -32,90 +46,113 @@ vec3 sample_awf_lod(vec2 world_xz, vec2 center_xz, float world_size, float layer
     return textureLod(animated_wave_field, vec3(uv, layer), 0.0).xyz;
 }
 
+
+// Direct port of Crest Water 4 ComputeLodAlpha().
 float compute_surface_lod_alpha(vec2 world_xz)
 {
-    float scale = lod_world_size * 0.25;
-    vec2 offset = abs(world_xz - lod_focus_xz);
-    float raw_alpha = max(offset.x, offset.y) / scale - 1.0;
+    // Taxicab distance from ocean center drives LOD transitions.
+    vec2 offset_from_center =
+        abs(
+            world_xz -
+            lod_focus_xz);
+
+    float taxicab_norm =
+        max(
+            offset_from_center.x,
+            offset_from_center.y);
+
+    // Crest cascade scale = texture world size / 4.
+    float cascade_scale =
+        lod_world_size *
+        0.25;
 
     float lod_alpha =
-        clamp(
-            (raw_alpha - 0.15) /
-            (0.85 - 0.15),
-            0.0,
-            1.0);
+        taxicab_norm /
+        cascade_scale -
+        1.0;
 
-    if (selected_lod < 0.5)
-    {
-        lod_alpha =
-            min(
-                lod_alpha +
-                lod_scale_alpha,
-                1.0);
-    }
+    // Exact Crest remap. These constants are derived from actual mesh
+    // density in AnimatedWaveSurfaceRenderer.Geometry.cs.
+    lod_alpha =
+        max(
+            (
+                lod_alpha -
+                lod_alpha_black_point_fade
+            ) /
+            lod_alpha_black_point_white_point_fade,
+            0.0);
+
+    // Crest only applies ViewerAltitudeLevelAlpha to LOD0 geometry/shape.
+    float mesh_scale_alpha =
+        selected_lod < 0.5
+            ? lod_scale_alpha
+            : 0.0;
+
+    lod_alpha =
+        min(
+            lod_alpha +
+            mesh_scale_alpha,
+            1.0);
 
     return lod_alpha;
 }
 
-// Common-focus topology morph.
+
+// Direct Godot port of Crest Water 4 SnapAndTransitionVertLayout().
 //
-// Our nested renderer already stitches adjacent rings explicitly. Per-tile
-// snapping therefore causes neighbouring rings to move by different offsets
-// when the focus follows the camera. The morph phase is anchored to one common
-// lod_focus_xz instead.
+// Crest passes the tile object-matrix translation. In Godot the caller
+// supplies MODEL_MATRIX * vec4(0,0,0,1), avoiding stage built-ins inside
+// this helper function.
 vec2 transition_vertex_layout(
     vec2 world_xz,
+    vec2 object_world_xz,
     float grid_width,
     out float lod_alpha)
 {
-    //
-    // One common translation for the complete nested hierarchy.
-    //
-
-    world_xz -=
-        geometry_snap_offset_xz;
-
-
-    lod_alpha =
-        compute_surface_lod_alpha(
-            world_xz);
-
-return world_xz;
-
     if (grid_width <= 0.0)
     {
+        lod_alpha =
+            compute_surface_lod_alpha(
+                world_xz);
+
         return world_xz;
     }
+
+    float grid_size_2 =
+        2.0 *
+        grid_width;
 
     float grid_size_4 =
         4.0 *
         grid_width;
 
-    //
-    // Keep the common-focus topology phase. Positional snapping must not be
-    // derived independently from this LOD's geometry grid width.
-    //
+    // Crest: snap size is twice the original grid size to preserve the
+    // eight-triangle layout while the ocean root follows the viewpoint.
+    world_xz -=
+        fract(
+            object_world_xz /
+            grid_size_2) *
+        grid_size_2;
 
+    lod_alpha =
+        compute_surface_lod_alpha(
+            world_xz);
 
-    vec2 relative_xz =
-        world_xz -
-        lod_focus_xz;
-
+    // Crest: smoothly transition the vertex layout toward the next LOD.
     vec2 m =
         fract(
-            relative_xz /
+            world_xz /
             grid_size_4);
 
     vec2 offset =
         m -
         vec2(0.5);
 
-    const float MIN_RADIUS =
-        0.375;
+    const float MIN_RADIUS = 0.375;
 
     if (abs(offset.x) < MIN_RADIUS)
     {
-        relative_xz.x +=
+        world_xz.x +=
             offset.x *
             lod_alpha *
             grid_size_4;
@@ -123,15 +160,13 @@ return world_xz;
 
     if (abs(offset.y) < MIN_RADIUS)
     {
-        relative_xz.y +=
+        world_xz.y +=
             offset.y *
             lod_alpha *
             grid_size_4;
     }
 
-    return
-        lod_focus_xz +
-        relative_xz;
+    return world_xz;
 }
 
 void sample_surface_components(

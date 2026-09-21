@@ -332,18 +332,27 @@ void vertex()
         VERTEX.xz;
 
 
+    // Crest SnapAndTransitionVertLayout receives the tile object-matrix
+    // translation. Keep the stage-specific MODEL_MATRIX access here and
+    // pass the value into the helper explicitly.
+    vec2 object_world_xz =
+        (
+            MODEL_MATRIX *
+            vec4(
+                0.0,
+                0.0,
+                0.0,
+                1.0)
+        ).xz;
+
+
     float lod_alpha;
 
-
-    //
-    // Common-focus topology morph.
-    //
-    // No per-tile NODE_POSITION_WORLD snapping.
-    //
 
     world_xz =
         transition_vertex_layout(
             world_xz,
+            object_world_xz,
             geometry_grid_width,
             lod_alpha);
 

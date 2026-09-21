@@ -25,6 +25,13 @@ namespace OceanFrontier.Water.Waves.AnimatedWaves;
 ///         -> AnimatedWaveCombinePass
 ///         -> AnimatedWaveField
 ///
+/// Spatial-state contract:
+///
+///     AnimatedWaveLodLayout
+///         -> GPU CascadeParams-equivalent buffer
+///         -> AnimatedWaveField composition
+///         -> committed AnimatedWaveRenderState
+///
 /// AnimatedWaveField remains the only authoritative final wave field
 /// consumed by renderer, physics, queries, foam and FX.
 /// </summary>
@@ -53,8 +60,13 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 	/// <summary>
-	/// Authoritative spatial Animated Waves LOD layout used by
+	/// Authoritative working spatial Animated Waves LOD layout used by
 	/// composition and GPU LOD metadata.
+	///
+	/// This object is mutated on the render thread while preparing the
+	/// next AnimatedWaveField generation.
+	///
+	/// Main-thread consumers must not use it directly.
 	/// </summary>
 	public AnimatedWaveLodLayout LodLayout { get; private set; }
 
@@ -69,10 +81,22 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	public AnimatedWaveLodGpuBuffer LodGpuBuffer { get; private set; }
 
 
+	/// <summary>
+	/// CPU-side committed spatial state belonging to the canonical
+	/// AnimatedWaveField.
+	///
+	/// Crest equivalent:
+	///
+	///     LodTransform.RenderData.Current
+	///
+	/// Consumers must read this state instead of independently
+	/// recalculating LOD slices from current camera/pending values.
+	/// </summary>
+	public AnimatedWaveRenderState RenderState { get; private set; }
+
+
 	//
-	// Stage A:
-	//
-	// FFT is one Animated Waves input.
+	// FFT is currently one Animated Waves input.
 	//
 
 	private AnimatedWaveFftDirectPass _fftDirectPass;
@@ -89,7 +113,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		Field != null &&
 		DirectField != null &&
 		LodLayout != null &&
-		LodGpuBuffer != null;
+		LodGpuBuffer != null &&
+		RenderState != null;
 
 
 	public void Initialize(
@@ -117,8 +142,6 @@ internal sealed class AnimatedWaveComposer : IDisposable
 			//
 			// Canonical FINAL Animated Waves field.
 			//
-			// External consumers continue to use only this field.
-			//
 
 			Field =
 				new AnimatedWaveField(
@@ -130,9 +153,6 @@ internal sealed class AnimatedWaveComposer : IDisposable
 			//
 			// Crest-equivalent direct Animated Waves buffer.
 			//
-			// Contains only the contribution assigned directly
-			// to each spatial LOD before ShapeCombine.
-			//
 
 			DirectField =
 				new AnimatedWaveDirectField(
@@ -142,12 +162,13 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 			//
-			// One shared spatial LOD description for:
+			// Working render-thread spatial layout.
 			//
-			// direct input placement,
-			// ShapeCombine,
-			// final AWF sampling,
-			// physics queries.
+			// Crest equivalent:
+			//
+			//     LodTransform.RenderData.Current
+			//
+			// before it is written into CascadeParams.
 			//
 
 			LodLayout =
@@ -157,10 +178,26 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					baseWorldSize);
 
 
+			//
+			// GPU CascadeParams equivalent.
+			//
+
 			LodGpuBuffer =
 				new AnimatedWaveLodGpuBuffer(
 					rd,
 					LodLayout);
+
+
+			//
+			// CPU committed snapshot for renderer/debug consumers.
+			//
+			// This does not calculate spatial state.
+			// It only copies the exact layout used by composition.
+			//
+
+			RenderState =
+				new AnimatedWaveRenderState(
+					lodCount);
 		}
 		catch
 		{
@@ -172,11 +209,13 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 	/// <summary>
-	/// Updates CPU spatial LOD metadata only.
+	/// Updates CPU working spatial LOD metadata only.
 	///
 	/// Production composition normally updates the layout through
-	/// ComposeFft(). This method remains available for existing
-	/// diagnostic/runtime plumbing.
+	/// ComposeFft().
+	///
+	/// This does NOT publish RenderState and therefore does not change
+	/// the spatial contract of the currently committed AnimatedWaveField.
 	/// </summary>
 	public void UpdateLodLayout(
 		Vector2 focusXZ,
@@ -220,7 +259,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		if (Field == null ||
 			DirectField == null ||
 			LodLayout == null ||
-			LodGpuBuffer == null)
+			LodGpuBuffer == null ||
+			RenderState == null)
 		{
 			throw new InvalidOperationException(
 				"Animated Wave resources are incomplete.");
@@ -228,14 +268,12 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// Consumers/passes borrow:
+		// Passes borrow:
 		//
 		//     FFT displacement
 		//     LodGpuBuffer
 		//     DirectField
 		//     Field
-		//
-		// Release passes before replacing them.
 		//
 
 		_combinePass?.Dispose();
@@ -302,14 +340,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 	/// <summary>
-	/// Transitional overload retained so the existing OceanRuntime
-	/// continues to compile until its single Stage A call-site change.
-	///
-	/// At the current minimum whole-ocean scale the Crest LOD scale
-	/// transition alpha is zero.
-	///
-	/// The next Stage A file change will pass the actual
-	/// lodScaleAlpha explicitly.
+	/// Transitional overload retained for callers which do not supply
+	/// whole-stack LOD transition alpha.
 	/// </summary>
 	public void ComposeFft(
 		Vector2 focusXZ,
@@ -328,14 +360,14 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	///
 	/// Exact order:
 	///
-	///     1. Update spatial LOD layout.
+	///     1. Update working spatial LOD layout.
 	///     2. Upload CascadeParams-equivalent metadata once.
 	///     3. Raw FFT -> direct per-LOD contributions.
-	///     4. GPU dependency barrier.
-	///     5. Coarse-to-fine ShapeCombine.
+	///     4. Coarse-to-fine ShapeCombine.
+	///     5. Publish the exact same spatial state as committed
+	///        AnimatedWaveRenderState.
 	///
-	/// After this method returns from CPU command recording,
-	/// AnimatedWaveField is the canonical final field for this update.
+	/// The committed CPU state is never independently recalculated.
 	/// </summary>
 	public void ComposeFft(
 		Vector2 focusXZ,
@@ -347,7 +379,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 			LodLayout == null ||
 			LodGpuBuffer == null ||
 			DirectField == null ||
-			Field == null)
+			Field == null ||
+			RenderState == null)
 		{
 			return;
 		}
@@ -369,7 +402,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// 1. Update the ONE spatial Animated Waves layout.
+		// 1. Update the ONE working spatial Animated Waves layout.
 		//
 		// Centres remain snapped independently to each LOD's texel
 		// width, matching Crest LodTransform.
@@ -381,10 +414,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// 2. Upload spatial LOD metadata exactly once.
-		//
-		// Both the direct-input pass and ShapeCombine consume this
-		// same buffer.
+		// 2. Upload the exact same layout to GPU CascadeParams.
 		//
 
 		LodGpuBuffer.Upload(
@@ -394,19 +424,11 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//
 		// 3. FFT Animated-Wave input.
 		//
-		// Writes:
-		//
-		//     DirectField[L]
-		//
-		// Each spatial LOD receives only its directly assigned
-		// wavelength content.
+		// Writes DirectField[L] only.
 		//
 
 		_fftDirectPass.Dispatch(
 			lodScaleAlpha);
-
-
-		
 
 
 		//
@@ -419,19 +441,39 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//         +
 		//         Resample(Final[L + 1])
 		//
-		// AnimatedWaveCombinePass itself inserts compute barriers
-		// between dependent neighbouring LOD dispatches.
-		//
 
 		_combinePass.Dispatch();
+
+
+		//
+		// 5. Commit the spatial state belonging to this AWF generation.
+		//
+		// IMPORTANT:
+		//
+		// We copy the already-calculated LodLayout.
+		//
+		// There is no CalculateSlice() here and no camera-state lookup.
+		// Renderer/debug consumers therefore receive exactly the same
+		// centers, scales and texel widths which were uploaded to the GPU
+		// and used for Direct + ShapeCombine.
+		//
+		// Crest equivalent:
+		//
+		//     LodTransform.RenderData.Current
+		//         -> WriteCascadeParams()
+		//         -> consumers
+		//
+
+		RenderState.Publish(
+			LodLayout,
+			lodScaleAlpha);
 	}
 
 
 	public void Release()
 	{
 		//
-		// Release GPU passes first because they borrow all resources
-		// below.
+		// Release GPU passes first because they borrow resources below.
 		//
 
 		_combinePass?.Dispose();
@@ -447,7 +489,15 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// Then release persistent composition storage.
+		// CPU committed state owns no GPU resources.
+		//
+
+		RenderState =
+			null;
+
+
+		//
+		// Persistent composition storage.
 		//
 
 		DirectField?.Dispose();

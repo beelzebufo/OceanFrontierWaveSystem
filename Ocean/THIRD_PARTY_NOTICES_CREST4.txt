@@ -1,0 +1,57 @@
+Crest Water 4 direct-port notice
+================================
+
+Reference repository:
+  https://github.com/wave-harmonic/crest
+
+Reference commit:
+  db0658ff0b2e93e4a9e28cc2867509658b0ecc00
+
+Directly ported source/algorithms in this Stage C package:
+
+1. crest/Assets/Crest/Crest/Scripts/OceanBuilder.cs
+   - PatchType topology set
+   - BuildOceanPatch mesh construction
+   - CreateLOD 16-tile LOD0 / 12-tile ring layout
+   - fat/slim patch assignment
+   - outer horizon skirt behavior
+   - patch orientation rules
+
+2. crest/Assets/Crest/Crest/Shaders/OceanVertHelpers.hlsl
+   - ComputeLodAlpha
+   - SnapAndTransitionVertLayout
+   - 2x geometry-grid snapping
+   - 4x geometry-grid topology morph
+   - minRadius = 0.375
+
+3. crest/Assets/Crest/Crest/Scripts/OceanRenderer.cs
+   - baseMeshDensity relation
+   - _lodAlphaBlackPointFade calculation
+   - _lodAlphaBlackPointWhitePointFade calculation
+
+Unity-specific GameObject/Renderer/CommandBuffer plumbing is not copied. It is replaced by
+Godot Node3D / MeshInstance3D / ShaderMaterial orchestration while preserving the above
+Crest topology and shader math.
+
+MIT License
+-----------
+
+Copyright (c) 2019 Wave Harmonic and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -10,11 +10,22 @@ void vertex()
     vec2 world_xz =
         VERTEX.xz;
 
+    vec2 object_world_xz =
+        (
+            MODEL_MATRIX *
+            vec4(
+                0.0,
+                0.0,
+                0.0,
+                1.0)
+        ).xz;
+
     float lod_alpha;
 
     world_xz =
         transition_vertex_layout(
             world_xz,
+            object_world_xz,
             geometry_grid_width,
             lod_alpha);
 
