@@ -68,9 +68,6 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 	private bool _initializedControls;
 
-	
-			
-
 
 	public override void _Ready()
 	{
@@ -104,13 +101,16 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			_runtime.GetNodeOrNull<OceanDiagnosticCameraController>(
 				"Camera3D");
 
+
 		_diagnosticHull =
 			_runtime.GetNodeOrNull<RigidBody3D>(
 				"DiagnosticBuoyancyHull");
-		
+
+
 		_diagnosticBuoyancy =
 			_diagnosticHull?.GetNodeOrNull<OceanBuoyancy>(
-				"OceanBuoyancy");			
+				"OceanBuoyancy");
+
 
 		_sun =
 			_runtime.GetNodeOrNull<DirectionalLight3D>(
@@ -128,14 +128,12 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 
 		_selectedLod =
-			_surface?.SpatialLodIndex ?? 0;
+			_surface?.SpatialLodIndex ??
+			0;
 
 
 		//
 		// Diagnostic defaults.
-		//
-		// Keep XZ focus fixed at origin until Follow Camera
-		// is explicitly enabled.
 		//
 
 		_runtime.FocusOverrideXZ =
@@ -146,22 +144,8 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 
 		//
-		// IMPORTANT:
-		//
-		// Diagnostic framing often places the camera high above
-		// the water in order to see an entire LOD.
-		//
-		// That diagnostic camera height must NOT automatically
-		// enlarge the production LOD stack, otherwise:
-		//
-		// larger LOD
-		// -> diagnostic camera frames larger LOD
-		// -> camera goes higher
-		// -> LOD becomes even larger
-		//
-		// Therefore diagnostics starts with a forced ×1 scale.
-		//
-		// "View-height LOD" in the UI disables this override.
+		// Diagnostic camera height must not automatically expand
+		// the production LOD stack.
 		//
 
 		_runtime.LodScaleOverride =
@@ -169,7 +153,6 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 		_runtime.LodScaleOverrideEnabled =
 			true;
-
 
 
 		BuildUi();
@@ -238,41 +221,46 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			"Side Z",
 			OceanDiagnosticCameraController.ViewMode.SideZ);
 
+
 		var vesselCamera =
-	Check(
-		top,
-		"Vessel Camera",
-		false);
+			Check(
+				top,
+				"Vessel Camera",
+				false);
 
-vesselCamera.Toggled +=
-	value =>
-	{
-		if (value)
-		{
-			if (_diagnosticHull != null)
+
+		vesselCamera.Toggled +=
+			value =>
 			{
-				_camera?.EnterVesselMode(
-					_diagnosticHull);
+				if (value)
+				{
+					if (_diagnosticHull != null)
+					{
+						_camera?.EnterVesselMode(
+							_diagnosticHull);
 
-				_overviewRequested = false;
-				_framed = true;
-			}
-		}
-		else
-		{
-			_camera?.ExitVesselMode();
+						_overviewRequested =
+							false;
 
-			_framed = false;
-		}
-	};
+						_framed =
+							true;
+					}
+				}
+				else
+				{
+					_camera?.ExitVesselMode();
 
+					_framed =
+						false;
+				}
+			};
 
 
 		Button(
 			top,
 			"Overview",
 			() =>
-			{	
+			{
 				_camera?.ExitVesselMode();
 
 				_overviewRequested =
@@ -312,12 +300,6 @@ vesselCamera.Toggled +=
 		//
 		// XZ focus control.
 		//
-		// Off:
-		//     field stays centered at diagnostic origin.
-		//
-		// On:
-		//     field follows active camera in XZ.
-		//
 
 		var follow =
 			Check(
@@ -335,14 +317,6 @@ vesselCamera.Toggled +=
 		//
 		// Vertical viewpoint LOD scaling.
 		//
-		// Off:
-		//     force production minimum scale ×1
-		//     -> LOD0 = 32m.
-		//
-		// On:
-		//     camera height drives Crest-like
-		//     ×1 -> ×2 -> ×4... scale transitions.
-		//
 
 		var viewHeightLod =
 			Check(
@@ -356,20 +330,11 @@ vesselCamera.Toggled +=
 			{
 				if (value)
 				{
-					//
-					// Release diagnostic override.
-					//
-
 					_runtime.LodScaleOverrideEnabled =
 						false;
 				}
 				else
 				{
-					//
-					// Return immediately to the production
-					// minimum LOD stack.
-					//
-
 					_runtime.LodScaleOverride =
 						1.0f;
 
@@ -406,7 +371,7 @@ vesselCamera.Toggled +=
 		panel.Size =
 			new Vector2(
 				305,
-				510);
+				580);
 
 
 		root.AddChild(
@@ -419,7 +384,7 @@ vesselCamera.Toggled +=
 				CustomMinimumSize =
 					new Vector2(
 						300,
-						500),
+						570),
 			};
 
 
@@ -452,29 +417,137 @@ vesselCamera.Toggled +=
 
 		var vesselMotion =
 			Option(
-			column,
-			"Motion",
-			"Heave only",
-			"Heave + Pitch",
-			"Heave + Roll",
-			"Heave + Pitch + Roll");
+				column,
+				"Motion",
+				"Heave only",
+				"Heave + Pitch",
+				"Heave + Roll",
+				"Heave + Pitch + Roll");
 
 
 		vesselMotion.Selected =
 			(int)(
-			_diagnosticBuoyancy?.Mode ??
-			OceanBuoyancy.BuoyancyMode.HeavePitchRoll);
+				_diagnosticBuoyancy?.Mode ??
+				OceanBuoyancy.BuoyancyMode.HeavePitchRoll);
 
 
 		vesselMotion.ItemSelected +=
 			index =>
 			{
 				if (_diagnosticBuoyancy != null)
-					{
+				{
 					_diagnosticBuoyancy.Mode =
 						(OceanBuoyancy.BuoyancyMode)index;
-					}
+				}
 			};
+
+
+		Spin(
+			column,
+			"Target submersion",
+			_diagnosticBuoyancy?.TargetSubmersion ?? 0.6f,
+			0.05,
+			3.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.TargetSubmersion =
+							(float)value;
+					}
+				};
+
+
+		Spin(
+			column,
+			"Damping ratio",
+			_diagnosticBuoyancy?.DampingRatio ?? 0.9f,
+			0.0,
+			2.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.DampingRatio =
+							(float)value;
+					}
+				};
+
+
+		Spin(
+			column,
+			"Max buoyancy",
+			_diagnosticBuoyancy?.MaximumBuoyancyFactor ?? 3.0f,
+			1.0,
+			10.0,
+			0.1)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.MaximumBuoyancyFactor =
+							(float)value;
+					}
+				};
+
+
+		Spin(
+			column,
+			"Forward drag",
+			_diagnosticBuoyancy?.ForwardDrag ?? 0.25f,
+			0.0,
+			10.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.ForwardDrag =
+							(float)value;
+					}
+				};
+
+
+		Spin(
+			column,
+			"Lateral drag",
+			_diagnosticBuoyancy?.LateralDrag ?? 0.8f,
+			0.0,
+			10.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.LateralDrag =
+							(float)value;
+					}
+				};
+
+
+		Spin(
+			column,
+			"Probe plane Y",
+			_diagnosticBuoyancy?.ProbePlaneY ?? -0.65f,
+			-3.0,
+			3.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+				{
+					if (_diagnosticBuoyancy != null)
+					{
+						_diagnosticBuoyancy.ProbePlaneY =
+							(float)value;
+					}
+				};
 
 
 		//
@@ -1192,10 +1265,10 @@ vesselCamera.Toggled +=
 			8;
 
 		performancePanel.OffsetTop =
-			-132;
+			-150;
 
 		performancePanel.OffsetRight =
-			210;
+			230;
 
 		performancePanel.OffsetBottom =
 			-36;
@@ -1212,7 +1285,8 @@ vesselCamera.Toggled +=
 					"FPS: --\n" +
 					"Frame: -- ms\n" +
 					"Queries: 0\n" +
-					"Query readback: -- frames",
+					"Query readback: -- frames\n" +
+					"Buoyancy generation: --",
 
 				MouseFilter =
 					Control.MouseFilterEnum.Ignore,
@@ -1360,7 +1434,7 @@ vesselCamera.Toggled +=
 			MathF.Pow(
 				2.0f,
 				settings.SmallestWavelengthPowerOfTwo +
-				index);
+					index);
 
 
 		_bandWavelength.Text =
@@ -1406,30 +1480,30 @@ vesselCamera.Toggled +=
 
 
 	private void AddViewButton(
-	HBoxContainer row,
-	string title,
-	OceanDiagnosticCameraController.ViewMode mode)
-{
-	Button(
-		row,
-		title,
-		() =>
-		{
-			_camera?.ExitVesselMode();
+		HBoxContainer row,
+		string title,
+		OceanDiagnosticCameraController.ViewMode mode)
+	{
+		Button(
+			row,
+			title,
+			() =>
+			{
+				_camera?.ExitVesselMode();
 
 
-			_viewMode =
-				mode;
+				_viewMode =
+					mode;
 
 
-			_overviewRequested =
-				false;
+				_overviewRequested =
+					false;
 
 
-			_framed =
-				false;
-		});
-}
+				_framed =
+					false;
+			});
+	}
 
 
 	private void SetSunProgress(
@@ -1451,21 +1525,21 @@ vesselCamera.Toggled +=
 		float elevation =
 			Mathf.DegToRad(
 				8.0f +
-				57.0f *
-				Mathf.Sin(
-					Mathf.Pi *
-					progress));
+					57.0f *
+					Mathf.Sin(
+						Mathf.Pi *
+							progress));
 
 
 		Vector3 direction =
 			new(
 				Mathf.Cos(elevation) *
-				Mathf.Cos(azimuth),
+					Mathf.Cos(azimuth),
 
 				-Mathf.Sin(elevation),
 
 				Mathf.Cos(elevation) *
-				Mathf.Sin(azimuth));
+					Mathf.Sin(azimuth));
 
 
 		_sun.LookAt(
@@ -1486,16 +1560,6 @@ vesselCamera.Toggled +=
 			return;
 		}
 
-
-		//
-		// Diagnostic framing.
-		//
-		// This runs only when explicitly requested by a view
-		// button / selected LOD / overview command.
-		//
-		// A scale change by itself does NOT clear _framed,
-		// which prevents a height-scale feedback loop.
-		//
 
 		if (!_syncing &&
 			!_framed &&
@@ -1567,7 +1631,7 @@ vesselCamera.Toggled +=
 				Math.Max(
 					0,
 					_runtime.RuntimeAnimatedWaveLodCount -
-					1);
+						1);
 
 
 			_structure.Text =
@@ -1641,18 +1705,30 @@ vesselCamera.Toggled +=
 					out bool hasResult);
 
 
+				string buoyancyGeneration =
+					_diagnosticBuoyancy != null &&
+					_diagnosticBuoyancy.HasCompletedResult
+						? _diagnosticBuoyancy
+							.LatestCompletedGeneration
+							.ToString()
+						: "--";
+
+
 				_performance.Text =
 					$"FPS: " +
-					$"{_performanceSampleFrames / _performanceSampleSeconds:0.0}\n" +
+						$"{_performanceSampleFrames / _performanceSampleSeconds:0.0}\n" +
 
 					$"Frame: " +
-					$"{_performanceSampleSeconds * 1000.0 / _performanceSampleFrames:0.00} ms\n" +
+						$"{_performanceSampleSeconds * 1000.0 / _performanceSampleFrames:0.00} ms\n" +
 
 					$"Queries: " +
-					$"{queries}\n" +
+						$"{queries}\n" +
 
 					$"Query readback: " +
-					$"{(hasResult ? readbackFrames.ToString() : "--")} frames";
+						$"{(hasResult ? readbackFrames.ToString() : "--")} frames\n" +
+
+					$"Buoyancy generation: " +
+						$"{buoyancyGeneration}";
 
 
 				_performanceSampleSeconds =
@@ -1701,7 +1777,7 @@ vesselCamera.Toggled +=
 					Math.Max(
 						0,
 						_runtime.RuntimeAnimatedWaveLodCount -
-						1))
+							1))
 				: _selectedLod;
 
 
@@ -1756,27 +1832,17 @@ vesselCamera.Toggled +=
 		{
 			layoutStatus =
 				$"Nested LOD0-" +
-				$"{_runtime.RuntimeAnimatedWaveLodCount - 1} | " +
+					$"{_runtime.RuntimeAnimatedWaveLodCount - 1} | " +
 
 				$"{_surface.NestedTileCount} tiles | " +
 
 				$"outer size " +
-				$"{outerSlice.WorldSize:0.##}m | " +
+					$"{outerSlice.WorldSize:0.##}m | " +
 
 				$"diagnostic LOD" +
-				$"{diagnosticLod}";
+					$"{diagnosticLod}";
 		}
 
-
-		//
-		// The two new values are intentionally always visible:
-		//
-		// scale:
-		//     discrete whole-stack ×1/×2/×4...
-		//
-		// alpha:
-		//     transition progress towards next x2 scale.
-		//
 
 		_status.Text =
 			$"{layoutStatus} | " +
@@ -1822,9 +1888,9 @@ vesselCamera.Toggled +=
 		{
 			float domain =
 				0.5f *
-				MathF.Pow(
-					2.0f,
-					index);
+					MathF.Pow(
+						2.0f,
+						index);
 
 
 			_inset.PhysicalMetadata =

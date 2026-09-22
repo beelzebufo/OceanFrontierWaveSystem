@@ -22,6 +22,7 @@ public partial class OceanBuoyancy : Node
 
 	private const int QueryCapacity = 12;
 	private const float QueryScaleDivisor = 4.0f;
+	private const float ProfileSpanEpsilon = 0.0001f;
 
 	[Export]
 	public BuoyancyMode Mode { get; set; } = BuoyancyMode.HeavePitchRoll;
@@ -61,6 +62,36 @@ public partial class OceanBuoyancy : Node
 
 	[Export(PropertyHint.Range, "0.1,10,0.1,or_greater")]
 	public float ForceLineScale { get; set; } = 2.0f;
+
+
+	//
+	// Optional hull-shape weighting.
+	//
+	// ProbeWeights remain the authoritative base distribution.
+	//
+	// When enabled, an additional linear multiplier is applied
+	// along local Z:
+	//
+	//     -Z = stern
+	//     +Z = bow
+	//
+	// This is useful for long hulls with a tapered/sharp bow without
+	// requiring a different buoyancy solver.
+	//
+	// The resulting effective weights are normalized by _totalWeight,
+	// so this redistributes buoyancy without changing the equilibrium
+	// TargetSubmersion contract.
+	//
+
+	[Export]
+	public bool UseLongitudinalWeightProfile { get; set; }
+
+	[Export(PropertyHint.Range, "0.01,4,0.01,or_greater")]
+	public float SternWeightScale { get; set; } = 1.0f;
+
+	[Export(PropertyHint.Range, "0.01,4,0.01,or_greater")]
+	public float BowWeightScale { get; set; } = 0.35f;
+
 
 	[Export]
 	public Vector3[] ProbeLocalPositions { get; set; } =
@@ -109,6 +140,9 @@ public partial class OceanBuoyancy : Node
 
 	private readonly Vector3[] _probeWorldPositions =
 		new Vector3[QueryCapacity];
+
+	private readonly float[] _effectiveProbeWeights =
+		new float[QueryCapacity];
 
 	private readonly float[] _probeForces =
 		new float[QueryCapacity];
@@ -291,14 +325,21 @@ public partial class OceanBuoyancy : Node
 			ForwardDrag < 0.0f ||
 			!float.IsFinite(LateralDrag) ||
 			LateralDrag < 0.0f ||
-			!float.IsFinite(SeaLevel))
+			!float.IsFinite(SeaLevel) ||
+			!float.IsFinite(SternWeightScale) ||
+			SternWeightScale <= 0.0f ||
+			!float.IsFinite(BowWeightScale) ||
+			BowWeightScale <= 0.0f)
 		{
 			return false;
 		}
 
 
-		_totalWeight =
-			0.0f;
+		float minZ =
+			float.PositiveInfinity;
+
+		float maxZ =
+			float.NegativeInfinity;
 
 
 		for (int i = 0;
@@ -322,14 +363,84 @@ public partial class OceanBuoyancy : Node
 			}
 
 
+			minZ =
+				Mathf.Min(
+					minZ,
+					probe.Z);
+
+			maxZ =
+				Mathf.Max(
+					maxZ,
+					probe.Z);
+		}
+
+
+		_totalWeight =
+			0.0f;
+
+
+		float span =
+			maxZ -
+				minZ;
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
+		{
+			float profileScale =
+				1.0f;
+
+
+			if (UseLongitudinalWeightProfile &&
+				span >
+					ProfileSpanEpsilon)
+			{
+				float longitudinal01 =
+					Mathf.Clamp(
+						(ProbeLocalPositions[i].Z -
+						 minZ) /
+							span,
+						0.0f,
+						1.0f);
+
+
+				profileScale =
+					Mathf.Lerp(
+						SternWeightScale,
+						BowWeightScale,
+						longitudinal01);
+			}
+
+
+			float effectiveWeight =
+				ProbeWeights[i] *
+					profileScale;
+
+
+			if (!float.IsFinite(
+					effectiveWeight) ||
+				effectiveWeight <=
+					0.0f)
+			{
+				return false;
+			}
+
+
+			_effectiveProbeWeights[i] =
+				effectiveWeight;
+
+
 			_totalWeight +=
-				weight;
+				effectiveWeight;
 		}
 
 
 		return
+			float.IsFinite(
+				_totalWeight) &&
 			_totalWeight >
-			0.0f;
+				0.0f;
 	}
 
 
@@ -350,13 +461,6 @@ public partial class OceanBuoyancy : Node
 			return;
 		}
 
-
-		//
-		// Displacement remains authoritative.
-		//
-		// Velocity is optional and must belong to exactly the same
-		// completed generation.
-		//
 
 		bool hasMatchingVelocity =
 			_runtime.PointQueries.TryCopyLatestVelocities(
@@ -499,7 +603,7 @@ public partial class OceanBuoyancy : Node
 
 			float probeMass =
 				_body.Mass *
-					ProbeWeights[i] /
+					_effectiveProbeWeights[i] /
 					_totalWeight;
 
 
@@ -527,14 +631,6 @@ public partial class OceanBuoyancy : Node
 					_body.AngularVelocity.Cross(
 						radius);
 
-
-			//
-			// Vertical damping relative to the moving water surface.
-			//
-			// If velocity is unavailable, waterVerticalVelocity stays
-			// zero and behaviour falls back to the previous world-space
-			// damping contract.
-			//
 
 			float waterVerticalVelocity =
 				0.0f;
@@ -640,239 +736,205 @@ public partial class OceanBuoyancy : Node
 	}
 
 
-	/// <summary>
-	/// Returns the probe-weighted mean surface velocity for the latest
-	/// completed query generation.
-	///
-	/// Crest BoatProbes uses an additional center query for its drag
-	/// reference velocity. OceanFrontier already queries the hull at
-	/// multiple distributed probes, so their weighted mean gives us a
-	/// stable representative velocity without another GPU sample.
-	/// </summary>
 	private bool TryGetAverageWaterSurfaceVelocity(
-	out Vector3 waterVelocity,
-	out float submergedWeightFraction)
-{
-	waterVelocity =
-		Vector3.Zero;
-
-	submergedWeightFraction =
-		0.0f;
-
-
-	if (!_hasLatestResult ||
-		_totalWeight <= 0.0f)
-	{
-		return false;
-	}
-
-
-	float submergedWeight =
-		0.0f;
-
-	float velocityWeight =
-		0.0f;
-
-
-	for (int i = 0;
-		 i < _probeCount;
-		 i++)
-	{
-		if (!_probeSubmerged[i])
-		{
-			continue;
-		}
-
-
-		float weight =
-			ProbeWeights[i];
-
-
-		submergedWeight +=
-			weight;
-
-
-		if (!_hasLatestVelocity)
-		{
-			continue;
-		}
-
-
-		Vector4 velocity =
-			_latestVelocities[i];
-
-
-		if (velocity.W <= 0.5f ||
-			!float.IsFinite(velocity.X) ||
-			!float.IsFinite(velocity.Y) ||
-			!float.IsFinite(velocity.Z))
-		{
-			continue;
-		}
-
-
-		waterVelocity +=
-			new Vector3(
-				velocity.X,
-				velocity.Y,
-				velocity.Z) *
-			weight;
-
-
-		velocityWeight +=
-			weight;
-	}
-
-
-	submergedWeightFraction =
-		Mathf.Clamp(
-			submergedWeight /
-				_totalWeight,
-			0.0f,
-			1.0f);
-
-
-	if (submergedWeightFraction <= 0.0f)
+		out Vector3 waterVelocity,
+		out float submergedWeightFraction)
 	{
 		waterVelocity =
 			Vector3.Zero;
 
-		return false;
-	}
+		submergedWeightFraction =
+			0.0f;
 
 
-	if (velocityWeight <= 0.0f)
-	{
-		//
-		// We know the hull is in water, but surface velocity
-		// is temporarily unavailable.
-		//
-		// Keep the old relative-to-world fallback.
-		//
+		if (!_hasLatestResult ||
+			_totalWeight <= 0.0f)
+		{
+			return false;
+		}
 
-		waterVelocity =
-			Vector3.Zero;
+
+		float submergedWeight =
+			0.0f;
+
+		float velocityWeight =
+			0.0f;
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
+		{
+			if (!_probeSubmerged[i])
+			{
+				continue;
+			}
+
+
+			float weight =
+				_effectiveProbeWeights[i];
+
+
+			submergedWeight +=
+				weight;
+
+
+			if (!_hasLatestVelocity)
+			{
+				continue;
+			}
+
+
+			Vector4 velocity =
+				_latestVelocities[i];
+
+
+			if (velocity.W <= 0.5f ||
+				!float.IsFinite(velocity.X) ||
+				!float.IsFinite(velocity.Y) ||
+				!float.IsFinite(velocity.Z))
+			{
+				continue;
+			}
+
+
+			waterVelocity +=
+				new Vector3(
+					velocity.X,
+					velocity.Y,
+					velocity.Z) *
+				weight;
+
+
+			velocityWeight +=
+				weight;
+		}
+
+
+		submergedWeightFraction =
+			Mathf.Clamp(
+				submergedWeight /
+					_totalWeight,
+				0.0f,
+				1.0f);
+
+
+		if (submergedWeightFraction <=
+			0.0f)
+		{
+			waterVelocity =
+				Vector3.Zero;
+
+			return false;
+		}
+
+
+		if (velocityWeight <=
+			0.0f)
+		{
+			waterVelocity =
+				Vector3.Zero;
+
+			return true;
+		}
+
+
+		waterVelocity /=
+			velocityWeight;
+
+
+		if (!waterVelocity.IsFinite())
+		{
+			waterVelocity =
+				Vector3.Zero;
+
+			return true;
+		}
+
 
 		return true;
 	}
-
-
-	waterVelocity /=
-		velocityWeight;
-
-
-	if (!waterVelocity.IsFinite())
-	{
-		waterVelocity =
-			Vector3.Zero;
-
-		return true;
-	}
-
-
-	return true;
-}
 
 
 	private void ApplyHorizontalDrag()
-{
-	//
-	// Horizontal hydrodynamic drag only exists while some part
-	// of the distributed buoyancy representation is submerged.
-	//
-	// The same probe weights used for buoyancy define the wet
-	// fraction, so arbitrary hull layouts remain consistent.
-	//
-
-	if (!TryGetAverageWaterSurfaceVelocity(
-			out Vector3 waterVelocity,
-			out float submergedWeightFraction) ||
-		submergedWeightFraction <= 0.0f)
 	{
-		return;
+		if (!TryGetAverageWaterSurfaceVelocity(
+				out Vector3 waterVelocity,
+				out float submergedWeightFraction) ||
+			submergedWeightFraction <= 0.0f)
+		{
+			return;
+		}
+
+
+		Vector3 relativeVelocity =
+			_body.LinearVelocity -
+				waterVelocity;
+
+
+		relativeVelocity.Y =
+			0.0f;
+
+
+		Vector3 right =
+			_body.GlobalBasis.X;
+
+		Vector3 forward =
+			_body.GlobalBasis.Z;
+
+
+		right.Y =
+			0.0f;
+
+		forward.Y =
+			0.0f;
+
+
+		if (right.LengthSquared() <
+				0.000001f ||
+			forward.LengthSquared() <
+				0.000001f)
+		{
+			return;
+		}
+
+
+		right =
+			right.Normalized();
+
+		forward =
+			forward.Normalized();
+
+
+		float lateralSpeed =
+			relativeVelocity.Dot(
+				right);
+
+		float forwardSpeed =
+			relativeVelocity.Dot(
+				forward);
+
+
+		Vector3 dragForce =
+			-_body.Mass *
+			submergedWeightFraction *
+			(
+				LateralDrag *
+					lateralSpeed *
+					right +
+
+				ForwardDrag *
+					forwardSpeed *
+					forward
+			);
+
+
+		if (dragForce.IsFinite())
+		{
+			_body.ApplyCentralForce(
+				dragForce);
+		}
 	}
-
-
-	//
-	// Crest contract:
-	//
-	//     relative velocity =
-	//         body velocity - water velocity
-	//
-
-	Vector3 relativeVelocity =
-		_body.LinearVelocity -
-			waterVelocity;
-
-
-	//
-	// Vertical relative velocity is already handled independently
-	// by the spring-damper at each buoyancy probe.
-	//
-
-	relativeVelocity.Y =
-		0.0f;
-
-
-	Vector3 right =
-		_body.GlobalBasis.X;
-
-	Vector3 forward =
-		_body.GlobalBasis.Z;
-
-
-	right.Y =
-		0.0f;
-
-	forward.Y =
-		0.0f;
-
-
-	if (right.LengthSquared() <
-			0.000001f ||
-		forward.LengthSquared() <
-			0.000001f)
-	{
-		return;
-	}
-
-
-	right =
-		right.Normalized();
-
-	forward =
-		forward.Normalized();
-
-
-	float lateralSpeed =
-		relativeVelocity.Dot(
-			right);
-
-	float forwardSpeed =
-		relativeVelocity.Dot(
-			forward);
-
-
-	Vector3 dragForce =
-		-_body.Mass *
-		submergedWeightFraction *
-		(
-			LateralDrag *
-				lateralSpeed *
-				right +
-
-			ForwardDrag *
-				forwardSpeed *
-				forward
-		);
-
-
-	if (dragForce.IsFinite())
-	{
-		_body.ApplyCentralForce(
-			dragForce);
-	}
-}
 
 
 	private static float ResolvePhysicsGravity()
