@@ -3,14 +3,15 @@ using Godot;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Runtime;
 
-namespace OceanFrontier.Water.Physics;
+namespace OceanFrontier.Water.Physics.Weird;
 
 /// <summary>
-/// Distributed vertical spring buoyancy driven by asynchronous AnimatedWaveField queries.
-/// Attach as a child of a RigidBody3D.
+/// Non-volumetric spring/probe buoyancy approximation driven by asynchronous AnimatedWaveField queries.
+/// Attach as a child of a RigidBody3D. This model is intentionally separate from the future
+/// volumetric/Archimedes buoyancy implementation.
 /// </summary>
 [GlobalClass]
-public partial class OceanBuoyancy : Node
+public partial class WeirdBuoyancy : Node
 {
 	public enum BuoyancyMode
 	{
@@ -201,7 +202,7 @@ public partial class OceanBuoyancy : Node
 			!ValidateConfiguration())
 		{
 			GD.PushError(
-				"OceanBuoyancy requires a RigidBody3D parent, an OceanRuntime, " +
+				"WeirdBuoyancy requires a RigidBody3D parent, an OceanRuntime, " +
 				"and 1-12 valid probes.");
 
 			SetPhysicsProcess(
