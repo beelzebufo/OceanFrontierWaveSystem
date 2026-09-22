@@ -720,13 +720,19 @@ public partial class OceanDiagnosticCameraController : Camera3D
 				GlobalPosition.DistanceTo(
 					_frameCenter));
 
-		Far =
+		float calculatedFar =
 			Mathf.Max(
 				50.0f,
 				(cameraDistance +
 				 _squareRadius +
 				 _lodWorldSize) *
 				1.2f);
+
+
+		Far =
+			Mathf.Max(
+				calculatedFar,
+				_minimumFarDistance);
 	}
 
 	public override void _Process(

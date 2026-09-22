@@ -79,6 +79,9 @@ public partial class AnimatedWaveSurfaceRenderer
 				slice.WorldSize;
 
 
+			UpdateCurvatureBounds();
+
+
 			GD.Print(
 				$"[Ocean] Canonical surface grid ready: " +
 				$"LOD {_selectedLodIndex}/{lodCount - 1}, " +
@@ -119,6 +122,9 @@ public partial class AnimatedWaveSurfaceRenderer
 
 			_materialLod =
 				-1;
+
+
+			UpdateCurvatureBounds();
 		}
 	}
 
@@ -654,6 +660,10 @@ public partial class AnimatedWaveSurfaceRenderer
 				tile);
 
 
+			_nestedCurvatureTiles.Add(
+				(tile, lodIndex));
+
+
 			_nestedTileCount++;
 		}
 	}
@@ -847,6 +857,9 @@ public partial class AnimatedWaveSurfaceRenderer
 			0;
 
 
+		_nestedCurvatureTiles.Clear();
+
+
 		_nestedFocus =
 			new Vector2(
 				float.NaN,
@@ -986,6 +999,252 @@ public partial class AnimatedWaveSurfaceRenderer
 			$"{_nestedPatchMeshes.Length} Crest patch types, " +
 			$"LOD alpha black={lodAlphaBlackPointFade:0.######}, " +
 			$"range={lodAlphaBlackPointWhitePointFade:0.######}.");
+	}
+
+
+	private void UpdateCurvatureBounds()
+	{
+		UpdateSingleCurvatureBounds();
+
+
+		if (_nestedCurvatureTiles.Count ==
+			0)
+		{
+			return;
+		}
+
+
+		if (!PlanetCurvatureEnabled ||
+			_nestedWorldSizes == null ||
+			_nestedWorldSizes.Length ==
+				0)
+		{
+			foreach ((MeshInstance3D Tile, int Lod) entry in
+					 _nestedCurvatureTiles)
+			{
+				entry.Tile.CustomAabb =
+					default;
+			}
+
+
+			return;
+		}
+
+
+		foreach ((MeshInstance3D Tile, int Lod) entry in
+				 _nestedCurvatureTiles)
+		{
+			if (entry.Lod < 0 ||
+				entry.Lod >= _nestedWorldSizes.Length)
+			{
+				continue;
+			}
+
+
+			float worldSize =
+				_nestedWorldSizes[entry.Lod];
+
+
+			if (!float.IsFinite(worldSize) ||
+				worldSize <= 0.0f)
+			{
+				continue;
+			}
+
+
+			float tileWorldSize =
+				worldSize /
+				TilesPerSide;
+
+
+			MeshInstance3D tile =
+				entry.Tile;
+
+
+			Aabb meshBounds =
+				tile.Mesh.GetAabb();
+
+
+			float maximumDistance =
+				CalculateTileMaximumDistance(
+					tile,
+					meshBounds,
+					tileWorldSize);
+
+
+			float maximumSag =
+				CalculatePlanetSag(
+					maximumDistance);
+
+
+			const float displacementMargin =
+				128.0f;
+
+
+			tile.CustomAabb =
+				new Aabb(
+					new Vector3(
+						meshBounds.Position.X,
+						-maximumSag -
+							displacementMargin,
+						meshBounds.Position.Z),
+
+					new Vector3(
+						meshBounds.Size.X,
+						maximumSag +
+							displacementMargin *
+							2.0f,
+						meshBounds.Size.Z));
+		}
+	}
+
+
+	private void UpdateSingleCurvatureBounds()
+	{
+		if (_meshInstance == null ||
+			_plane == null ||
+			!PlanetCurvatureEnabled)
+		{
+			if (_meshInstance != null)
+			{
+				_meshInstance.CustomAabb =
+					default;
+			}
+
+
+			return;
+		}
+
+
+		Aabb meshBounds =
+			_plane.GetAabb();
+
+
+		float maximumDistance =
+			_meshWorldSize *
+			0.5f *
+			Mathf.Sqrt(2.0f);
+
+
+		float maximumSag =
+			CalculatePlanetSag(
+				maximumDistance);
+
+
+		const float displacementMargin =
+			128.0f;
+
+
+		_meshInstance.CustomAabb =
+			new Aabb(
+				new Vector3(
+					meshBounds.Position.X,
+					-maximumSag -
+						displacementMargin,
+					meshBounds.Position.Z),
+
+				new Vector3(
+					meshBounds.Size.X,
+					maximumSag +
+						displacementMargin *
+						2.0f,
+					meshBounds.Size.Z));
+	}
+
+
+	private static float CalculateTileMaximumDistance(
+		MeshInstance3D tile,
+		Aabb meshBounds,
+		float tileWorldSize)
+	{
+		float minX =
+			meshBounds.Position.X;
+
+		float maxX =
+			meshBounds.End.X;
+
+		float minZ =
+			meshBounds.Position.Z;
+
+		float maxZ =
+			meshBounds.End.Z;
+
+		float maximumDistanceSquared =
+			0.0f;
+
+
+		for (int z = 0;
+			 z < 2;
+			 z++)
+		{
+			for (int x = 0;
+				 x < 2;
+				 x++)
+			{
+				Vector3 rotated =
+					tile.Basis *
+					new Vector3(
+						x == 0
+							? minX
+							: maxX,
+						0.0f,
+						z == 0
+							? minZ
+							: maxZ);
+
+
+				var offset =
+					new Vector2(
+						tile.Position.X +
+							rotated.X,
+						tile.Position.Z +
+							rotated.Z) *
+					tileWorldSize;
+
+
+				maximumDistanceSquared =
+					Mathf.Max(
+						maximumDistanceSquared,
+						offset.LengthSquared());
+			}
+		}
+
+
+		return Mathf.Sqrt(
+			maximumDistanceSquared);
+	}
+
+
+	private float CalculatePlanetSag(
+		float distance)
+	{
+		double radius =
+			Math.Max(
+				10000.0,
+				PlanetRadius);
+
+		double radiusSquared =
+			radius *
+			radius;
+
+		double distanceSquared =
+			Math.Min(
+				(double)distance *
+					distance,
+				radiusSquared *
+					0.999999);
+
+
+		return (float)(
+			distanceSquared /
+			(
+				radius +
+				Math.Sqrt(
+					Math.Max(
+						radiusSquared -
+							distanceSquared,
+						0.0))
+			));
 	}
 
 

@@ -33,6 +33,18 @@ public partial class AnimatedWaveSurfaceRenderer
 			_waveContentMode);
 
 
+		SetAllSamplingParameter(
+			"planet_curvature_enabled",
+			PlanetCurvatureEnabled);
+
+
+		SetAllSamplingParameter(
+			"planet_radius",
+			Mathf.Max(
+				10000.0f,
+				PlanetRadius));
+
+
 		SetSurfaceParameter(
 			"show_surface_grid",
 			_showGrid);

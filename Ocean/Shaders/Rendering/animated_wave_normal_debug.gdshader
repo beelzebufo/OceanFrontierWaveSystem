@@ -73,11 +73,13 @@ void vertex()
             lod_alpha);
 
     vec3 surface_position =
-        vec3(
-            world_xz.x,
-            0.0,
-            world_xz.y) +
-        displayed_displacement;
+        apply_planet_curvature(
+            vec3(
+                world_xz.x,
+                0.0,
+                world_xz.y) +
+            displayed_displacement,
+            world_xz);
 
     VERTEX =
         surface_position +

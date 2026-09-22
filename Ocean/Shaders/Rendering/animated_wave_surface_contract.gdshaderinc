@@ -21,6 +21,8 @@ uniform float horizontal_display_scale = 1.0;
 uniform float vertical_display_scale = 1.0;
 uniform float lod_scale_alpha = 0.0;
 uniform float geometry_grid_width = 0.0;
+uniform bool planet_curvature_enabled = false;
+uniform float planet_radius = 6371000.0;
 
 // Crest OceanRenderer computes these from the base mesh density:
 //
@@ -272,6 +274,64 @@ vec3 sample_render_displacement(
         composed_content);
 }
 
+float compute_planet_sag(
+    vec2 world_xz)
+{
+    if (!planet_curvature_enabled)
+    {
+        return 0.0;
+    }
+
+    float radius =
+        max(
+            planet_radius,
+            10000.0);
+
+    vec2 delta =
+        world_xz -
+        lod_focus_xz;
+
+    float distance_squared =
+        dot(
+            delta,
+            delta);
+
+    float radius_squared =
+        radius *
+        radius;
+
+    // The tangent-plane projection of a sphere is defined for d < R.
+    // Clamp only the unreachable far tail of an exaggerated diagnostic
+    // radius so sqrt() cannot receive a negative value.
+    float safe_distance_squared =
+        min(
+            distance_squared,
+            radius_squared *
+            0.999999);
+
+    return
+        safe_distance_squared /
+        (
+            radius +
+            sqrt(
+                max(
+                    radius_squared -
+                    safe_distance_squared,
+                    0.0))
+        );
+}
+
+vec3 apply_planet_curvature(
+    vec3 render_position,
+    vec2 flat_world_xz)
+{
+    render_position.y -=
+        compute_planet_sag(
+            flat_world_xz);
+
+    return render_position;
+}
+
 vec3 evaluate_render_surface_position(
     vec2 world_xz)
 {
@@ -288,12 +348,13 @@ vec3 evaluate_render_surface_position(
             lod_alpha,
             composed_content);
 
-    return
+    return apply_planet_curvature(
         vec3(
             world_xz.x,
             0.0,
             world_xz.y) +
-        displacement;
+        displacement,
+        world_xz);
 }
 
 vec3 safe_surface_normal(
@@ -335,11 +396,13 @@ vec3 normal_blended_xyz_forward(
             center_content);
 
     vec3 p0 =
-        vec3(
-            world_xz.x,
-            0.0,
-            world_xz.y) +
-        center_render_disp;
+        apply_planet_curvature(
+            vec3(
+                world_xz.x,
+                0.0,
+                world_xz.y) +
+            center_render_disp,
+            world_xz);
 
     vec3 px =
         evaluate_render_surface_position(
@@ -369,44 +432,101 @@ vec3 normal_crest_lod_forward(
     float texel_width,
     vec3 center_disp)
 {
-    vec3 disp =
+    vec3 center_render_disp =
         apply_display_displacement(
             center_disp);
 
-    vec3 disp_x =
-        vec3(
+    vec2 world_xz_x =
+        world_xz +
+        vec2(
             texel_width,
-            0.0,
-            0.0) +
+            0.0);
+
+    vec3 render_disp_x =
         apply_display_displacement(
             sample_awf_lod(
-                world_xz +
-                vec2(
-                    texel_width,
-                    0.0),
+                world_xz_x,
                 center_xz,
                 world_size,
                 layer));
 
-    vec3 disp_z =
-        vec3(
+    vec2 world_xz_z =
+        world_xz +
+        vec2(
             0.0,
-            0.0,
-            texel_width) +
+            texel_width);
+
+    vec3 render_disp_z =
         apply_display_displacement(
             sample_awf_lod(
-                world_xz +
-                vec2(
-                    0.0,
-                    texel_width),
+                world_xz_z,
                 center_xz,
                 world_size,
                 layer));
+
+    vec3 tangent_x;
+    vec3 tangent_z;
+
+    if (planet_curvature_enabled)
+    {
+        vec3 p0 =
+            apply_planet_curvature(
+                vec3(
+                    world_xz.x,
+                    0.0,
+                    world_xz.y) +
+                center_render_disp,
+                world_xz);
+
+        vec3 px =
+            apply_planet_curvature(
+                vec3(
+                    world_xz_x.x,
+                    0.0,
+                    world_xz_x.y) +
+                render_disp_x,
+                world_xz_x);
+
+        vec3 pz =
+            apply_planet_curvature(
+                vec3(
+                    world_xz_z.x,
+                    0.0,
+                    world_xz_z.y) +
+                render_disp_z,
+                world_xz_z);
+
+        tangent_x =
+            px - p0;
+
+        tangent_z =
+            pz - p0;
+    }
+    else
+    {
+        // Preserve the original flat Crest path exactly, including its
+        // small local differences and numerical precision far from origin.
+        tangent_x =
+            vec3(
+                texel_width,
+                0.0,
+                0.0) +
+            render_disp_x -
+            center_render_disp;
+
+        tangent_z =
+            vec3(
+                0.0,
+                0.0,
+                texel_width) +
+            render_disp_z -
+            center_render_disp;
+    }
 
     vec3 cross_product =
         cross(
-            disp_z - disp,
-            disp_x - disp);
+            tangent_z,
+            tangent_x);
 
     cross_product.y =
         max(

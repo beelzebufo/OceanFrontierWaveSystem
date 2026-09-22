@@ -443,7 +443,7 @@ internal sealed class OceanDiagnosticOceanPanel
 			OceanDiagnosticUi.Check(
 				parent,
 				"Surface grid + markers",
-				true);
+				false);
 
 
 		markers.Toggled +=

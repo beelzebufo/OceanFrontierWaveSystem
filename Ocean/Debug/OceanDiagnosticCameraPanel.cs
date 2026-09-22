@@ -272,13 +272,52 @@ internal sealed class OceanDiagnosticCameraPanel
 		VBoxContainer horizon =
 			OceanDiagnosticUi.Foldout(
 				parent,
-				"Horizon / far distance",
+				"Planet / Horizon",
 				expanded: false);
 
 
 		OceanDiagnosticUi.Info(
 			horizon,
-			"Crest's outer skirt is designed to reach the horizon with a far plane around 200 km. Nested mode uses this distance instead of the selected diagnostic LOD size.");
+			"Renderer-only. AnimatedWaveField and physics remain in local tangent space.");
+
+
+		SpinBox planetRadius =
+			OceanDiagnosticUi.Spin(
+				horizon,
+				"Planet radius",
+				_surface?.PlanetRadius ??
+					6371000.0,
+				10000.0,
+				20000000.0,
+				1000.0,
+				" m");
+
+
+		CheckBox planetCurvature =
+			OceanDiagnosticUi.Check(
+				horizon,
+				"Planet curvature",
+				_surface?.PlanetCurvatureEnabled ??
+					false);
+
+
+		planetCurvature.Toggled +=
+			value =>
+				_surface?.SetPlanetCurvature(
+					value,
+					(float)planetRadius.Value);
+
+
+		planetRadius.ValueChanged +=
+			value =>
+				_surface?.SetPlanetCurvature(
+					planetCurvature.ButtonPressed,
+					(float)value);
+
+
+		OceanDiagnosticUi.Info(
+			horizon,
+			"Crest's outer skirt remains flat topology; the renderer bends its final GPU vertex positions. Nested mode keeps the far plane near 200 km.");
 
 
 		OceanDiagnosticUi.Spin(

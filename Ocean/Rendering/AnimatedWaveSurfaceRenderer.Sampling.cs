@@ -381,6 +381,13 @@ public partial class AnimatedWaveSurfaceRenderer
 
 				_nestedWorldSizes[lod] =
 					slice.WorldSize;
+
+
+				if (lod ==
+					lodCount - 1)
+				{
+					UpdateCurvatureBounds();
+				}
 			}
 
 

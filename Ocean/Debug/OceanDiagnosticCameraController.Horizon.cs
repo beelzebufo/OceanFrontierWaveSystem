@@ -4,6 +4,9 @@ namespace OceanFrontier.Water.Debug;
 
 public partial class OceanDiagnosticCameraController
 {
+	private float _minimumFarDistance;
+
+
 	/// <summary>
 	/// Raises the current far plane when a renderer needs more distant
 	/// coverage than the selected diagnostic LOD framing would normally use.
@@ -14,18 +17,25 @@ public partial class OceanDiagnosticCameraController
 	internal void SetMinimumFarDistance(
 		float distance)
 	{
-		if (!float.IsFinite(distance) ||
-			distance <= 0.0f)
+		float minimum =
+			float.IsFinite(distance) &&
+			distance > 0.0f
+				? distance
+				: 0.0f;
+
+
+		if (Mathf.IsEqualApprox(
+				_minimumFarDistance,
+				minimum))
 		{
 			return;
 		}
 
 
-		if (Far <
-			distance)
-		{
-			Far =
-				distance;
-		}
+		_minimumFarDistance =
+			minimum;
+
+
+		UpdateFar();
 	}
 }

@@ -431,16 +431,14 @@ void vertex()
     // Apply canonical displacement.
     //
 
-    VERTEX.x =
-        world_xz.x;
-
-
-    VERTEX.z =
-        world_xz.y;
-
-
-    VERTEX +=
-        displayed_displacement;
+    VERTEX =
+        apply_planet_curvature(
+            vec3(
+                world_xz.x,
+                0.0,
+                world_xz.y) +
+            displayed_displacement,
+            world_xz);
 
 
     displacement_height =
@@ -543,6 +541,17 @@ void fragment()
 
     if (show_surface_markers)
     {
+        bool inside_normal_footprint =
+            all(
+                greaterThanEqual(
+                    base_uv,
+                    vec2(0.0))) &&
+            all(
+                lessThanEqual(
+                    base_uv,
+                    vec2(1.0)));
+
+
         vec2 edge =
             min(
                 base_uv,
@@ -551,12 +560,14 @@ void fragment()
 
 
         float boundary =
-            1.0 -
-            step(
-                0.006,
-                min(
-                    edge.x,
-                    edge.y));
+            inside_normal_footprint
+                ? 1.0 -
+                    step(
+                        0.006,
+                        min(
+                            edge.x,
+                            edge.y))
+                : 0.0;
 
 
         diagnostic_colour =
@@ -588,12 +599,14 @@ void fragment()
 
 
                 float marker =
-                    1.0 -
-                    step(
-                        0.00015,
-                        dot(
-                            d,
-                            d));
+                    inside_normal_footprint
+                        ? 1.0 -
+                            step(
+                                0.00015,
+                                dot(
+                                    d,
+                                    d))
+                        : 0.0;
 
 
                 diagnostic_colour =

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Waves.AnimatedWaves;
@@ -37,6 +38,16 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	// Applied only to the outermost FatXOuter / FatXZOuter patches.
 	[Export(PropertyHint.Range, "1,500,1,or_greater")]
 	public float ExtentsSizeMultiplier { get; set; } = 100.0f;
+
+
+	// Renderer-only curvature. AnimatedWaveField and physics remain in the
+	// flat local tangent space.
+	[Export]
+	public bool PlanetCurvatureEnabled { get; set; }
+
+
+	[Export(PropertyHint.Range, "10000,20000000,1000,or_greater")]
+	public float PlanetRadius { get; set; } = 6371000.0f;
 
 
 	[Export(PropertyHint.Range, "0,15,1")]
@@ -123,6 +134,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private int _nestedLodCount;
 	private int _nestedTileCount;
 
+	private readonly List<(MeshInstance3D Tile, int Lod)>
+		_nestedCurvatureTiles =
+		new();
+
 
 	private Texture2DArrayRD _textureArray;
 	private Texture2D _visualNormalFallback;
@@ -147,8 +162,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _horizontalDisplayScale = 1.0f;
 	private float _verticalDisplayScale = 1.0f;
 
-	private bool _showGrid = true;
-	private bool _showMarkers = true;
+	private bool _showGrid;
+	private bool _showMarkers;
 	private bool _lightingEnabled = true;
 	private bool _showNormalVectors;
 
@@ -355,6 +370,27 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 		_materialNormalMethod =
 			NormalMethod;
+	}
+
+
+	internal void SetPlanetCurvature(
+		bool enabled,
+		float radius)
+	{
+		PlanetCurvatureEnabled =
+			enabled;
+
+
+		PlanetRadius =
+			Mathf.Max(
+				10000.0f,
+				float.IsFinite(radius)
+					? radius
+					: 6371000.0f);
+
+
+		ApplyDisplayParameters();
+		UpdateCurvatureBounds();
 	}
 
 
