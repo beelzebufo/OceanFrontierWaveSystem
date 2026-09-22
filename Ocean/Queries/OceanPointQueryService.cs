@@ -13,7 +13,13 @@ public sealed class OceanPointQueryService
 {
 	public const int Capacity = 256;
 
-	private const int SlotCount = 4;
+	// Crest QueryBase allows up to 7 asynchronous GPU readback requests.
+	// Four was historically sufficient there, but some Linux setups
+	// required seven. Keep the same conservative in-flight depth here.
+	//
+	// Each slot owns persistent 256 * 16-byte input/output buffers,
+	// so seven slots still have negligible memory cost.
+	private const int SlotCount = 7;
 	private const int StrideBytes = 4 * sizeof(float);
 	private const int WorkgroupSize = 64;
 	private const int PushConstantBytes = 32;
@@ -46,7 +52,7 @@ public sealed class OceanPointQueryService
 		public Vector2[] PendingPositions { get; }
 		public Vector4[] LatestResults { get; }
 		public int PendingCount;
-		public float PendingMinTexelWidth;
+		public float PendingMinGridSize;
 		public long NextGeneration;
 		public long PendingGeneration;
 		public long DispatchedGeneration;
@@ -145,41 +151,65 @@ public sealed class OceanPointQueryService
 
 	/// <summary>
 	/// Replaces this owner's undispatched batch and returns its generation.
-	/// minTexelWidth is stored once per owner submission and written into every
-	/// 16-byte GPU query element, so the buffer layout already supports a future
-	/// per-point sampling scale without changing the shader layout.
+	///
+	/// minGridSize follows the Crest collision-query contract:
+	///
+	///     minWavelength = MinSpatialLength / 2
+	///     minGridSize   = minWavelength / 2
+	///                   = MinSpatialLength / 4
+	///
+	/// The value is stored once per owner submission and written into
+	/// every 16-byte GPU query element.
 	/// </summary>
 	public long SubmitBatch(
 		OwnerHandle owner,
 		ReadOnlySpan<Vector2> worldXZ,
-		float minTexelWidth = 0.0f)
+		float minGridSize = 0.0f)
 	{
-		if (!float.IsFinite(minTexelWidth) || minTexelWidth < 0.0f)
+		if (!float.IsFinite(minGridSize) ||
+			minGridSize < 0.0f)
 		{
-			throw new ArgumentOutOfRangeException(nameof(minTexelWidth));
+			throw new ArgumentOutOfRangeException(
+				nameof(minGridSize));
 		}
 
 		foreach (Vector2 position in worldXZ)
 		{
-			if (!float.IsFinite(position.X) || !float.IsFinite(position.Y))
+			if (!float.IsFinite(position.X) ||
+				!float.IsFinite(position.Y))
 			{
-				throw new ArgumentException("Query positions must be finite.", nameof(worldXZ));
+				throw new ArgumentException(
+					"Query positions must be finite.",
+					nameof(worldXZ));
 			}
 		}
 
 		lock (_sync)
 		{
-			OwnerState state = GetOwner(owner);
-			if (worldXZ.Length is < 1 || worldXZ.Length > state.Handle.Capacity)
+			OwnerState state =
+				GetOwner(owner);
+
+			if (worldXZ.Length is < 1 ||
+				worldXZ.Length > state.Handle.Capacity)
 			{
-				throw new ArgumentOutOfRangeException(nameof(worldXZ));
+				throw new ArgumentOutOfRangeException(
+					nameof(worldXZ));
 			}
 
-			worldXZ.CopyTo(state.PendingPositions);
-			state.PendingCount = worldXZ.Length;
-			state.PendingMinTexelWidth = minTexelWidth;
-			state.PendingGeneration = ++state.NextGeneration;
-			return state.PendingGeneration;
+			worldXZ.CopyTo(
+				state.PendingPositions);
+
+			state.PendingCount =
+				worldXZ.Length;
+
+			state.PendingMinGridSize =
+				minGridSize;
+
+			state.PendingGeneration =
+				++state.NextGeneration;
+
+			return
+				state.PendingGeneration;
 		}
 	}
 
@@ -445,7 +475,7 @@ public sealed class OceanPointQueryService
 						slot.Upload,
 						offset + i,
 						owner.PendingPositions[i],
-						owner.PendingMinTexelWidth);
+						owner.PendingMinGridSize);
 				}
 
 				slot.Count += owner.PendingCount;
@@ -515,13 +545,27 @@ public sealed class OceanPointQueryService
 		byte[] upload,
 		int index,
 		Vector2 position,
-		float minTexelWidth)
+		float minGridSize)
 	{
-		int offset = index * StrideBytes;
-		BitConverter.TryWriteBytes(upload.AsSpan(offset, 4), position.X);
-		BitConverter.TryWriteBytes(upload.AsSpan(offset + 4, 4), position.Y);
-		BitConverter.TryWriteBytes(upload.AsSpan(offset + 8, 4), minTexelWidth);
-		BitConverter.TryWriteBytes(upload.AsSpan(offset + 12, 4), 0.0f);
+		int offset =
+			index *
+			StrideBytes;
+
+		BitConverter.TryWriteBytes(
+			upload.AsSpan(offset, 4),
+			position.X);
+
+		BitConverter.TryWriteBytes(
+			upload.AsSpan(offset + 4, 4),
+			position.Y);
+
+		BitConverter.TryWriteBytes(
+			upload.AsSpan(offset + 8, 4),
+			minGridSize);
+
+		BitConverter.TryWriteBytes(
+			upload.AsSpan(offset + 12, 4),
+			0.0f);
 	}
 
 	private void WritePushConstants(int count, Vector2 focusXZ, float lodScaleAlpha)

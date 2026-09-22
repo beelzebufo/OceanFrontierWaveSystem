@@ -128,9 +128,39 @@ float diagnosticWorldSize =
 	lodScale;
 
 
-float offset =
+//
+// Put the four outer diagnostic points at the exact midpoint
+// of the Crest spatial LOD transition.
+//
+// Crest:
+//
+//     sliceNumber = log2(taxicab / cascadeScale)
+//
+// For:
+//
+//     frac(sliceNumber) = 0.5
+//
+// we need:
+//
+//     taxicab = cascadeScale * 2^0.5
+//
+// Since:
+//
+//     cascadeScale = WorldSize / 4
+//
+// this places the markers at the 50% point of the
+// 0.15 -> 0.85 Crest transition remap.
+//
+
+float diagnosticCascadeScale =
 	diagnosticWorldSize *
-	0.28f;
+	0.25f;
+
+
+float offset =
+	diagnosticCascadeScale *
+	Mathf.Sqrt(
+		2.0f);
 
 
 _targets[0] =
@@ -161,7 +191,7 @@ _targets[4] =
 		-offset);
 
 
-float minTexelWidth =
+float minGridSize =
 	_surface.LayoutMode ==
 	AnimatedWaveSurfaceRenderer.SurfaceLayoutMode.SingleLod
 		? slice.TexelWidth
@@ -186,7 +216,7 @@ _submittedWorldSize =
 	_runtime.PointQueries.SubmitBatch(
 		_queryOwner,
 		_targets,
-		minTexelWidth);
+		minGridSize);
 	}
 
 	private void ShowCompleted()

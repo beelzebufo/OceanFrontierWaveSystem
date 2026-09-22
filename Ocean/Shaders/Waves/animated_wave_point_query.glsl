@@ -111,65 +111,6 @@ uniform PushConstants
 pc;
 
 
-// Select the finest spatial LOD which:
-//
-// 1. physically covers the point;
-// 2. satisfies the requested minimum texel width.
-//
-// If the requested minimum is coarser than every covering
-// LOD, fall back to the coarsest covering LOD.
-//
-// Invalid only means the point lies outside the whole
-// AnimatedWaveField.
-int choose_lod(
-	vec2 world_xz,
-	float min_texel_width)
-{
-	int coarsest_covering_lod =
-		-1;
-
-
-	vec2 offset =
-		abs(
-			world_xz -
-			pc.focus_xz);
-
-
-	for (uint lod = 0u;
-		 lod < pc.lod_count;
-		 ++lod)
-	{
-		AnimatedWaveLodParams slice =
-			u_lod_data.lods[lod];
-
-
-		float world_size =
-			4.0 *
-			slice.scale;
-
-
-		if (max(
-				offset.x,
-				offset.y) <=
-			0.5 *
-			world_size)
-		{
-			coarsest_covering_lod =
-				int(lod);
-
-
-			if (slice.texel_width >=
-				min_texel_width)
-			{
-				return int(lod);
-			}
-		}
-	}
-
-
-	return
-		coarsest_covering_lod;
-}
 
 
 // Exact AnimatedWaveField slice sampling.
@@ -203,28 +144,23 @@ vec3 sample_lod(
 }
 
 
-// Samples the same cumulative spatial surface contract
-// as the renderer.
+// Samples the canonical AnimatedWaveField using the Crest 4
+// collision-query LOD contract.
 //
-// Spatial LOD blending:
-//     current slice -> next slice
+// Crest reference:
 //
-// View-height blending:
-//     only LOD0 receives the Crest-like
-//     lod_scale_alpha addition.
+//     QueryDisplacements.compute
+//     OceanHelpersNew.hlsl::PosToSliceIndices()
+//
+// The last AWF slice is transition-only for displacement queries:
+// it may be slice1, but never slice0.
 vec3 sample_surface(
 	vec2 world_xz,
-	float min_texel_width,
+	float min_grid_size,
 	out bool valid)
 {
-	int lod =
-		choose_lod(
-			world_xz,
-			min_texel_width);
-
-
 	valid =
-		lod >= 0;
+		pc.lod_count > 0u;
 
 
 	if (!valid)
@@ -234,35 +170,110 @@ vec3 sample_surface(
 	}
 
 
-	vec3 current_disp =
-		sample_lod(
-			world_xz,
-			lod);
+	//
+	// Project-specific validity rule.
+	//
+	// Crest itself can sample clamped data outside the outermost
+	// cascade. We deliberately keep the existing OceanFrontier
+	// contract instead: outside the complete canonical AWF is invalid.
+	//
+
+	uint last_lod =
+		pc.lod_count -
+		1u;
 
 
-	if (uint(lod + 1) >=
-		pc.lod_count)
+	AnimatedWaveLodParams coarsest =
+		u_lod_data.lods[
+			last_lod];
+
+
+	float coarsest_world_size =
+		4.0 *
+		coarsest.scale;
+
+
+	vec2 coarsest_offset =
+		abs(
+			world_xz -
+			coarsest.center_xz);
+
+
+	if (max(
+			coarsest_offset.x,
+			coarsest_offset.y) >
+		0.5 *
+		coarsest_world_size)
 	{
+		valid =
+			false;
+
+
 		return
-			current_disp;
+			vec3(0.0);
 	}
 
 
-	vec3 next_disp =
-		sample_lod(
-			world_xz,
-			lod + 1);
+	//
+	// Degenerate one-LOD configuration has no transition slice.
+	//
+
+	if (pc.lod_count == 1u)
+	{
+		return
+			sample_lod(
+				world_xz,
+				0);
+	}
 
 
 	//
-	// Existing spatial transition.
+	// Crest QueryDisplacements.compute:
 	//
-	// scale = WorldSize / 4.
+	//     minSlice =
+	//         floor(
+	//             log2(
+	//                 max(
+	//                     minGridSize /
+	//                     gridSizeSlice0,
+	//                     1.0)));
+	//
+	// The caller already supplies:
+	//
+	//     minGridSize = MinSpatialLength / 4
 	//
 
-	float scale =
+	float grid_size_slice_0 =
 		u_lod_data
-			.lods[lod]
+			.lods[0]
+			.texel_width;
+
+
+	float max_slice =
+		float(
+			pc.lod_count -
+			2u);
+
+
+	float min_slice =
+		clamp(
+			floor(
+				log2(
+					max(
+						min_grid_size /
+							grid_size_slice_0,
+						1.0))),
+			0.0,
+			max_slice);
+
+
+	//
+	// Crest OceanHelpersNew.hlsl::PosToSliceIndices().
+	//
+
+	float base_scale =
+		u_lod_data
+			.lods[0]
 			.scale;
 
 
@@ -272,46 +283,121 @@ vec3 sample_surface(
 			pc.focus_xz);
 
 
-	float raw_alpha =
+	float taxicab =
 		max(
 			offset.x,
-			offset.y) /
-		scale -
-		1.0;
+			offset.y);
 
 
-	float alpha =
+	float slice_number =
+		log2(
+			max(
+				taxicab /
+					base_scale,
+				1.0));
+
+
+	slice_number =
 		clamp(
-			(raw_alpha - 0.15) /
-			(0.85 - 0.15),
+			slice_number,
+			min_slice,
+			max_slice);
+
+
+	int lod0 =
+		int(
+			floor(
+				slice_number));
+
+
+	int lod1 =
+		lod0 +
+		1;
+
+
+	float lod_alpha =
+		fract(
+			slice_number);
+
+
+	//
+	// Exact Crest PosToSliceIndices transition remap.
+	//
+
+	const float BLACK_POINT =
+		0.15;
+
+
+	const float WHITE_POINT =
+		0.85;
+
+
+	lod_alpha =
+		clamp(
+			(lod_alpha -
+			 BLACK_POINT) /
+			(WHITE_POINT -
+			 BLACK_POINT),
 			0.0,
 			1.0);
 
 
 	//
-	// Crest-like viewpoint altitude transition.
+	// Crest _MeshScaleLerp / ViewerAltitudeLevelAlpha.
 	//
-	// As the viewpoint approaches the next x2 whole-ocean
-	// scale, fade LOD0 into LOD1 before the discrete scale
-	// switch occurs.
-	//
-	// Only LOD0 receives this term.
+	// Only LOD0 receives the whole-stack altitude transition.
 	//
 
-	if (lod == 0)
+	if (lod0 == 0)
 	{
-		alpha =
+		lod_alpha =
 			min(
-				alpha +
-				pc.lod_scale_alpha,
+				lod_alpha +
+					pc.lod_scale_alpha,
 				1.0);
 	}
 
 
-	return mix(
-		current_disp,
-		next_disp,
-		alpha);
+	//
+	// Crest QueryDisplacements.compute weighting.
+	//
+	// weight is currently 1 for our AWF slices, but preserve
+	// the contract for future last-LOD transition weighting.
+	//
+
+	float weight0 =
+		u_lod_data
+			.lods[lod0]
+			.weight;
+
+
+	float weight1 =
+		u_lod_data
+			.lods[lod1]
+			.weight;
+
+
+	float wt0 =
+		(1.0 -
+		 lod_alpha) *
+		weight0;
+
+
+	float wt1 =
+		(1.0 -
+		 wt0) *
+		weight1;
+
+
+	return
+		wt0 *
+			sample_lod(
+				world_xz,
+				lod0) +
+		wt1 *
+			sample_lod(
+				world_xz,
+				lod1);
 }
 
 
@@ -322,6 +408,13 @@ vec3 sample_surface(
 //     undisplaced + D.xz(undisplaced) = target
 //
 // using Crest-like four fixed-point iterations.
+//
+// query.z is Crest minGridSize:
+//
+//     minWavelength = MinSpatialLength / 2
+//     minGridSize   = minWavelength / 2
+//                   = MinSpatialLength / 4
+//
 void main()
 {
 	uint index =

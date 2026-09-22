@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bx6o7j16eq8vf"
+path="res://.godot/imported/animated_wave_query_displacements.glsl-f161ed9ef2de491ad1dcf56c1b0f2bac.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/animated_wave_query_displacements.glsl"
+dest_files=["res://.godot/imported/animated_wave_query_displacements.glsl-f161ed9ef2de491ad1dcf56c1b0f2bac.res"]
+
+[params]
+
