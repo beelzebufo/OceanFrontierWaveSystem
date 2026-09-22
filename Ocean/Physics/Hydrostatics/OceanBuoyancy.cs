@@ -100,6 +100,11 @@ public partial class OceanBuoyancy : Node
 		HydrostaticWaterMode.AnimatedWaveFieldAsync;
 
 
+	[Export]
+	public bool TemporalPredictionEnabled { get; set; } =
+		true;
+
+
 	private RigidBody3D _body;
 
 	private OceanRuntime _runtime;
@@ -128,6 +133,16 @@ public partial class OceanBuoyancy : Node
 	private bool _currentPatchCoverageValid;
 
 	private bool _warnedAutomaticCenterOfMass;
+
+	private bool _temporalPredictionUsed;
+
+	private double _latestSampleAgeSeconds =
+		double.NaN;
+
+	private double _sampleIntervalSeconds =
+		double.NaN;
+
+	private double _predictionAgeSeconds;
 
 
 	public bool HasCompletedResult =>
@@ -183,6 +198,22 @@ public partial class OceanBuoyancy : Node
 		_hasHydrostaticResult
 			? _currentHydrostaticResult.Torque
 			: Vector3.Zero;
+
+
+	public bool TemporalPredictionUsed =>
+		_temporalPredictionUsed;
+
+
+	public double LatestSampleAgeSeconds =>
+		_latestSampleAgeSeconds;
+
+
+	public double SampleIntervalSeconds =>
+		_sampleIntervalSeconds;
+
+
+	public double PredictionAgeSeconds =>
+		_predictionAgeSeconds;
 
 
 	public override void _Ready()
@@ -342,6 +373,31 @@ public partial class OceanBuoyancy : Node
 		if (useAsyncWater)
 		{
 			_waterPatch.ConsumeLatest();
+
+
+			double latestSampleTime =
+				_waterPatch.LatestSampleTime;
+
+
+			_latestSampleAgeSeconds =
+				double.IsFinite(latestSampleTime)
+					? Math.Max(
+						0.0,
+						_runtime.SimulationTime -
+							latestSampleTime)
+					: double.NaN;
+
+
+			_sampleIntervalSeconds =
+				_waterPatch.SampleInterval;
+		}
+		else
+		{
+			_latestSampleAgeSeconds =
+				double.NaN;
+
+			_sampleIntervalSeconds =
+				double.NaN;
 		}
 
 
@@ -379,6 +435,13 @@ public partial class OceanBuoyancy : Node
 			0;
 
 
+		_temporalPredictionUsed =
+			false;
+
+		_predictionAgeSeconds =
+			0.0;
+
+
 		for (int i = 0;
 			 i < localVertices.Length;
 			 i++)
@@ -403,14 +466,29 @@ public partial class OceanBuoyancy : Node
 			if (!flatWater)
 			{
 				valid =
-					_waterPatch.TrySampleSurface(
+					_waterPatch.TrySampleSurfaceAtTime(
 					new Vector2(
 						worldVertex.X,
 						worldVertex.Z),
+					_runtime.SimulationTime,
 					SeaLevel,
+					TemporalPredictionEnabled,
 					out waterHeight,
-					out _,
-					out _);
+					out bool predicted,
+					out double predictionAge);
+
+
+				if (predicted)
+				{
+					_temporalPredictionUsed =
+						true;
+
+
+					_predictionAgeSeconds =
+						Math.Max(
+							_predictionAgeSeconds,
+							predictionAge);
+				}
 			}
 
 
@@ -683,6 +761,12 @@ public partial class OceanBuoyancy : Node
 
 		_validVertexSamples =
 			0;
+
+		_temporalPredictionUsed =
+			false;
+
+		_predictionAgeSeconds =
+			0.0;
 	}
 
 

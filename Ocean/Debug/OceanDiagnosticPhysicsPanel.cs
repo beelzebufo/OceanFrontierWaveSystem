@@ -688,6 +688,16 @@ internal sealed class OceanDiagnosticPhysicsPanel
 					(HydrostaticWaterMode)index;
 
 
+		OceanDiagnosticUi.Check(
+			parent,
+			"Temporal prediction",
+			buoyancy.TemporalPredictionEnabled)
+			.Toggled +=
+				value =>
+					buoyancy.TemporalPredictionEnabled =
+						value;
+
+
 		OceanDiagnosticUi.Spin(
 			parent,
 			"Water density",
@@ -830,9 +840,37 @@ internal sealed class OceanDiagnosticPhysicsPanel
 					: "--";
 
 
+			string sampleAge =
+				asyncWater &&
+				double.IsFinite(
+					archimedes.LatestSampleAgeSeconds)
+					? $"{archimedes.LatestSampleAgeSeconds:0.000} s"
+					: "--";
+
+
+			string sampleInterval =
+				asyncWater &&
+				double.IsFinite(
+					archimedes.SampleIntervalSeconds) &&
+				archimedes.SampleIntervalSeconds >
+					0.0
+					? $"{archimedes.SampleIntervalSeconds:0.000} s"
+					: "--";
+
+
+			string prediction =
+				asyncWater
+					? $"{(archimedes.TemporalPredictionEnabled ? "ON" : "OFF")} · " +
+					  $"used {(archimedes.TemporalPredictionUsed ? "yes" : "no")} · " +
+					  $"age {archimedes.PredictionAgeSeconds:0.000} s"
+					: "--";
+
+
 			_status.Text =
 				$"Archimedes · {(asyncWater ? "AWF async" : "flat synchronous")} · " +
 				$"generation {generation} · readback {readback}\n" +
+				$"Latest sample age {sampleAge} · sample dt {sampleInterval}\n" +
+				$"Temporal prediction {prediction}\n" +
 				$"Hull {hull.Volume:0.###} m³ · body density {bodyDensity:0.##} kg/m³\n" +
 				$"Coverage {(archimedes.CurrentPatchCoverageValid ? "valid" : "invalid")} · " +
 				$"{archimedes.ValidVertexSamples}/{hull.VertexCount} vertices · " +

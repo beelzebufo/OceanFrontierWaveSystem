@@ -230,6 +230,30 @@ public sealed class OceanPointQueryService
 		out long submittedFrame,
 		out int readbackFrames)
 	{
+		return TryCopyLatest(
+			owner,
+			destination,
+			out count,
+			out generation,
+			out submittedFrame,
+			out readbackFrames,
+			out _);
+	}
+
+
+	/// <summary>
+	/// Copies only this owner's latest completed result and its AnimatedWaveField
+	/// simulation timestamp without waiting.
+	/// </summary>
+	public bool TryCopyLatest(
+		OwnerHandle owner,
+		Span<Vector4> destination,
+		out int count,
+		out long generation,
+		out long submittedFrame,
+		out int readbackFrames,
+		out double sampleTime)
+	{
 		lock (_sync)
 		{
 			OwnerState state = GetOwner(owner);
@@ -237,6 +261,7 @@ public sealed class OceanPointQueryService
 			generation = state.LatestGeneration;
 			submittedFrame = state.LatestFrame;
 			readbackFrames = state.LatestReadbackFrames;
+			sampleTime = state.LatestSampleTime;
 
 			if (!state.HasLatest)
 			{
@@ -319,9 +344,6 @@ public sealed class OceanPointQueryService
 
 			foreach (OwnerState owner in _owners.Values)
 			{
-				owner.LatestSampleTime =
-					double.NaN;
-
 				owner.HasLatestVelocity =
 					false;
 			}

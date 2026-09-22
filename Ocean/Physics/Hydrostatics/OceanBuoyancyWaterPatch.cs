@@ -34,6 +34,9 @@ internal sealed class OceanBuoyancyWaterPatch :
 	private const float StepEpsilon =
 		0.000001f;
 
+	private const double TimeEpsilon =
+		0.0001;
+
 
 	private struct PatchSnapshot
 	{
@@ -50,6 +53,12 @@ internal sealed class OceanBuoyancyWaterPatch :
 		public float StepX;
 
 		public float StepZ;
+
+		public int ResolutionX;
+
+		public int ResolutionZ;
+
+		public double SampleTime;
 	}
 
 
@@ -69,6 +78,8 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 	private readonly Vector4[] _latestResults;
 
+	private readonly Vector4[] _previousResults;
+
 	private readonly Vector4[] _readbackVelocities;
 
 	private readonly Vector4[] _latestVelocities;
@@ -80,12 +91,16 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 	private PatchSnapshot _latestSnapshot;
 
+	private PatchSnapshot _previousSnapshot;
+
 	private long _latestGeneration;
 
 	private int _latestReadbackFrames =
 		-1;
 
 	private bool _hasLatest;
+
+	private bool _hasPrevious;
 
 	private bool _hasLatestVelocity;
 
@@ -157,6 +172,10 @@ internal sealed class OceanBuoyancyWaterPatch :
 			new Vector4[
 				_queryCount];
 
+		_previousResults =
+			new Vector4[
+				_queryCount];
+
 		_readbackVelocities =
 			new Vector4[
 				_queryCount];
@@ -200,6 +219,20 @@ internal sealed class OceanBuoyancyWaterPatch :
 		_latestReadbackFrames;
 
 
+	public double LatestSampleTime =>
+		_hasLatest
+			? _latestSnapshot.SampleTime
+			: double.NaN;
+
+
+	public double SampleInterval =>
+		_hasLatest &&
+		_hasPrevious
+			? _latestSnapshot.SampleTime -
+				_previousSnapshot.SampleTime
+			: double.NaN;
+
+
 	/// <summary>
 	/// Consumes the newest completed GPU result, if any.
 	///
@@ -218,7 +251,8 @@ internal sealed class OceanBuoyancyWaterPatch :
 				out int count,
 				out long generation,
 				out _,
-				out int readbackFrames) ||
+				out int readbackFrames,
+				out double sampleTime) ||
 			generation <=
 				_latestGeneration ||
 			count !=
@@ -252,10 +286,30 @@ internal sealed class OceanBuoyancyWaterPatch :
 			_hasLatest =
 				false;
 
+			_hasPrevious =
+				false;
+
 			_hasLatestVelocity =
 				false;
 
 			return false;
+		}
+
+
+		if (_hasLatest)
+		{
+			_latestResults
+				.AsSpan()
+				.CopyTo(
+					_previousResults);
+
+
+			_previousSnapshot =
+				_latestSnapshot;
+
+			_hasPrevious =
+				double.IsFinite(
+					_previousSnapshot.SampleTime);
 		}
 
 
@@ -288,6 +342,10 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 		_latestSnapshot =
 			snapshot;
+
+
+		_latestSnapshot.SampleTime =
+			sampleTime;
 
 		_latestGeneration =
 			generation;
@@ -566,6 +624,12 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 				StepZ =
 					stepZ,
+
+				ResolutionX =
+					_resolutionX,
+
+				ResolutionZ =
+					_resolutionZ,
 			};
 
 
@@ -798,6 +862,149 @@ internal sealed class OceanBuoyancyWaterPatch :
 	}
 
 
+	/// <summary>
+	/// Samples the latest patch at worldXZ and, when possible, advances its
+	/// displacement to targetSimulationTime using two completed snapshots.
+	/// Both temporal samples are evaluated at the same current world position.
+	/// Extrapolation is bounded to one measured sample interval.
+	/// </summary>
+	public bool TrySampleSurfaceAtTime(
+		Vector2 worldXZ,
+		double targetSimulationTime,
+		float currentSeaLevel,
+		bool predictionEnabled,
+		out float surfaceHeight,
+		out bool predicted,
+		out double predictionAge)
+	{
+		ThrowIfDisposed();
+
+
+		surfaceHeight =
+			float.NaN;
+
+		predicted =
+			false;
+
+		predictionAge =
+			0.0;
+
+
+		if (!_hasLatest ||
+			!float.IsFinite(worldXZ.X) ||
+			!float.IsFinite(worldXZ.Y) ||
+			!float.IsFinite(currentSeaLevel) ||
+			!TrySampleDisplacementY(
+				worldXZ,
+				_latestSnapshot,
+				_latestResults,
+				out float latestDisplacementY))
+		{
+			return false;
+		}
+
+
+		surfaceHeight =
+			currentSeaLevel +
+				latestDisplacementY;
+
+
+		if (!float.IsFinite(surfaceHeight))
+		{
+			surfaceHeight =
+				float.NaN;
+
+			return false;
+		}
+
+
+		if (!predictionEnabled ||
+			!_hasPrevious ||
+			!double.IsFinite(targetSimulationTime) ||
+			!double.IsFinite(_latestSnapshot.SampleTime) ||
+			!double.IsFinite(_previousSnapshot.SampleTime))
+		{
+			return true;
+		}
+
+
+		double sampleInterval =
+			_latestSnapshot.SampleTime -
+				_previousSnapshot.SampleTime;
+
+		double sampleAge =
+			targetSimulationTime -
+				_latestSnapshot.SampleTime;
+
+
+		if (!double.IsFinite(sampleInterval) ||
+			sampleInterval <=
+				TimeEpsilon ||
+			!double.IsFinite(sampleAge) ||
+			sampleAge <=
+				0.0 ||
+			!TrySampleDisplacementY(
+				worldXZ,
+				_previousSnapshot,
+				_previousResults,
+				out float previousDisplacementY))
+		{
+			return true;
+		}
+
+
+		predictionAge =
+			Math.Clamp(
+				sampleAge,
+				0.0,
+				sampleInterval);
+
+
+		double displacementRate =
+			(latestDisplacementY -
+			 previousDisplacementY) /
+				sampleInterval;
+
+		double predictedDisplacementY =
+			latestDisplacementY +
+				displacementRate *
+				predictionAge;
+
+
+		if (!double.IsFinite(predictedDisplacementY))
+		{
+			predictionAge =
+				0.0;
+
+			return true;
+		}
+
+
+		float predictedHeight =
+			currentSeaLevel +
+				(float)predictedDisplacementY;
+
+
+		if (!float.IsFinite(predictedHeight))
+		{
+			predictionAge =
+				0.0;
+
+			return true;
+		}
+
+
+		surfaceHeight =
+			predictedHeight;
+
+		predicted =
+			true;
+
+
+		return true;
+	}
+
+
 	public void Dispose()
 	{
 		if (_disposed)
@@ -815,6 +1022,9 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 
 		_hasLatest =
+			false;
+
+		_hasPrevious =
 			false;
 
 		_hasLatestVelocity =
@@ -838,9 +1048,85 @@ internal sealed class OceanBuoyancyWaterPatch :
 			_latestResults.Length);
 
 		Array.Clear(
+			_previousResults,
+			0,
+			_previousResults.Length);
+
+		Array.Clear(
 			_latestVelocities,
 			0,
 			_latestVelocities.Length);
+	}
+
+
+	private bool TrySampleDisplacementY(
+		Vector2 worldXZ,
+		PatchSnapshot snapshot,
+		Vector4[] results,
+		out float displacementY)
+	{
+		displacementY =
+			float.NaN;
+
+
+		if (!TryGetGridCoordinates(
+				worldXZ,
+				snapshot,
+				out int x0,
+				out int x1,
+				out int z0,
+				out int z1,
+				out float tx,
+				out float tz))
+		{
+			return false;
+		}
+
+
+		Vector4 r00 =
+			results[GridIndex(x0, z0)];
+
+		Vector4 r10 =
+			results[GridIndex(x1, z0)];
+
+		Vector4 r01 =
+			results[GridIndex(x0, z1)];
+
+		Vector4 r11 =
+			results[GridIndex(x1, z1)];
+
+
+		if (!IsValidResult(r00) ||
+			!IsValidResult(r10) ||
+			!IsValidResult(r01) ||
+			!IsValidResult(r11))
+		{
+			return false;
+		}
+
+
+		float y0 =
+			Mathf.Lerp(
+				r00.Y,
+				r10.Y,
+				tx);
+
+		float y1 =
+			Mathf.Lerp(
+				r01.Y,
+				r11.Y,
+				tx);
+
+
+		displacementY =
+			Mathf.Lerp(
+				y0,
+				y1,
+				tz);
+
+
+		return float.IsFinite(
+			displacementY);
 	}
 
 
@@ -874,6 +1160,10 @@ internal sealed class OceanBuoyancyWaterPatch :
 
 
 		if (!snapshot.Valid ||
+			snapshot.ResolutionX !=
+				_resolutionX ||
+			snapshot.ResolutionZ !=
+				_resolutionZ ||
 			snapshot.StepX <=
 				StepEpsilon ||
 			snapshot.StepZ <=
