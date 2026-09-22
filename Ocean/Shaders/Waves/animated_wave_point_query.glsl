@@ -48,7 +48,7 @@ u_lod_data;
 
 
 // x/y = target world X/Z
-// z   = minimum requested texel width
+// z   = Crest minGridSize
 // w   = reserved
 layout(
 	std430,

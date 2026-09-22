@@ -102,15 +102,15 @@ public partial class OceanRuntime : Node
 	private int _surfaceLodCount;
 
 
-//
-// Persistent main-thread scratch storage for legacy single-LOD
-// surface accessors.
-//
-// The production renderer will move to one coherent whole-stack
-// snapshot per frame.
-//
-// No per-frame allocations.
-//
+	//
+	// Persistent main-thread scratch storage for legacy single-LOD
+	// surface accessors.
+	//
+	// The production renderer will move to one coherent whole-stack
+	// snapshot per frame.
+	//
+	// No per-frame allocations.
+	//
 
 	private AnimatedWaveLodSlice[] _surfaceStateScratch;
 
@@ -373,7 +373,7 @@ public partial class OceanRuntime : Node
 		float relativeLevel =
 			MathF.Max(
 				level /
-				minimumCrestScale,
+					minimumCrestScale,
 				1.0f);
 
 
@@ -395,7 +395,7 @@ public partial class OceanRuntime : Node
 		scaleAlpha =
 			Mathf.Clamp(
 				log2Level -
-				floorLevel,
+					floorLevel,
 				0.0f,
 				1.0f);
 	}
@@ -509,7 +509,7 @@ public partial class OceanRuntime : Node
 
 
 		_surfaceStateScratch =
-				new AnimatedWaveLodSlice[animatedWaveLodCount];
+			new AnimatedWaveLodSlice[animatedWaveLodCount];
 
 
 		var fft =
@@ -639,15 +639,15 @@ public partial class OceanRuntime : Node
 					//
 					// Crest Animated Waves path:
 					//
-					// raw FFT	
+					// raw FFT
 					// -> direct per-LOD wave contributions
-// -> coarse-to-fine combine
-// -> canonical AnimatedWaveField
-//
-// IMPORTANT:
-// initialLodScale and initialLodScaleAlpha belong to
-// the same initial spatial LOD state.
-//
+					// -> coarse-to-fine combine
+					// -> canonical AnimatedWaveField
+					//
+					// IMPORTANT:
+					// initialLodScale and initialLodScaleAlpha belong to
+					// the same initial spatial LOD state.
+					//
 
 					composer.ComposeFft(
 						initialFocusXZ,
@@ -875,6 +875,17 @@ public partial class OceanRuntime : Node
 				settings.BuildLinearPowerControls());
 
 
+			//
+			// H0 regeneration is a discontinuous change of the
+			// canonical wave field.
+			//
+			// Do not finite-difference a displacement result from
+			// the previous H0 revision against the new spectrum.
+			//
+
+			PointQueries.InvalidateVelocities();
+
+
 			Volatile.Write(
 				ref _appliedH0Revision,
 				settings.H0Revision);
@@ -918,8 +929,6 @@ public partial class OceanRuntime : Node
 		// transition during whole-stack scale changes.
 		//
 
-
-
 		_animatedWaveComposer.ComposeFft(
 			focusXZ,
 			lodScale,
@@ -933,10 +942,15 @@ public partial class OceanRuntime : Node
 		// lodScaleAlpha is required so physics sampling
 		// matches the renderer's LOD0 -> LOD1 altitude blend.
 		//
+		// simulationTime is the timestamp of the exact AWF state
+		// being queried. Query velocity finite differences therefore
+		// follow ocean simulation time, including pause/time scale.
+		//
 
 		PointQueries.DispatchAfterCompose(
 			_animatedWaveComposer.LodLayout.FocusXZ,
-			lodScaleAlpha);
+			lodScaleAlpha,
+			simulationTime);
 	}
 
 
@@ -972,257 +986,258 @@ public partial class OceanRuntime : Node
 			position.X,
 			position.Z);
 	}
+
+
 	/// <summary>
-/// Copies one coherent committed spatial state belonging to the
-/// canonical AnimatedWaveField.
-///
-/// Crest equivalent:
-///
-///     LodTransform.RenderData.Current
-///         -> WriteCascadeParams()
-///         -> consumers
-///
-/// This method does NOT calculate LOD slices.
-///
-/// The returned metadata is copied from the exact
-/// AnimatedWaveLodLayout used by the render thread to build the
-/// corresponding AnimatedWaveField generation.
-///
-/// The caller owns destination storage and should keep it persistent.
-/// No allocation occurs here.
-/// </summary>
-internal bool TryCopyAnimatedWaveSurfaceState(
-	Span<AnimatedWaveLodSlice> destination,
-	out Rid texture,
-	out int resolution,
-	out int lodCount,
-	out Vector2 focusXZ,
-	out float worldScale,
-	out float lodScaleAlpha,
-	out long generation)
-{
-	texture =
-		default;
-
-	resolution =
-		0;
-
-	lodCount =
-		0;
-
-	focusXZ =
-		default;
-
-	worldScale =
-		1.0f;
-
-	lodScaleAlpha =
-		0.0f;
-
-	generation =
-		0;
-
-
-	if (!_gpuReady)
+	/// Copies one coherent committed spatial state belonging to the
+	/// canonical AnimatedWaveField.
+	///
+	/// Crest equivalent:
+	///
+	///     LodTransform.RenderData.Current
+	///         -> WriteCascadeParams()
+	///         -> consumers
+	///
+	/// This method does NOT calculate LOD slices.
+	///
+	/// The returned metadata is copied from the exact
+	/// AnimatedWaveLodLayout used by the render thread to build the
+	/// corresponding AnimatedWaveField generation.
+	///
+	/// The caller owns destination storage and should keep it persistent.
+	/// No allocation occurs here.
+	/// </summary>
+	internal bool TryCopyAnimatedWaveSurfaceState(
+		Span<AnimatedWaveLodSlice> destination,
+		out Rid texture,
+		out int resolution,
+		out int lodCount,
+		out Vector2 focusXZ,
+		out float worldScale,
+		out float lodScaleAlpha,
+		out long generation)
 	{
-		return false;
+		texture =
+			default;
+
+		resolution =
+			0;
+
+		lodCount =
+			0;
+
+		focusXZ =
+			default;
+
+		worldScale =
+			1.0f;
+
+		lodScaleAlpha =
+			0.0f;
+
+		generation =
+			0;
+
+
+		if (!_gpuReady)
+		{
+			return false;
+		}
+
+
+		AnimatedWaveField field =
+			_animatedWaveComposer.Field;
+
+		AnimatedWaveRenderState renderState =
+			_animatedWaveComposer.RenderState;
+
+
+		if (field == null ||
+			renderState == null ||
+			!field.Displacement.IsValid)
+		{
+			return false;
+		}
+
+
+		if (!renderState.TryCopy(
+				destination,
+				out resolution,
+				out lodCount,
+				out focusXZ,
+				out worldScale,
+				out lodScaleAlpha,
+				out generation))
+		{
+			return false;
+		}
+
+
+		//
+		// The texture RID is persistent.
+		//
+		// Spatial metadata above belongs to the committed generation
+		// written into this canonical field by AnimatedWaveComposer.
+		//
+
+		texture =
+			field.Displacement;
+
+
+		return true;
 	}
 
-
-	AnimatedWaveField field =
-		_animatedWaveComposer.Field;
-
-	AnimatedWaveRenderState renderState =
-		_animatedWaveComposer.RenderState;
-
-
-	if (field == null ||
-		renderState == null ||
-		!field.Displacement.IsValid)
-	{
-		return false;
-	}
-
-
-	if (!renderState.TryCopy(
-			destination,
-			out resolution,
-			out lodCount,
-			out focusXZ,
-			out worldScale,
-			out lodScaleAlpha,
-			out generation))
-	{
-		return false;
-	}
-
-
-	//
-	// The texture RID is persistent.
-	//
-	// Spatial metadata above belongs to the committed generation
-	// written into this canonical field by AnimatedWaveComposer.
-	//
-
-	texture =
-		field.Displacement;
-
-
-	return true;
-}
-
-	
 
 	internal bool TryGetAnimatedWaveSurface(
-	int spatialLodIndex,
-	out Rid texture,
-	out int resolution,
-	out int lodCount,
-	out AnimatedWaveLodSlice selectedSlice)
-{
-	texture =
-		default;
-
-	resolution =
-		0;
-
-	lodCount =
-		0;
-
-	selectedSlice =
-		default;
-
-
-	if (spatialLodIndex < 0 ||
-		spatialLodIndex >= _surfaceLodCount ||
-		_surfaceStateScratch == null ||
-		_surfaceStateScratch.Length <
-			_surfaceLodCount)
+		int spatialLodIndex,
+		out Rid texture,
+		out int resolution,
+		out int lodCount,
+		out AnimatedWaveLodSlice selectedSlice)
 	{
-		return false;
-	}
+		texture =
+			default;
+
+		resolution =
+			0;
+
+		lodCount =
+			0;
+
+		selectedSlice =
+			default;
 
 
-	if (!TryCopyAnimatedWaveSurfaceState(
-			_surfaceStateScratch,
-			out texture,
-			out resolution,
-			out lodCount,
-			out _,
-			out _,
-			out _,
-			out _))
-	{
-		return false;
-	}
+		if (spatialLodIndex < 0 ||
+			spatialLodIndex >= _surfaceLodCount ||
+			_surfaceStateScratch == null ||
+			_surfaceStateScratch.Length <
+				_surfaceLodCount)
+		{
+			return false;
+		}
 
 
-	if (spatialLodIndex >=
-		lodCount)
-	{
-		return false;
-	}
+		if (!TryCopyAnimatedWaveSurfaceState(
+				_surfaceStateScratch,
+				out texture,
+				out resolution,
+				out lodCount,
+				out _,
+				out _,
+				out _,
+				out _))
+		{
+			return false;
+		}
 
 
-	selectedSlice =
-		_surfaceStateScratch[
-			spatialLodIndex];
+		if (spatialLodIndex >=
+			lodCount)
+		{
+			return false;
+		}
 
 
-	return true;
-}
-
-
-internal bool TryGetAnimatedWaveSurfaceWithNext(
-	int spatialLodIndex,
-	out Rid texture,
-	out int resolution,
-	out int lodCount,
-	out AnimatedWaveLodSlice selectedSlice,
-	out AnimatedWaveLodSlice nextSlice,
-	out Vector2 focusXZ)
-{
-	texture =
-		default;
-
-	resolution =
-		0;
-
-	lodCount =
-		0;
-
-	selectedSlice =
-		default;
-
-	nextSlice =
-		default;
-
-	focusXZ =
-		default;
-
-
-	if (spatialLodIndex < 0 ||
-		spatialLodIndex >= _surfaceLodCount ||
-		_surfaceStateScratch == null ||
-		_surfaceStateScratch.Length <
-			_surfaceLodCount)
-	{
-		return false;
-	}
-
-
-	//
-	// One committed snapshot supplies:
-	//
-	//     current LOD
-	//     next LOD
-	//     focus
-	//
-	// They therefore cannot belong to different generations.
-	//
-
-	if (!TryCopyAnimatedWaveSurfaceState(
-			_surfaceStateScratch,
-			out texture,
-			out resolution,
-			out lodCount,
-			out focusXZ,
-			out _,
-			out _,
-			out _))
-	{
-		return false;
-	}
-
-
-	if (spatialLodIndex >=
-		lodCount)
-	{
-		return false;
-	}
-
-
-	selectedSlice =
-		_surfaceStateScratch[
-			spatialLodIndex];
-
-
-	if (spatialLodIndex + 1 <
-		lodCount)
-	{
-		nextSlice =
+		selectedSlice =
 			_surfaceStateScratch[
-				spatialLodIndex + 1];
+				spatialLodIndex];
+
+
+		return true;
 	}
-	else
+
+
+	internal bool TryGetAnimatedWaveSurfaceWithNext(
+		int spatialLodIndex,
+		out Rid texture,
+		out int resolution,
+		out int lodCount,
+		out AnimatedWaveLodSlice selectedSlice,
+		out AnimatedWaveLodSlice nextSlice,
+		out Vector2 focusXZ)
 	{
+		texture =
+			default;
+
+		resolution =
+			0;
+
+		lodCount =
+			0;
+
+		selectedSlice =
+			default;
+
 		nextSlice =
-			selectedSlice;
+			default;
+
+		focusXZ =
+			default;
+
+
+		if (spatialLodIndex < 0 ||
+			spatialLodIndex >= _surfaceLodCount ||
+			_surfaceStateScratch == null ||
+			_surfaceStateScratch.Length <
+				_surfaceLodCount)
+		{
+			return false;
+		}
+
+
+		//
+		// One committed snapshot supplies:
+		//
+		//     current LOD
+		//     next LOD
+		//     focus
+		//
+		// They therefore cannot belong to different generations.
+		//
+
+		if (!TryCopyAnimatedWaveSurfaceState(
+				_surfaceStateScratch,
+				out texture,
+				out resolution,
+				out lodCount,
+				out focusXZ,
+				out _,
+				out _,
+				out _))
+		{
+			return false;
+		}
+
+
+		if (spatialLodIndex >=
+			lodCount)
+		{
+			return false;
+		}
+
+
+		selectedSlice =
+			_surfaceStateScratch[
+				spatialLodIndex];
+
+
+		if (spatialLodIndex + 1 <
+			lodCount)
+		{
+			nextSlice =
+				_surfaceStateScratch[
+					spatialLodIndex + 1];
+		}
+		else
+		{
+			nextSlice =
+				selectedSlice;
+		}
+
+
+		return true;
 	}
-
-
-	return true;
-}
 
 
 	//

@@ -46,11 +46,13 @@ public sealed class OceanPointQueryService
 			Handle = handle;
 			PendingPositions = new Vector2[handle.Capacity];
 			LatestResults = new Vector4[handle.Capacity];
+			LatestVelocities = new Vector4[handle.Capacity];
 		}
 
 		public OwnerHandle Handle { get; }
 		public Vector2[] PendingPositions { get; }
 		public Vector4[] LatestResults { get; }
+		public Vector4[] LatestVelocities { get; }
 		public int PendingCount;
 		public float PendingMinGridSize;
 		public long NextGeneration;
@@ -60,7 +62,10 @@ public sealed class OceanPointQueryService
 		public long LatestGeneration;
 		public long LatestFrame;
 		public int LatestReadbackFrames = -1;
+		public double LatestSampleTime = double.NaN;
+		public long LatestVelocityEpoch;
 		public bool HasLatest;
+		public bool HasLatestVelocity;
 	}
 
 	private struct Segment
@@ -83,6 +88,8 @@ public sealed class OceanPointQueryService
 		public int Count;
 		public int SegmentCount;
 		public long SubmittedFrame;
+		public double SampleTime = double.NaN;
+		public long VelocityEpoch;
 	}
 
 	private readonly object _sync = new();
@@ -98,6 +105,7 @@ public sealed class OceanPointQueryService
 	private int _reservedCapacity;
 	private long _nextOwnerId;
 	private long _renderFrame;
+	private long _velocityEpoch;
 	private int _submittedCount;
 	private int _latestReadbackFrames = -1;
 	private bool _hasCompletedResult;
@@ -246,6 +254,80 @@ public sealed class OceanPointQueryService
 			return true;
 		}
 	}
+
+
+	/// <summary>
+	/// Copies this owner's latest completed water-surface velocity estimate.
+	///
+	/// Velocity follows Crest QueryBase.CalculateVelocities():
+	///
+	///     velocity = (current displacement - previous displacement) / dt
+	///
+	/// It is available only when two consecutive completed result generations
+	/// with matching point counts and valid simulation timestamps exist.
+	/// </summary>
+	public bool TryCopyLatestVelocities(
+		OwnerHandle owner,
+		Span<Vector4> destination,
+		out int count,
+		out long generation)
+	{
+		lock (_sync)
+		{
+			OwnerState state =
+				GetOwner(owner);
+
+			count =
+				state.LatestCount;
+
+			generation =
+				state.LatestGeneration;
+
+			if (!state.HasLatestVelocity)
+			{
+				return false;
+			}
+
+			if (destination.Length < count)
+			{
+				throw new ArgumentException(
+					"Destination is smaller than the completed velocity batch.",
+					nameof(destination));
+			}
+
+			state.LatestVelocities
+				.AsSpan(0, count)
+				.CopyTo(destination);
+
+			return true;
+		}
+	}
+
+
+	/// <summary>
+	/// Invalidates finite-difference velocity history without discarding
+	/// the latest displacement result.
+	///
+	/// Use this when the wave field changes discontinuously, for example
+	/// after regenerating H0 from new spectrum settings.
+	/// </summary>
+	internal void InvalidateVelocities()
+	{
+		lock (_sync)
+		{
+			_velocityEpoch++;
+
+			foreach (OwnerState owner in _owners.Values)
+			{
+				owner.LatestSampleTime =
+					double.NaN;
+
+				owner.HasLatestVelocity =
+					false;
+			}
+		}
+	}
+
 
 	public void GetDiagnostics(
 		out int submittedCount,
@@ -402,7 +484,28 @@ public sealed class OceanPointQueryService
 	/// Render thread only. Flattens every owner's newest undispatched batch into
 	/// exactly one compute dispatch after AnimatedWaveComposer.ComposeFft().
 	/// </summary>
-	internal void DispatchAfterCompose(Vector2 focusXZ, float lodScaleAlpha)
+	internal void DispatchAfterCompose(
+		Vector2 focusXZ,
+		float lodScaleAlpha)
+	{
+		DispatchAfterCompose(
+			focusXZ,
+			lodScaleAlpha,
+			double.NaN);
+	}
+
+
+	/// <summary>
+	/// Render thread only.
+	///
+	/// sampleTime must describe the AnimatedWaveField generation being queried.
+	/// OceanRuntime supplies simulation time so pause and time scaling preserve
+	/// the same temporal contract as the wave field itself.
+	/// </summary>
+	internal void DispatchAfterCompose(
+		Vector2 focusXZ,
+		float lodScaleAlpha,
+		double sampleTime)
 	{
 		if (_rd == null)
 		{
@@ -452,6 +555,8 @@ public sealed class OceanPointQueryService
 			slot.Count = 0;
 			slot.SegmentCount = 0;
 			slot.SubmittedFrame = frame;
+			slot.SampleTime = sampleTime;
+			slot.VelocityEpoch = _velocityEpoch;
 
 			foreach (OwnerState owner in _owners.Values)
 			{
@@ -606,15 +711,105 @@ public sealed class OceanPointQueryService
 						continue;
 					}
 
+					bool canCalculateVelocity =
+						owner.HasLatest &&
+						owner.LatestCount == segment.Count &&
+						owner.LatestVelocityEpoch == slot.VelocityEpoch &&
+						double.IsFinite(slot.SampleTime) &&
+						double.IsFinite(owner.LatestSampleTime);
+
+
+					double velocityDt =
+						canCalculateVelocity
+							? slot.SampleTime -
+							  owner.LatestSampleTime
+							: 0.0;
+
+
+					canCalculateVelocity &=
+						velocityDt >=
+						0.0001;
+
+
+					float inverseDt =
+						canCalculateVelocity
+							? (float)(
+								1.0 /
+								velocityDt)
+							: 0.0f;
+
+
 					for (int i = 0; i < segment.Count; i++)
 					{
-						int offset = (segment.Offset + i) * StrideBytes;
-						owner.LatestResults[i] = new Vector4(
-							BitConverter.ToSingle(data, offset),
-							BitConverter.ToSingle(data, offset + 4),
-							BitConverter.ToSingle(data, offset + 8),
-							BitConverter.ToSingle(data, offset + 12));
+						int offset =
+							(segment.Offset + i) *
+							StrideBytes;
+
+
+						Vector4 current =
+							new(
+								BitConverter.ToSingle(
+									data,
+									offset),
+
+								BitConverter.ToSingle(
+									data,
+									offset + 4),
+
+								BitConverter.ToSingle(
+									data,
+									offset + 8),
+
+								BitConverter.ToSingle(
+									data,
+									offset + 12));
+
+
+						if (canCalculateVelocity)
+						{
+							Vector4 previous =
+								owner.LatestResults[i];
+
+
+							if (current.W > 0.5f &&
+								previous.W > 0.5f)
+							{
+								owner.LatestVelocities[i] =
+									new Vector4(
+										(current.X - previous.X) *
+										inverseDt,
+
+										(current.Y - previous.Y) *
+										inverseDt,
+
+										(current.Z - previous.Z) *
+										inverseDt,
+
+										1.0f);
+							}
+							else
+							{
+								owner.LatestVelocities[i] =
+									Vector4.Zero;
+							}
+						}
+
+
+						owner.LatestResults[i] =
+							current;
 					}
+
+
+					owner.HasLatestVelocity =
+						canCalculateVelocity;
+
+
+					owner.LatestSampleTime =
+						slot.SampleTime;
+
+					owner.LatestVelocityEpoch =
+						slot.VelocityEpoch;
+
 
 					owner.LatestCount = segment.Count;
 					owner.LatestGeneration = segment.Generation;
@@ -672,6 +867,7 @@ public sealed class OceanPointQueryService
 			_submittedCount = 0;
 			_latestReadbackFrames = -1;
 			_hasCompletedResult = false;
+			_velocityEpoch = 0;
 
 			foreach (OwnerState owner in _owners.Values)
 			{
@@ -680,7 +876,15 @@ public sealed class OceanPointQueryService
 				owner.LatestGeneration = 0;
 				owner.LatestFrame = 0;
 				owner.LatestReadbackFrames = -1;
+				owner.LatestSampleTime = double.NaN;
+				owner.LatestVelocityEpoch = 0;
 				owner.HasLatest = false;
+				owner.HasLatestVelocity = false;
+
+				Array.Clear(
+					owner.LatestVelocities,
+					0,
+					owner.LatestVelocities.Length);
 			}
 		}
 	}

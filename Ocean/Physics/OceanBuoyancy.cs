@@ -68,12 +68,15 @@ public partial class OceanBuoyancy : Node
 		new(-1.30f, 0.0f, 5.20f),
 		new(0.00f, 0.0f, 5.20f),
 		new(1.30f, 0.0f, 5.20f),
+
 		new(-1.30f, 0.0f, 1.73f),
 		new(0.00f, 0.0f, 1.73f),
 		new(1.30f, 0.0f, 1.73f),
+
 		new(-1.30f, 0.0f, -1.73f),
 		new(0.00f, 0.0f, -1.73f),
 		new(1.30f, 0.0f, -1.73f),
+
 		new(-1.30f, 0.0f, -5.20f),
 		new(0.00f, 0.0f, -5.20f),
 		new(1.30f, 0.0f, -5.20f),
@@ -88,90 +91,166 @@ public partial class OceanBuoyancy : Node
 		1.0f, 1.0f, 1.0f,
 	};
 
-	private readonly Vector2[] _queryPositions = new Vector2[QueryCapacity];
-	private readonly Vector4[] _readbackResults = new Vector4[QueryCapacity];
-	private readonly Vector4[] _latestResults = new Vector4[QueryCapacity];
-	private readonly Vector3[] _probeWorldPositions = new Vector3[QueryCapacity];
-	private readonly float[] _probeForces = new float[QueryCapacity];
-	private readonly bool[] _probeSubmerged = new bool[QueryCapacity];
-	private readonly MeshInstance3D[] _probeMarkers = new MeshInstance3D[QueryCapacity];
-	private readonly MeshInstance3D[] _waterMarkers = new MeshInstance3D[QueryCapacity];
-	private readonly MeshInstance3D[] _forceLines = new MeshInstance3D[QueryCapacity];
+
+	private readonly Vector2[] _queryPositions =
+		new Vector2[QueryCapacity];
+
+	private readonly Vector4[] _readbackResults =
+		new Vector4[QueryCapacity];
+
+	private readonly Vector4[] _latestResults =
+		new Vector4[QueryCapacity];
+
+	private readonly Vector4[] _readbackVelocities =
+		new Vector4[QueryCapacity];
+
+	private readonly Vector4[] _latestVelocities =
+		new Vector4[QueryCapacity];
+
+	private readonly Vector3[] _probeWorldPositions =
+		new Vector3[QueryCapacity];
+
+	private readonly float[] _probeForces =
+		new float[QueryCapacity];
+
+	private readonly bool[] _probeSubmerged =
+		new bool[QueryCapacity];
+
+	private readonly MeshInstance3D[] _probeMarkers =
+		new MeshInstance3D[QueryCapacity];
+
+	private readonly MeshInstance3D[] _waterMarkers =
+		new MeshInstance3D[QueryCapacity];
+
+	private readonly MeshInstance3D[] _forceLines =
+		new MeshInstance3D[QueryCapacity];
+
 
 	private RigidBody3D _body;
 	private OceanRuntime _runtime;
 	private OceanPointQueryService.OwnerHandle _queryOwner;
+
 	private StandardMaterial3D _dryMaterial;
 	private StandardMaterial3D _submergedMaterial;
 	private StandardMaterial3D _invalidMaterial;
 	private StandardMaterial3D _waterMaterial;
 	private StandardMaterial3D _forceMaterial;
+
 	private int _probeCount;
 	private float _totalWeight;
 	private float _gravity;
-	private long _latestGeneration;
-	private bool _hasLatestResult;
 
-	public long LatestCompletedGeneration => _latestGeneration;
-	public bool HasCompletedResult => _hasLatestResult;
+	private long _latestGeneration;
+
+	private bool _hasLatestResult;
+	private bool _hasLatestVelocity;
+
+
+	public long LatestCompletedGeneration =>
+		_latestGeneration;
+
+	public bool HasCompletedResult =>
+		_hasLatestResult;
+
 
 	public override void _Ready()
 	{
-		_body = GetParent() as RigidBody3D;
-		_runtime = ResolveRuntime();
-		if (_body == null || _runtime == null || !ValidateConfiguration())
+		_body =
+			GetParent() as RigidBody3D;
+
+		_runtime =
+			ResolveRuntime();
+
+
+		if (_body == null ||
+			_runtime == null ||
+			!ValidateConfiguration())
 		{
 			GD.PushError(
 				"OceanBuoyancy requires a RigidBody3D parent, an OceanRuntime, " +
 				"and 1-12 valid probes.");
-			SetPhysicsProcess(false);
+
+			SetPhysicsProcess(
+				false);
+
 			return;
 		}
 
-		_queryOwner = _runtime.PointQueries.RegisterOwner(QueryCapacity);
-		_gravity = ResolvePhysicsGravity();
+
+		_queryOwner =
+			_runtime.PointQueries.RegisterOwner(
+				QueryCapacity);
+
+
+		_gravity =
+			ResolvePhysicsGravity();
+
+
 		if (ShowProbeVisualization)
 		{
 			CreateVisualization();
 		}
 	}
 
+
 	public override void _ExitTree()
 	{
 		if (_queryOwner != null)
 		{
-			_runtime?.PointQueries.UnregisterOwner(_queryOwner);
-			_queryOwner = null;
+			_runtime?.PointQueries.UnregisterOwner(
+				_queryOwner);
+
+			_queryOwner =
+				null;
 		}
 	}
 
-	public override void _PhysicsProcess(double delta)
+
+	public override void _PhysicsProcess(
+		double delta)
 	{
 		if (_queryOwner == null)
 		{
 			return;
 		}
 
+
 		ConsumeLatestResult();
+
 		BuildCurrentProbePositions();
+
 		ApplyBuoyancy();
+
 		ApplyHorizontalDrag();
+
 		UpdateVisualization();
+
 
 		_runtime.PointQueries.SubmitBatch(
 			_queryOwner,
-			_queryPositions.AsSpan(0, _probeCount),
-			MinSpatialLength / QueryScaleDivisor);
+			_queryPositions.AsSpan(
+				0,
+				_probeCount),
+			MinSpatialLength /
+				QueryScaleDivisor);
 	}
+
 
 	private OceanRuntime ResolveRuntime()
 	{
-		if (OceanRuntimePath != null && !OceanRuntimePath.IsEmpty)
+		if (OceanRuntimePath != null &&
+			!OceanRuntimePath.IsEmpty)
 		{
-			return GetNodeOrNull<OceanRuntime>(OceanRuntimePath);
+			return
+				GetNodeOrNull<OceanRuntime>(
+					OceanRuntimePath);
 		}
 
-		Node node = GetParent();
+
+		Node node =
+			GetParent();
+
+
 		while (node != null)
 		{
 			if (node is OceanRuntime runtime)
@@ -179,35 +258,60 @@ public partial class OceanBuoyancy : Node
 				return runtime;
 			}
 
-			node = node.GetParent();
+
+			node =
+				node.GetParent();
 		}
+
 
 		return null;
 	}
 
+
 	private bool ValidateConfiguration()
 	{
-		_probeCount = ProbeLocalPositions?.Length ?? 0;
+		_probeCount =
+			ProbeLocalPositions?.Length ??
+			0;
+
+
 		if (_probeCount is < 1 or > QueryCapacity ||
 			ProbeWeights == null ||
 			ProbeWeights.Length != _probeCount ||
-			!float.IsFinite(MinSpatialLength) || MinSpatialLength <= 0.0f ||
-			!float.IsFinite(TargetSubmersion) || TargetSubmersion <= 0.0f ||
-			!float.IsFinite(DampingRatio) || DampingRatio < 0.0f ||
-			!float.IsFinite(MaximumBuoyancyFactor) || MaximumBuoyancyFactor < 1.0f ||
+			!float.IsFinite(MinSpatialLength) ||
+			MinSpatialLength <= 0.0f ||
+			!float.IsFinite(TargetSubmersion) ||
+			TargetSubmersion <= 0.0f ||
+			!float.IsFinite(DampingRatio) ||
+			DampingRatio < 0.0f ||
+			!float.IsFinite(MaximumBuoyancyFactor) ||
+			MaximumBuoyancyFactor < 1.0f ||
 			!float.IsFinite(ProbePlaneY) ||
-			!float.IsFinite(ForwardDrag) || ForwardDrag < 0.0f ||
-			!float.IsFinite(LateralDrag) || LateralDrag < 0.0f ||
+			!float.IsFinite(ForwardDrag) ||
+			ForwardDrag < 0.0f ||
+			!float.IsFinite(LateralDrag) ||
+			LateralDrag < 0.0f ||
 			!float.IsFinite(SeaLevel))
 		{
 			return false;
 		}
 
-		_totalWeight = 0.0f;
-		for (int i = 0; i < _probeCount; i++)
+
+		_totalWeight =
+			0.0f;
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
 		{
-			Vector3 probe = ProbeLocalPositions[i];
-			float weight = ProbeWeights[i];
+			Vector3 probe =
+				ProbeLocalPositions[i];
+
+			float weight =
+				ProbeWeights[i];
+
+
 			if (!float.IsFinite(probe.X) ||
 				!float.IsFinite(probe.Y) ||
 				!float.IsFinite(probe.Z) ||
@@ -217,11 +321,17 @@ public partial class OceanBuoyancy : Node
 				return false;
 			}
 
-			_totalWeight += weight;
+
+			_totalWeight +=
+				weight;
 		}
 
-		return _totalWeight > 0.0f;
+
+		return
+			_totalWeight >
+			0.0f;
 	}
+
 
 	private void ConsumeLatestResult()
 	{
@@ -232,234 +342,834 @@ public partial class OceanBuoyancy : Node
 				out long generation,
 				out _,
 				out _) ||
-			generation <= _latestGeneration ||
-			count != _probeCount)
+			generation <=
+				_latestGeneration ||
+			count !=
+				_probeCount)
 		{
 			return;
 		}
 
-		_readbackResults.AsSpan(0, count).CopyTo(_latestResults);
-		_latestGeneration = generation;
-		_hasLatestResult = true;
+
+		//
+		// Displacement remains authoritative.
+		//
+		// Velocity is optional and must belong to exactly the same
+		// completed generation.
+		//
+
+		bool hasMatchingVelocity =
+			_runtime.PointQueries.TryCopyLatestVelocities(
+				_queryOwner,
+				_readbackVelocities,
+				out int velocityCount,
+				out long velocityGeneration) &&
+			velocityCount ==
+				count &&
+			velocityGeneration ==
+				generation;
+
+
+		_readbackResults
+			.AsSpan(
+				0,
+				count)
+			.CopyTo(
+				_latestResults);
+
+
+		if (hasMatchingVelocity)
+		{
+			_readbackVelocities
+				.AsSpan(
+					0,
+					count)
+				.CopyTo(
+					_latestVelocities);
+		}
+
+
+		_hasLatestVelocity =
+			hasMatchingVelocity;
+
+		_latestGeneration =
+			generation;
+
+		_hasLatestResult =
+			true;
 	}
+
 
 	private void BuildCurrentProbePositions()
 	{
-		Transform3D transform = _body.GlobalTransform;
-		for (int i = 0; i < _probeCount; i++)
+		Transform3D transform =
+			_body.GlobalTransform;
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
 		{
-			Vector3 localProbe = ProbeLocalPositions[i] + Vector3.Up * ProbePlaneY;
-			Vector3 worldProbe = transform * localProbe;
-			_probeWorldPositions[i] = worldProbe;
-			_queryPositions[i] = new Vector2(worldProbe.X, worldProbe.Z);
+			Vector3 localProbe =
+				ProbeLocalPositions[i] +
+				Vector3.Up *
+					ProbePlaneY;
+
+
+			Vector3 worldProbe =
+				transform *
+					localProbe;
+
+
+			_probeWorldPositions[i] =
+				worldProbe;
+
+
+			_queryPositions[i] =
+				new Vector2(
+					worldProbe.X,
+					worldProbe.Z);
 		}
 	}
 
+
 	private void ApplyBuoyancy()
 	{
-		Array.Clear(_probeForces, 0, _probeCount);
-		Array.Clear(_probeSubmerged, 0, _probeCount);
+		Array.Clear(
+			_probeForces,
+			0,
+			_probeCount);
+
+		Array.Clear(
+			_probeSubmerged,
+			0,
+			_probeCount);
+
+
 		if (!_hasLatestResult)
 		{
 			return;
 		}
 
-		float centralForce = 0.0f;
-		Vector3 worldCenterOfMass = GetWorldCenterOfMass();
 
-		for (int i = 0; i < _probeCount; i++)
+		float centralForce =
+			0.0f;
+
+
+		Vector3 worldCenterOfMass =
+			GetWorldCenterOfMass();
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
 		{
-			Vector4 result = _latestResults[i];
-			if (result.W <= 0.5f || !float.IsFinite(result.Y))
+			Vector4 result =
+				_latestResults[i];
+
+
+			if (result.W <= 0.5f ||
+				!float.IsFinite(
+					result.Y))
 			{
 				continue;
 			}
 
-			Vector3 probeWorld = _probeWorldPositions[i];
-			float waterHeight = SeaLevel + result.Y;
-			float submersion = waterHeight - probeWorld.Y;
-			if (submersion <= 0.0f)
+
+			Vector3 probeWorld =
+				_probeWorldPositions[i];
+
+
+			float waterHeight =
+				SeaLevel +
+					result.Y;
+
+
+			float submersion =
+				waterHeight -
+					probeWorld.Y;
+
+
+			if (submersion <=
+				0.0f)
 			{
 				continue;
 			}
 
-			float probeMass = _body.Mass * ProbeWeights[i] / _totalWeight;
-			float springCoefficient = probeMass * _gravity / TargetSubmersion;
+
+			float probeMass =
+				_body.Mass *
+					ProbeWeights[i] /
+					_totalWeight;
+
+
+			float springCoefficient =
+				probeMass *
+					_gravity /
+					TargetSubmersion;
+
+
 			float dampingCoefficient =
-				2.0f * DampingRatio * Mathf.Sqrt(springCoefficient * probeMass);
-			Vector3 radius = probeWorld - worldCenterOfMass;
-			Vector3 probeVelocity = _body.LinearVelocity + _body.AngularVelocity.Cross(radius);
-			float springForce = springCoefficient * submersion;
-			float dampingForce = -dampingCoefficient * probeVelocity.Y;
-			float maximumForce = probeMass * _gravity * MaximumBuoyancyFactor;
-			float forceMagnitude = Mathf.Clamp(
-				springForce + dampingForce,
-				0.0f,
-				maximumForce);
+				2.0f *
+					DampingRatio *
+					Mathf.Sqrt(
+						springCoefficient *
+							probeMass);
 
-			_probeForces[i] = forceMagnitude;
-			_probeSubmerged[i] = true;
-			if (Mode == BuoyancyMode.HeaveOnly)
+
+			Vector3 radius =
+				probeWorld -
+					worldCenterOfMass;
+
+
+			Vector3 probeVelocity =
+				_body.LinearVelocity +
+					_body.AngularVelocity.Cross(
+						radius);
+
+
+			//
+			// Vertical damping relative to the moving water surface.
+			//
+			// If velocity is unavailable, waterVerticalVelocity stays
+			// zero and behaviour falls back to the previous world-space
+			// damping contract.
+			//
+
+			float waterVerticalVelocity =
+				0.0f;
+
+
+			if (_hasLatestVelocity)
 			{
-				centralForce += forceMagnitude;
+				Vector4 waterVelocity =
+					_latestVelocities[i];
+
+
+				if (waterVelocity.W > 0.5f &&
+					float.IsFinite(
+						waterVelocity.Y))
+				{
+					waterVerticalVelocity =
+						waterVelocity.Y;
+				}
+			}
+
+
+			float relativeVerticalVelocity =
+				probeVelocity.Y -
+					waterVerticalVelocity;
+
+
+			float springForce =
+				springCoefficient *
+					submersion;
+
+
+			float dampingForce =
+				-dampingCoefficient *
+					relativeVerticalVelocity;
+
+
+			float maximumForce =
+				probeMass *
+					_gravity *
+					MaximumBuoyancyFactor;
+
+
+			float forceMagnitude =
+				Mathf.Clamp(
+					springForce +
+						dampingForce,
+					0.0f,
+					maximumForce);
+
+
+			_probeForces[i] =
+				forceMagnitude;
+
+			_probeSubmerged[i] =
+				true;
+
+
+			if (Mode ==
+				BuoyancyMode.HeaveOnly)
+			{
+				centralForce +=
+					forceMagnitude;
+
 				continue;
 			}
 
-			Vector3 offset = probeWorld - _body.GlobalPosition;
-			if (Mode == BuoyancyMode.HeavePitch)
+
+			Vector3 offset =
+				probeWorld -
+					_body.GlobalPosition;
+
+
+			if (Mode ==
+				BuoyancyMode.HeavePitch)
 			{
-				offset.X = 0.0f;
+				offset.X =
+					0.0f;
 			}
-			else if (Mode == BuoyancyMode.HeaveRoll)
+			else if (Mode ==
+				BuoyancyMode.HeaveRoll)
 			{
-				offset.Z = 0.0f;
+				offset.Z =
+					0.0f;
 			}
 
-			_body.ApplyForce(Vector3.Up * forceMagnitude, offset);
+
+			_body.ApplyForce(
+				Vector3.Up *
+					forceMagnitude,
+				offset);
 		}
 
-		if (Mode == BuoyancyMode.HeaveOnly && centralForce > 0.0f)
+
+		if (Mode ==
+				BuoyancyMode.HeaveOnly &&
+			centralForce >
+				0.0f)
 		{
-			_body.ApplyCentralForce(Vector3.Up * centralForce);
+			_body.ApplyCentralForce(
+				Vector3.Up *
+					centralForce);
 		}
 	}
+
+
+	/// <summary>
+	/// Returns the probe-weighted mean surface velocity for the latest
+	/// completed query generation.
+	///
+	/// Crest BoatProbes uses an additional center query for its drag
+	/// reference velocity. OceanFrontier already queries the hull at
+	/// multiple distributed probes, so their weighted mean gives us a
+	/// stable representative velocity without another GPU sample.
+	/// </summary>
+	private bool TryGetAverageWaterSurfaceVelocity(
+	out Vector3 waterVelocity,
+	out float submergedWeightFraction)
+{
+	waterVelocity =
+		Vector3.Zero;
+
+	submergedWeightFraction =
+		0.0f;
+
+
+	if (!_hasLatestResult ||
+		_totalWeight <= 0.0f)
+	{
+		return false;
+	}
+
+
+	float submergedWeight =
+		0.0f;
+
+	float velocityWeight =
+		0.0f;
+
+
+	for (int i = 0;
+		 i < _probeCount;
+		 i++)
+	{
+		if (!_probeSubmerged[i])
+		{
+			continue;
+		}
+
+
+		float weight =
+			ProbeWeights[i];
+
+
+		submergedWeight +=
+			weight;
+
+
+		if (!_hasLatestVelocity)
+		{
+			continue;
+		}
+
+
+		Vector4 velocity =
+			_latestVelocities[i];
+
+
+		if (velocity.W <= 0.5f ||
+			!float.IsFinite(velocity.X) ||
+			!float.IsFinite(velocity.Y) ||
+			!float.IsFinite(velocity.Z))
+		{
+			continue;
+		}
+
+
+		waterVelocity +=
+			new Vector3(
+				velocity.X,
+				velocity.Y,
+				velocity.Z) *
+			weight;
+
+
+		velocityWeight +=
+			weight;
+	}
+
+
+	submergedWeightFraction =
+		Mathf.Clamp(
+			submergedWeight /
+				_totalWeight,
+			0.0f,
+			1.0f);
+
+
+	if (submergedWeightFraction <= 0.0f)
+	{
+		waterVelocity =
+			Vector3.Zero;
+
+		return false;
+	}
+
+
+	if (velocityWeight <= 0.0f)
+	{
+		//
+		// We know the hull is in water, but surface velocity
+		// is temporarily unavailable.
+		//
+		// Keep the old relative-to-world fallback.
+		//
+
+		waterVelocity =
+			Vector3.Zero;
+
+		return true;
+	}
+
+
+	waterVelocity /=
+		velocityWeight;
+
+
+	if (!waterVelocity.IsFinite())
+	{
+		waterVelocity =
+			Vector3.Zero;
+
+		return true;
+	}
+
+
+	return true;
+}
+
 
 	private void ApplyHorizontalDrag()
+{
+	//
+	// Horizontal hydrodynamic drag only exists while some part
+	// of the distributed buoyancy representation is submerged.
+	//
+	// The same probe weights used for buoyancy define the wet
+	// fraction, so arbitrary hull layouts remain consistent.
+	//
+
+	if (!TryGetAverageWaterSurfaceVelocity(
+			out Vector3 waterVelocity,
+			out float submergedWeightFraction) ||
+		submergedWeightFraction <= 0.0f)
 	{
-		Vector3 velocity = _body.LinearVelocity;
-		velocity.Y = 0.0f;
-		Vector3 right = _body.GlobalBasis.X;
-		Vector3 forward = _body.GlobalBasis.Z;
-		right.Y = 0.0f;
-		forward.Y = 0.0f;
-		if (right.LengthSquared() < 0.000001f || forward.LengthSquared() < 0.000001f)
-		{
-			return;
-		}
-
-		right = right.Normalized();
-		forward = forward.Normalized();
-		float lateralSpeed = velocity.Dot(right);
-		float forwardSpeed = velocity.Dot(forward);
-		Vector3 dragForce = -_body.Mass *
-			(LateralDrag * lateralSpeed * right +
-			 ForwardDrag * forwardSpeed * forward);
-
-		if (dragForce.IsFinite())
-		{
-			_body.ApplyCentralForce(dragForce);
-		}
+		return;
 	}
+
+
+	//
+	// Crest contract:
+	//
+	//     relative velocity =
+	//         body velocity - water velocity
+	//
+
+	Vector3 relativeVelocity =
+		_body.LinearVelocity -
+			waterVelocity;
+
+
+	//
+	// Vertical relative velocity is already handled independently
+	// by the spring-damper at each buoyancy probe.
+	//
+
+	relativeVelocity.Y =
+		0.0f;
+
+
+	Vector3 right =
+		_body.GlobalBasis.X;
+
+	Vector3 forward =
+		_body.GlobalBasis.Z;
+
+
+	right.Y =
+		0.0f;
+
+	forward.Y =
+		0.0f;
+
+
+	if (right.LengthSquared() <
+			0.000001f ||
+		forward.LengthSquared() <
+			0.000001f)
+	{
+		return;
+	}
+
+
+	right =
+		right.Normalized();
+
+	forward =
+		forward.Normalized();
+
+
+	float lateralSpeed =
+		relativeVelocity.Dot(
+			right);
+
+	float forwardSpeed =
+		relativeVelocity.Dot(
+			forward);
+
+
+	Vector3 dragForce =
+		-_body.Mass *
+		submergedWeightFraction *
+		(
+			LateralDrag *
+				lateralSpeed *
+				right +
+
+			ForwardDrag *
+				forwardSpeed *
+				forward
+		);
+
+
+	if (dragForce.IsFinite())
+	{
+		_body.ApplyCentralForce(
+			dragForce);
+	}
+}
+
 
 	private static float ResolvePhysicsGravity()
 	{
-		Variant setting = ProjectSettings.GetSetting("physics/3d/default_gravity", 9.8f);
-		float gravity = setting.AsSingle();
-		return float.IsFinite(gravity) && gravity > 0.0f ? gravity : 9.8f;
+		Variant setting =
+			ProjectSettings.GetSetting(
+				"physics/3d/default_gravity",
+				9.8f);
+
+
+		float gravity =
+			setting.AsSingle();
+
+
+		return
+			float.IsFinite(gravity) &&
+			gravity > 0.0f
+				? gravity
+				: 9.8f;
 	}
+
 
 	private Vector3 GetWorldCenterOfMass()
 	{
-		if (_body.CenterOfMassMode == RigidBody3D.CenterOfMassModeEnum.Custom)
+		if (_body.CenterOfMassMode ==
+			RigidBody3D.CenterOfMassModeEnum.Custom)
 		{
-			return _body.GlobalTransform * _body.CenterOfMass;
+			return
+				_body.GlobalTransform *
+					_body.CenterOfMass;
 		}
 
-		return _body.GlobalPosition;
+
+		return
+			_body.GlobalPosition;
 	}
+
 
 	private void CreateVisualization()
 	{
-		var probeMesh = new SphereMesh { Radius = 0.11f, Height = 0.22f };
-		var waterMesh = new SphereMesh { Radius = 0.07f, Height = 0.14f };
-		var lineMesh = new CylinderMesh
-		{
-			TopRadius = 0.025f,
-			BottomRadius = 0.025f,
-			Height = 1.0f,
-		};
+		var probeMesh =
+			new SphereMesh
+			{
+				Radius =
+					0.11f,
 
-		_dryMaterial = DebugMaterial(new Color(0.75f, 0.75f, 0.75f));
-		_submergedMaterial = DebugMaterial(new Color(0.05f, 0.85f, 1.0f));
-		_invalidMaterial = DebugMaterial(new Color(1.0f, 0.08f, 0.12f));
-		_waterMaterial = DebugMaterial(new Color(1.0f, 0.78f, 0.05f));
-		_forceMaterial = DebugMaterial(new Color(0.15f, 1.0f, 0.2f));
+				Height =
+					0.22f,
+			};
 
-		for (int i = 0; i < _probeCount; i++)
+
+		var waterMesh =
+			new SphereMesh
+			{
+				Radius =
+					0.07f,
+
+				Height =
+					0.14f,
+			};
+
+
+		var lineMesh =
+			new CylinderMesh
+			{
+				TopRadius =
+					0.025f,
+
+				BottomRadius =
+					0.025f,
+
+				Height =
+					1.0f,
+			};
+
+
+		_dryMaterial =
+			DebugMaterial(
+				new Color(
+					0.75f,
+					0.75f,
+					0.75f));
+
+
+		_submergedMaterial =
+			DebugMaterial(
+				new Color(
+					0.05f,
+					0.85f,
+					1.0f));
+
+
+		_invalidMaterial =
+			DebugMaterial(
+				new Color(
+					1.0f,
+					0.08f,
+					0.12f));
+
+
+		_waterMaterial =
+			DebugMaterial(
+				new Color(
+					1.0f,
+					0.78f,
+					0.05f));
+
+
+		_forceMaterial =
+			DebugMaterial(
+				new Color(
+					0.15f,
+					1.0f,
+					0.2f));
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
 		{
-			_probeMarkers[i] = DebugMarker(probeMesh, _dryMaterial);
-			_waterMarkers[i] = DebugMarker(waterMesh, _waterMaterial);
-			_forceLines[i] = DebugMarker(lineMesh, _forceMaterial);
+			_probeMarkers[i] =
+				DebugMarker(
+					probeMesh,
+					_dryMaterial);
+
+
+			_waterMarkers[i] =
+				DebugMarker(
+					waterMesh,
+					_waterMaterial);
+
+
+			_forceLines[i] =
+				DebugMarker(
+					lineMesh,
+					_forceMaterial);
 		}
 	}
 
-	private static StandardMaterial3D DebugMaterial(Color color) => new()
-	{
-		ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-		AlbedoColor = color,
-		NoDepthTest = true,
-	};
 
-	private MeshInstance3D DebugMarker(Mesh mesh, Material material)
-	{
-		var marker = new MeshInstance3D
+	private static StandardMaterial3D DebugMaterial(
+		Color color) =>
+		new()
 		{
-			Mesh = mesh,
-			MaterialOverride = material,
-			TopLevel = true,
-			Visible = false,
+			ShadingMode =
+				BaseMaterial3D.ShadingModeEnum.Unshaded,
+
+			AlbedoColor =
+				color,
+
+			NoDepthTest =
+				true,
 		};
-		AddChild(marker);
+
+
+	private MeshInstance3D DebugMarker(
+		Mesh mesh,
+		Material material)
+	{
+		var marker =
+			new MeshInstance3D
+			{
+				Mesh =
+					mesh,
+
+				MaterialOverride =
+					material,
+
+				TopLevel =
+					true,
+
+				Visible =
+					false,
+			};
+
+
+		AddChild(
+			marker);
+
+
 		return marker;
 	}
 
+
 	private void UpdateVisualization()
 	{
-		if (!ShowProbeVisualization || _probeMarkers[0] == null)
+		if (!ShowProbeVisualization ||
+			_probeMarkers[0] == null)
 		{
 			return;
 		}
 
-		float bodyWeight = Mathf.Max(_body.Mass * _gravity, 0.001f);
-		for (int i = 0; i < _probeCount; i++)
-		{
-			Vector3 probeWorld = _probeWorldPositions[i];
-			Vector4 result = _latestResults[i];
-			bool valid = _hasLatestResult && result.W > 0.5f && float.IsFinite(result.Y);
-			MeshInstance3D probe = _probeMarkers[i];
-			MeshInstance3D water = _waterMarkers[i];
-			MeshInstance3D line = _forceLines[i];
 
-			probe.GlobalPosition = probeWorld;
-			probe.MaterialOverride = valid
-				? (_probeSubmerged[i] ? _submergedMaterial : _dryMaterial)
-				: _invalidMaterial;
-			probe.Visible = true;
-			water.Visible = valid;
-			line.Visible = false;
+		float bodyWeight =
+			Mathf.Max(
+				_body.Mass *
+					_gravity,
+				0.001f);
+
+
+		for (int i = 0;
+			 i < _probeCount;
+			 i++)
+		{
+			Vector3 probeWorld =
+				_probeWorldPositions[i];
+
+
+			Vector4 result =
+				_latestResults[i];
+
+
+			bool valid =
+				_hasLatestResult &&
+				result.W > 0.5f &&
+				float.IsFinite(
+					result.Y);
+
+
+			MeshInstance3D probe =
+				_probeMarkers[i];
+
+			MeshInstance3D water =
+				_waterMarkers[i];
+
+			MeshInstance3D line =
+				_forceLines[i];
+
+
+			probe.GlobalPosition =
+				probeWorld;
+
+
+			probe.MaterialOverride =
+				valid
+					? (_probeSubmerged[i]
+						? _submergedMaterial
+						: _dryMaterial)
+					: _invalidMaterial;
+
+
+			probe.Visible =
+				true;
+
+			water.Visible =
+				valid;
+
+			line.Visible =
+				false;
+
 
 			if (!valid)
 			{
 				continue;
 			}
 
-			water.GlobalPosition = new Vector3(
-				probeWorld.X,
-				SeaLevel + result.Y,
-				probeWorld.Z);
 
-			float forceLength = Mathf.Clamp(
-				_probeForces[i] / bodyWeight * ForceLineScale,
-				0.0f,
-				ForceLineScale);
-			if (!ShowForceLines || forceLength <= 0.01f)
+			water.GlobalPosition =
+				new Vector3(
+					probeWorld.X,
+					SeaLevel +
+						result.Y,
+					probeWorld.Z);
+
+
+			float forceLength =
+				Mathf.Clamp(
+					_probeForces[i] /
+						bodyWeight *
+						ForceLineScale,
+					0.0f,
+					ForceLineScale);
+
+
+			if (!ShowForceLines ||
+				forceLength <= 0.01f)
 			{
 				continue;
 			}
 
-			line.GlobalPosition = probeWorld + Vector3.Up * (forceLength * 0.5f);
-			line.Scale = new Vector3(1.0f, forceLength, 1.0f);
-			line.Visible = true;
+
+			line.GlobalPosition =
+				probeWorld +
+					Vector3.Up *
+						(forceLength *
+						 0.5f);
+
+
+			line.Scale =
+				new Vector3(
+					1.0f,
+					forceLength,
+					1.0f);
+
+
+			line.Visible =
+				true;
 		}
 	}
 }

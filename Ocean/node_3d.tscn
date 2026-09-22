@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bjxrluaswmuod" path="res://Ocean/Runtime/OceanRuntime.cs" id="1_ocean_runtime"]
 [ext_resource type="Script" uid="uid://5x71r5va2klp" path="res://Ocean/Debug/FftDisplacementDebugView.cs" id="2_ku7j0"]
-[ext_resource type="Script" uid="uid://xm2cuk3scu80" path="res://Ocean/Rendering/AnimatedWaveSurfaceRenderer.cs" id="3_surface"]
+[ext_resource type="Script" uid="uid://ctsgt3vl0q6gf" path="res://Ocean/Rendering/AnimatedWaveSurfaceRenderer.cs" id="3_surface"]
 [ext_resource type="Texture2D" uid="uid://gagv28gs1idd" path="res://Ocean/Textures/Water/WaveNormals.png" id="4_8gmc7"]
 [ext_resource type="Script" uid="uid://bew2tyyd555mo" path="res://Ocean/Debug/OceanDiagnosticCameraController.cs" id="4_camera"]
 [ext_resource type="Script" uid="uid://cufatu6tk1ik5" path="res://Ocean/Debug/OceanDiagnosticReferenceFrame.cs" id="5_reference"]

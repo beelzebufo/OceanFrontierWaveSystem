@@ -3,6 +3,7 @@ using Godot;
 using OceanFrontier.Water.Rendering;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Waves.AnimatedWaves;
+using OceanFrontier.Water.Physics;
 
 namespace OceanFrontier.Water.Debug;
 
@@ -19,6 +20,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private OceanDiagnosticCameraController _camera;
 	private DirectionalLight3D _sun;
 	private RigidBody3D _diagnosticHull;
+	private OceanBuoyancy _diagnosticBuoyancy;
 	private OceanDiagnosticLightDirectionGizmo _lightGizmo;
 	private FftDisplacementDebugView _inset;
 
@@ -105,6 +107,10 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		_diagnosticHull =
 			_runtime.GetNodeOrNull<RigidBody3D>(
 				"DiagnosticBuoyancyHull");
+		
+		_diagnosticBuoyancy =
+			_diagnosticHull?.GetNodeOrNull<OceanBuoyancy>(
+				"OceanBuoyancy");			
 
 		_sun =
 			_runtime.GetNodeOrNull<DirectionalLight3D>(
@@ -433,6 +439,43 @@ vesselCamera.Toggled +=
 
 		scroll.AddChild(
 			column);
+
+
+		//
+		// VESSEL PHYSICS
+		//
+
+		Section(
+			column,
+			"VESSEL PHYSICS");
+
+
+		var vesselMotion =
+			Option(
+			column,
+			"Motion",
+			"Heave only",
+			"Heave + Pitch",
+			"Heave + Roll",
+			"Heave + Pitch + Roll");
+
+
+		vesselMotion.Selected =
+			(int)(
+			_diagnosticBuoyancy?.Mode ??
+			OceanBuoyancy.BuoyancyMode.HeavePitchRoll);
+
+
+		vesselMotion.ItemSelected +=
+			index =>
+			{
+				if (_diagnosticBuoyancy != null)
+					{
+					_diagnosticBuoyancy.Mode =
+						(OceanBuoyancy.BuoyancyMode)index;
+					}
+			};
+
 
 		//
 		// VESSEL CAMERA
