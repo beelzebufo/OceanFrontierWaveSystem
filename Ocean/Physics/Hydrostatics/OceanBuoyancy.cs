@@ -5,6 +5,13 @@ using OceanFrontier.Water.Runtime;
 
 namespace OceanFrontier.Water.Physics.Hydrostatics;
 
+public enum HydrostaticWaterMode
+{
+	AnimatedWaveFieldAsync = 0,
+	FlatSynchronous = 1,
+}
+
+
 /// <summary>
 /// Archimedean / hydrostatic buoyancy driven by the canonical AnimatedWaveField.
 ///
@@ -32,9 +39,6 @@ namespace OceanFrontier.Water.Physics.Hydrostatics;
 [GlobalClass]
 public partial class OceanBuoyancy : Node
 {
-	private const int SnapshotCapacity =
-		32;
-
 	private const float QueryScaleDivisor =
 		4.0f;
 
@@ -43,20 +47,6 @@ public partial class OceanBuoyancy : Node
 
 	private const float DefaultGravity =
 		9.8f;
-
-
-	private struct BodySnapshot
-	{
-		public bool Valid;
-
-		public long Generation;
-
-		public Transform3D BodyTransform;
-
-		public Vector3 CenterOfMassWorld;
-
-		public float SeaLevel;
-	}
 
 
 	[Export]
@@ -105,9 +95,9 @@ public partial class OceanBuoyancy : Node
 	public float SeaLevel { get; set; }
 
 
-	private readonly BodySnapshot[] _bodySnapshots =
-		new BodySnapshot[
-			SnapshotCapacity];
+	[Export]
+	public HydrostaticWaterMode WaterMode { get; set; } =
+		HydrostaticWaterMode.AnimatedWaveFieldAsync;
 
 
 	private RigidBody3D _body;
@@ -126,12 +116,7 @@ public partial class OceanBuoyancy : Node
 		Array.Empty<float>();
 
 
-	private OceanHydrostaticResult _latestHydrostaticResult;
-
-	private long _latestSolvedGeneration;
-
-	private int _latestReadbackFrames =
-		-1;
+	private OceanHydrostaticResult _currentHydrostaticResult;
 
 	private int _validVertexSamples;
 
@@ -139,6 +124,8 @@ public partial class OceanBuoyancy : Node
 		DefaultGravity;
 
 	private bool _hasHydrostaticResult;
+
+	private bool _currentPatchCoverageValid;
 
 	private bool _warnedAutomaticCenterOfMass;
 
@@ -148,11 +135,17 @@ public partial class OceanBuoyancy : Node
 
 
 	public long LatestCompletedGeneration =>
-		_latestSolvedGeneration;
+		WaterMode ==
+			HydrostaticWaterMode.AnimatedWaveFieldAsync
+				? _waterPatch?.LatestGeneration ?? 0
+				: 0;
 
 
 	public int LatestReadbackFrames =>
-		_latestReadbackFrames;
+		WaterMode ==
+			HydrostaticWaterMode.AnimatedWaveFieldAsync
+				? _waterPatch?.LatestReadbackFrames ?? -1
+				: -1;
 
 
 	public int WaterPatchQueryCount =>
@@ -164,27 +157,31 @@ public partial class OceanBuoyancy : Node
 		_validVertexSamples;
 
 
+	public bool CurrentPatchCoverageValid =>
+		_currentPatchCoverageValid;
+
+
 	public float SubmergedArea =>
 		_hasHydrostaticResult
-			? _latestHydrostaticResult.SubmergedArea
+			? _currentHydrostaticResult.SubmergedArea
 			: 0.0f;
 
 
 	public int SubmergedTriangleCount =>
 		_hasHydrostaticResult
-			? _latestHydrostaticResult.SubmergedTriangleCount
+			? _currentHydrostaticResult.SubmergedTriangleCount
 			: 0;
 
 
 	public Vector3 LastHydrostaticForce =>
 		_hasHydrostaticResult
-			? _latestHydrostaticResult.Force
+			? _currentHydrostaticResult.Force
 			: Vector3.Zero;
 
 
 	public Vector3 LastHydrostaticTorque =>
 		_hasHydrostaticResult
-			? _latestHydrostaticResult.Torque
+			? _currentHydrostaticResult.Torque
 			: Vector3.Zero;
 
 
@@ -334,67 +331,48 @@ public partial class OceanBuoyancy : Node
 		}
 
 
-		ConsumeCompletedWaterPatch();
+		ClearCurrentHydrostatics();
 
 
-		ApplyLatestHydrostatics();
+		bool useAsyncWater =
+			WaterMode ==
+				HydrostaticWaterMode.AnimatedWaveFieldAsync;
 
 
-		SubmitCurrentWaterPatch();
+		if (useAsyncWater)
+		{
+			_waterPatch.ConsumeLatest();
+		}
+
+
+		if (!useAsyncWater ||
+			_waterPatch.HasLatest)
+		{
+			SolveCurrentHydrostatics(
+				flatWater:
+					!useAsyncWater);
+		}
+
+
+		ApplyCurrentHydrostatics();
+
+
+		if (useAsyncWater)
+		{
+			SubmitCurrentWaterPatch();
+		}
 	}
 
 
-	private void ConsumeCompletedWaterPatch()
+	private void SolveCurrentHydrostatics(
+		bool flatWater)
 	{
-		long generationBefore =
-			_waterPatch.LatestGeneration;
-
-
-		bool consumed =
-			_waterPatch.ConsumeLatest();
-
-
-		long completedGeneration =
-			_waterPatch.LatestGeneration;
-
-
-		if (!consumed)
-		{
-			//
-			// LatestGeneration advances without ConsumeLatest() succeeding
-			// only when a completed GPU result could not be paired with its
-			// patch metadata. Do not keep applying stale buoyancy forever.
-			//
-
-			if (completedGeneration >
-				generationBefore)
-			{
-				ClearHydrostaticResult();
-			}
-
-
-			return;
-		}
-
-
-		ref BodySnapshot snapshot =
-			ref _bodySnapshots[
-				SnapshotIndex(
-					completedGeneration)];
-
-
-		if (!snapshot.Valid ||
-			snapshot.Generation !=
-				completedGeneration)
-		{
-			ClearHydrostaticResult();
-
-			return;
-		}
-
-
 		ReadOnlySpan<Vector3> localVertices =
 			_hull.LocalVertices;
+
+
+		Transform3D bodyTransform =
+			_body.GlobalTransform;
 
 
 		_validVertexSamples =
@@ -406,7 +384,7 @@ public partial class OceanBuoyancy : Node
 			 i++)
 		{
 			Vector3 worldVertex =
-				snapshot.BodyTransform *
+				bodyTransform *
 					localVertices[i];
 
 
@@ -414,15 +392,26 @@ public partial class OceanBuoyancy : Node
 				worldVertex;
 
 
+			float waterHeight =
+				SeaLevel;
+
+
 			bool valid =
-				_waterPatch.TrySampleSurface(
+				flatWater;
+
+
+			if (!flatWater)
+			{
+				valid =
+					_waterPatch.TrySampleSurface(
 					new Vector2(
 						worldVertex.X,
 						worldVertex.Z),
-					snapshot.SeaLevel,
-					out float waterHeight,
+					SeaLevel,
+					out waterHeight,
 					out _,
 					out _);
+			}
 
 
 			if (!valid ||
@@ -454,10 +443,12 @@ public partial class OceanBuoyancy : Node
 		if (_validVertexSamples !=
 			localVertices.Length)
 		{
-			ClearHydrostaticResult();
-
 			return;
 		}
+
+
+		_currentPatchCoverageValid =
+			true;
 
 
 		OceanHydrostaticResult result =
@@ -465,7 +456,7 @@ public partial class OceanBuoyancy : Node
 				_worldVertices,
 				_hull.Indices,
 				_waterHeights,
-				snapshot.CenterOfMassWorld,
+				GetWorldCenterOfMass(),
 				WaterDensity,
 				_gravity);
 
@@ -473,31 +464,22 @@ public partial class OceanBuoyancy : Node
 		if (!result.Force.IsFinite() ||
 			!result.Torque.IsFinite())
 		{
-			ClearHydrostaticResult();
+			_currentPatchCoverageValid =
+				false;
 
 			return;
 		}
 
 
-		_latestHydrostaticResult =
+		_currentHydrostaticResult =
 			result;
-
-		_latestSolvedGeneration =
-			completedGeneration;
-
-		_latestReadbackFrames =
-			_waterPatch.LatestReadbackFrames;
 
 		_hasHydrostaticResult =
 			true;
-
-
-		snapshot.Valid =
-			false;
 	}
 
 
-	private void ApplyLatestHydrostatics()
+	private void ApplyCurrentHydrostatics()
 	{
 		if (!_hasHydrostaticResult)
 		{
@@ -506,25 +488,20 @@ public partial class OceanBuoyancy : Node
 
 
 		Vector3 force =
-			_latestHydrostaticResult.Force;
+			_currentHydrostaticResult.Force;
 
 		Vector3 torque =
-			_latestHydrostaticResult.Torque;
+			_currentHydrostaticResult.Torque;
 
 
 		if (!force.IsFinite() ||
 			!torque.IsFinite())
 		{
-			ClearHydrostaticResult();
+			ClearCurrentHydrostatics();
 
 			return;
 		}
 
-
-		//
-		// Apply the equivalent resultant every physics tick until a newer
-		// coherent async generation replaces it.
-		//
 
 		if (force.LengthSquared() >
 			0.0f)
@@ -550,38 +527,11 @@ public partial class OceanBuoyancy : Node
 				QueryScaleDivisor;
 
 
-		long generation =
-			_waterPatch.Submit(
-				_body,
-				_hull,
-				PatchPadding,
-				minGridSize);
-
-
-		ref BodySnapshot snapshot =
-			ref _bodySnapshots[
-				SnapshotIndex(
-					generation)];
-
-
-		snapshot =
-			new BodySnapshot
-			{
-				Valid =
-					true,
-
-				Generation =
-					generation,
-
-				BodyTransform =
-					_body.GlobalTransform,
-
-				CenterOfMassWorld =
-					GetWorldCenterOfMass(),
-
-				SeaLevel =
-					SeaLevel,
-			};
+		_waterPatch.Submit(
+			_body,
+			_hull,
+			PatchPadding,
+			minGridSize);
 	}
 
 
@@ -720,19 +670,19 @@ public partial class OceanBuoyancy : Node
 	}
 
 
-	private void ClearHydrostaticResult()
+	private void ClearCurrentHydrostatics()
 	{
-		_latestHydrostaticResult =
+		_currentHydrostaticResult =
 			default;
 
 		_hasHydrostaticResult =
 			false;
 
+		_currentPatchCoverageValid =
+			false;
+
 		_validVertexSamples =
 			0;
-
-		_latestReadbackFrames =
-			-1;
 	}
 
 
@@ -754,15 +704,5 @@ public partial class OceanBuoyancy : Node
 				0.0f
 				? gravity
 				: DefaultGravity;
-	}
-
-
-	private static int SnapshotIndex(
-		long generation)
-	{
-		return
-			(int)(
-				generation %
-				SnapshotCapacity);
 	}
 }

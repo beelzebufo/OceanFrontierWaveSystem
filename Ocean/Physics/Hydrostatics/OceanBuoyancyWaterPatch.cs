@@ -246,6 +246,15 @@ internal sealed class OceanBuoyancyWaterPatch :
 			_latestGeneration =
 				generation;
 
+			_latestReadbackFrames =
+				readbackFrames;
+
+			_hasLatest =
+				false;
+
+			_hasLatestVelocity =
+				false;
+
 			return false;
 		}
 

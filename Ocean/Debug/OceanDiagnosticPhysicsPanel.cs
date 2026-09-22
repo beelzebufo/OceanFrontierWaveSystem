@@ -5,6 +5,8 @@ using ArchimedesBuoyancy =
 	OceanFrontier.Water.Physics.Hydrostatics.OceanBuoyancy;
 using ArchimedesHull =
 	OceanFrontier.Water.Physics.Hydrostatics.OceanBuoyancyHull;
+using HydrostaticWaterMode =
+	OceanFrontier.Water.Physics.Hydrostatics.HydrostaticWaterMode;
 using WeirdBuoyancy =
 	OceanFrontier.Water.Physics.Weird.WeirdBuoyancy;
 
@@ -668,6 +670,24 @@ internal sealed class OceanDiagnosticPhysicsPanel
 			"Archimedes Hydrostatics");
 
 
+		var waterMode =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Water mode",
+				"AnimatedWaveField async",
+				"Flat synchronous");
+
+
+		waterMode.Selected =
+			(int)buoyancy.WaterMode;
+
+
+		waterMode.ItemSelected +=
+			index =>
+				buoyancy.WaterMode =
+					(HydrostaticWaterMode)index;
+
+
 		OceanDiagnosticUi.Spin(
 			parent,
 			"Water density",
@@ -791,10 +811,34 @@ internal sealed class OceanDiagnosticPhysicsPanel
 					: double.PositiveInfinity;
 
 
+			bool asyncWater =
+				archimedes.WaterMode ==
+					HydrostaticWaterMode.AnimatedWaveFieldAsync;
+
+
+			string generation =
+				asyncWater &&
+				archimedes.LatestCompletedGeneration > 0
+					? archimedes.LatestCompletedGeneration.ToString()
+					: "--";
+
+
+			string readback =
+				asyncWater &&
+				archimedes.LatestReadbackFrames >= 0
+					? $"{archimedes.LatestReadbackFrames} frames"
+					: "--";
+
+
 			_status.Text =
-				$"Archimedes · generation " +
-				$"{(archimedes.HasCompletedResult ? archimedes.LatestCompletedGeneration.ToString() : "--")}\n" +
+				$"Archimedes · {(asyncWater ? "AWF async" : "flat synchronous")} · " +
+				$"generation {generation} · readback {readback}\n" +
 				$"Hull {hull.Volume:0.###} m³ · body density {bodyDensity:0.##} kg/m³\n" +
+				$"Coverage {(archimedes.CurrentPatchCoverageValid ? "valid" : "invalid")} · " +
+				$"{archimedes.ValidVertexSamples}/{hull.VertexCount} vertices · " +
+				$"force {archimedes.LastHydrostaticForce.Length():0.##} N\n" +
+				$"Body Y {_body.GlobalPosition.Y:0.###} m · " +
+				$"vertical velocity {_body.LinearVelocity.Y:0.###} m/s\n" +
 				$"Wet area {archimedes.SubmergedArea:0.###} m² · " +
 				$"{archimedes.SubmergedTriangleCount} wet triangles · " +
 				$"{archimedes.WaterPatchQueryCount} GPU points";
