@@ -439,7 +439,7 @@ internal sealed class OceanDiagnosticPhysicsPanel
 
 
 		_body.GlobalTransform =
-			_spawnTransform;
+			ResolveRespawnTransform();
 
 
 		_body.LinearVelocity =
@@ -477,6 +477,76 @@ internal sealed class OceanDiagnosticPhysicsPanel
 
 		_body.Sleeping =
 			false;
+	}
+
+
+	private Transform3D ResolveRespawnTransform()
+	{
+		Transform3D transform =
+			_spawnTransform;
+
+
+		ArchimedesBuoyancy buoyancy =
+			FindChildOfType<ArchimedesBuoyancy>();
+
+		ArchimedesHull hull =
+			FindChildOfType<ArchimedesHull>();
+
+
+		if (buoyancy == null ||
+			hull == null ||
+			!hull.IsBuilt)
+		{
+			return transform;
+		}
+
+
+		Aabb bounds =
+			hull.LocalBounds;
+
+		double waterplaneArea =
+			(double)bounds.Size.X *
+			bounds.Size.Z;
+
+
+		if (!double.IsFinite(waterplaneArea) ||
+			waterplaneArea <=
+				0.0 ||
+			!float.IsFinite(buoyancy.WaterDensity) ||
+			buoyancy.WaterDensity <=
+				0.0f)
+		{
+			return transform;
+		}
+
+
+		double draft =
+			_body.Mass /
+				(buoyancy.WaterDensity *
+				 waterplaneArea);
+
+
+		if (!double.IsFinite(draft))
+		{
+			return transform;
+		}
+
+
+		Vector3 origin =
+			transform.Origin;
+
+
+		origin.Y =
+			buoyancy.SeaLevel -
+				(float)draft -
+				bounds.Position.Y;
+
+
+		transform.Origin =
+			origin;
+
+
+		return transform;
 	}
 
 
@@ -698,6 +768,30 @@ internal sealed class OceanDiagnosticPhysicsPanel
 						value;
 
 
+		OceanDiagnosticUi.Check(
+			parent,
+			"Water-relative heave damping",
+			buoyancy.HeaveDampingEnabled)
+			.Toggled +=
+				value =>
+					buoyancy.HeaveDampingEnabled =
+						value;
+
+
+		OceanDiagnosticUi.Spin(
+			parent,
+			"Heave damping",
+			buoyancy.HeaveDamping,
+			0.0,
+			20.0,
+			0.05,
+			" s⁻¹")
+			.ValueChanged +=
+				value =>
+					buoyancy.HeaveDamping =
+						(float)value;
+
+
 		OceanDiagnosticUi.Spin(
 			parent,
 			"Water density",
@@ -871,6 +965,11 @@ internal sealed class OceanDiagnosticPhysicsPanel
 				$"generation {generation} · readback {readback}\n" +
 				$"Latest sample age {sampleAge} · sample dt {sampleInterval}\n" +
 				$"Temporal prediction {prediction}\n" +
+				$"Heave damping {(archimedes.HeaveDampingEnabled ? "ON" : "OFF")} · " +
+				$"applied {(archimedes.HeaveDampingApplied ? "yes" : "no")} · " +
+				$"water Vy {archimedes.LastWaterVelocityY:0.###} m/s · " +
+				$"relative Vy {archimedes.LastRelativeHeaveVelocity:0.###} m/s · " +
+				$"force {archimedes.LastHeaveDampingForce:0.##} N\n" +
 				$"Hull {hull.Volume:0.###} m³ · body density {bodyDensity:0.##} kg/m³\n" +
 				$"Coverage {(archimedes.CurrentPatchCoverageValid ? "valid" : "invalid")} · " +
 				$"{archimedes.ValidVertexSamples}/{hull.VertexCount} vertices · " +

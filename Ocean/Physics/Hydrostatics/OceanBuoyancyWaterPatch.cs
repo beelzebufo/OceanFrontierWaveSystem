@@ -1005,6 +1005,77 @@ internal sealed class OceanBuoyancyWaterPatch :
 	}
 
 
+	/// <summary>
+	/// Estimates vertical water velocity at one fixed world XZ from the two
+	/// latest completed patch snapshots. This deliberately does not use the
+	/// raw query-index velocity contract because moving patches assign the same
+	/// index to different world positions.
+	/// </summary>
+	public bool TrySampleVerticalVelocity(
+		Vector2 worldXZ,
+		out float waterVelocityY)
+	{
+		ThrowIfDisposed();
+
+
+		waterVelocityY =
+			0.0f;
+
+
+		if (!_hasLatest ||
+			!_hasPrevious ||
+			!double.IsFinite(_latestSnapshot.SampleTime) ||
+			!double.IsFinite(_previousSnapshot.SampleTime))
+		{
+			return false;
+		}
+
+
+		double sampleInterval =
+			_latestSnapshot.SampleTime -
+				_previousSnapshot.SampleTime;
+
+
+		if (!double.IsFinite(sampleInterval) ||
+			sampleInterval <=
+				TimeEpsilon ||
+			!TrySampleDisplacementY(
+				worldXZ,
+				_latestSnapshot,
+				_latestResults,
+				out float latestDisplacementY) ||
+			!TrySampleDisplacementY(
+				worldXZ,
+				_previousSnapshot,
+				_previousResults,
+				out float previousDisplacementY))
+		{
+			return false;
+		}
+
+
+		double velocity =
+			(latestDisplacementY -
+			 previousDisplacementY) /
+				sampleInterval;
+
+
+		if (!double.IsFinite(velocity) ||
+			velocity < float.MinValue ||
+			velocity > float.MaxValue)
+		{
+			return false;
+		}
+
+
+		waterVelocityY =
+			(float)velocity;
+
+
+		return true;
+	}
+
+
 	public void Dispose()
 	{
 		if (_disposed)

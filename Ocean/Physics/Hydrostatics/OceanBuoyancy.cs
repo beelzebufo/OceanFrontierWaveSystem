@@ -32,9 +32,9 @@ public enum HydrostaticWaterMode
 ///         -> integrated hydrostatic pressure
 ///         -> net force + net torque
 ///
-/// This component intentionally contains no spring buoyancy, no target
-/// submersion, no artificial pitch/roll modes, and no hydrodynamic drag.
-/// Those are separate models/stages.
+/// Hydrostatic pressure remains independent from the optional water-relative
+/// heave damping force. This component contains no spring target depth and no
+/// artificial pitch/roll modes.
 /// </summary>
 [GlobalClass]
 public partial class OceanBuoyancy : Node
@@ -47,6 +47,12 @@ public partial class OceanBuoyancy : Node
 
 	private const float DefaultGravity =
 		9.8f;
+
+	private const float DefaultHeaveDamping =
+		1.0f;
+
+	private const float WetAreaEpsilon =
+		0.000001f;
 
 
 	[Export]
@@ -105,6 +111,20 @@ public partial class OceanBuoyancy : Node
 		true;
 
 
+	[Export]
+	public bool HeaveDampingEnabled { get; set; } =
+		true;
+
+
+	/// <summary>
+	/// Water-relative vertical damping coefficient in inverse seconds.
+	/// The resulting acceleration is -HeaveDamping * relativeVelocityY.
+	/// </summary>
+	[Export(PropertyHint.Range, "0,20,0.05,or_greater")]
+	public float HeaveDamping { get; set; } =
+		DefaultHeaveDamping;
+
+
 	private RigidBody3D _body;
 
 	private OceanRuntime _runtime;
@@ -143,6 +163,14 @@ public partial class OceanBuoyancy : Node
 		double.NaN;
 
 	private double _predictionAgeSeconds;
+
+	private float _lastWaterVelocityY;
+
+	private float _lastRelativeHeaveVelocity;
+
+	private float _lastHeaveDampingForce;
+
+	private bool _heaveDampingApplied;
 
 
 	public bool HasCompletedResult =>
@@ -214,6 +242,22 @@ public partial class OceanBuoyancy : Node
 
 	public double PredictionAgeSeconds =>
 		_predictionAgeSeconds;
+
+
+	public float LastWaterVelocityY =>
+		_lastWaterVelocityY;
+
+
+	public float LastRelativeHeaveVelocity =>
+		_lastRelativeHeaveVelocity;
+
+
+	public float LastHeaveDampingForce =>
+		_lastHeaveDampingForce;
+
+
+	public bool HeaveDampingApplied =>
+		_heaveDampingApplied;
 
 
 	public override void _Ready()
@@ -413,6 +457,10 @@ public partial class OceanBuoyancy : Node
 		ApplyCurrentHydrostatics();
 
 
+		ApplyHeaveDamping(
+			useAsyncWater);
+
+
 		if (useAsyncWater)
 		{
 			SubmitCurrentWaterPatch();
@@ -598,6 +646,85 @@ public partial class OceanBuoyancy : Node
 	}
 
 
+	private void ApplyHeaveDamping(
+		bool useAsyncWater)
+	{
+		if (!HeaveDampingEnabled ||
+			!float.IsFinite(HeaveDamping) ||
+			HeaveDamping <=
+				0.0f ||
+			!_hasHydrostaticResult ||
+			!_currentPatchCoverageValid ||
+			_currentHydrostaticResult.SubmergedArea <=
+				WetAreaEpsilon)
+		{
+			return;
+		}
+
+
+		float waterVelocityY =
+			0.0f;
+
+
+		if (useAsyncWater)
+		{
+			Vector3 bodyPosition =
+				_body.GlobalPosition;
+
+
+			if (!_waterPatch.TrySampleVerticalVelocity(
+					new Vector2(
+						bodyPosition.X,
+						bodyPosition.Z),
+					out waterVelocityY))
+			{
+				return;
+			}
+		}
+
+
+		float relativeVelocityY =
+			_body.LinearVelocity.Y -
+				waterVelocityY;
+
+		float accelerationY =
+			-HeaveDamping *
+				relativeVelocityY;
+
+		float forceY =
+			_body.Mass *
+				accelerationY;
+
+
+		if (!float.IsFinite(forceY))
+		{
+			return;
+		}
+
+
+		_lastWaterVelocityY =
+			waterVelocityY;
+
+		_lastRelativeHeaveVelocity =
+			relativeVelocityY;
+
+		_lastHeaveDampingForce =
+			forceY;
+
+		_heaveDampingApplied =
+			true;
+
+
+		if (forceY !=
+			0.0f)
+		{
+			_body.ApplyCentralForce(
+				Vector3.Up *
+					forceY);
+		}
+	}
+
+
 	private void SubmitCurrentWaterPatch()
 	{
 		float minGridSize =
@@ -707,6 +834,10 @@ public partial class OceanBuoyancy : Node
 			WaterDensity >
 				0.0f &&
 			float.IsFinite(
+				HeaveDamping) &&
+			HeaveDamping >=
+				0.0f &&
+			float.IsFinite(
 				SeaLevel);
 	}
 
@@ -767,6 +898,18 @@ public partial class OceanBuoyancy : Node
 
 		_predictionAgeSeconds =
 			0.0;
+
+		_lastWaterVelocityY =
+			0.0f;
+
+		_lastRelativeHeaveVelocity =
+			0.0f;
+
+		_lastHeaveDampingForce =
+			0.0f;
+
+		_heaveDampingApplied =
+			false;
 	}
 
 
