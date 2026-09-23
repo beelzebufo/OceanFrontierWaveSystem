@@ -1312,9 +1312,7 @@ shape = SubResource("BoxShape3D_diagnostic_hull")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="DiagnosticBuoyancyHull" unique_id=199489003]
 mesh = SubResource("BoxMesh_diagnostic_hull")
 
-[node name="OceanBuoyancy" type="Node" parent="DiagnosticBuoyancyHull" unique_id=725028384]
-script = SubResource("CSharpScript_q8xd6")
-ShowProbeVisualization = true
+
 
 [node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="." unique_id=853362279]
 script = ExtResource("7_light_gizmo")

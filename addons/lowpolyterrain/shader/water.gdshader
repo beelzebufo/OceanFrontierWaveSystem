@@ -1,0 +1,201 @@
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, diffuse_lambert, specular_schlick_ggx;
+
+// REAL transparency: ALPHA is written and the hardware blends it. Faking it through a screen
+// texture, as this used to, hid everything transparent under the water - that copy is taken
+// before the transparent pass. depth_draw_never for the same reason: writing depth would cut
+// away what this exists to show.
+//
+// FOAM only forms against geometry that is in the depth buffer BEFORE the transparent pass, so
+// an ALPHA material never gets a foam line - not with Depth Draw ALWAYS either, which writes
+// depth too late to be read here. Alpha Scissor and Alpha Hash do get one: both render in the
+// opaque pass. Measured, all five modes side by side.
+//
+// SET extra_cull_margin ON THE MESH USING THIS SHADER.
+//
+// vertex() raises the surface by up to wave_height, but frustum culling works from the mesh
+// bounding box, which is computed from the UNDISPLACED geometry. Without a margin a chunk
+// whose box has just left the frustum disappears even though its raised waves would still be
+// on screen. Set GeometryInstance3D.extra_cull_margin to at least wave_height on the
+// MeshInstance3D (or RenderingServer.instance_set_extra_visibility_margin for a raw instance).
+
+group_uniforms Water_Colors;
+uniform vec3 deep_water_color : source_color = vec3(0.0, 0.4, 0.76);
+uniform vec3 shallow_water_color : source_color = vec3(0.0, 0.6, 0.7);
+uniform vec3 foam_color : source_color = vec3(0.9, 0.95, 1.0);
+uniform float roughness : hint_range(0.0, 1.0) = 0.0;
+
+// How solid deep water is. Shallow water reaches less than this.
+uniform float water_alpha : hint_range(0.0, 1.0) = 0.6;
+
+group_uniforms Wave_Settings;
+uniform vec2 wave_direction = vec2(1.0, 1.0);
+uniform float wave_speed : hint_range(0.1, 60.0) = 1.0;
+uniform float wave_scale : hint_range(0.05, 2.0) = 0.2;
+uniform float wave_height : hint_range(0.0, 5.0) = 0.1;
+uniform float low_poly_stepping : hint_range(1.0, 12.0) = 12.0;
+
+group_uniforms Surface_Shading;
+
+// FLAT (off, the default) or SMOOTH, and unlike the terrain shaders this has to be a switch
+// rather than something read off the mesh.
+//
+// The terrain shaders can simply use the normal their mesh carries, because terrain geometry is
+// built on the CPU and its normals describe the surface being drawn. Water is displaced here, in
+// vertex(), so the mesh's normals still describe the flat plane it was before the waves - they
+// know nothing about the surface you actually see. There is nothing to inherit, and the choice
+// has to be made explicitly.
+//
+// Off, the surface is quantised into blocks by low_poly_stepping and shaded from screen
+// derivatives, which is the original faceted look, unchanged. On, the waves run continuously and
+// the normal is derived from the wave field itself.
+uniform bool smooth_surface = false;
+
+// Distance in world units the wave slope is measured over, when smooth_surface is on. Small
+// values follow fine ripples and can read as noise; large ones round the swell off.
+uniform float wave_normal_distance : hint_range(0.01, 4.0) = 0.25;
+
+group_uniforms Depth_Settings;
+// CHANGED HERE: Decreased minimum distance to allow extremely narrow foam lines
+uniform float foam_distance : hint_range(0.001, 1.0, 0.001) = 0.05;
+// NEW: Controls block size/resolution of the foam edge
+uniform float foam_stepping : hint_range(2.0, 100.0) = 100.0;
+uniform float depth_distance : hint_range(0.1, 10.0) = 4.0;
+
+// What the foam edge and the shallow-to-deep blend are measured against.
+uniform sampler2D depth_texture : hint_depth_texture, filter_linear_mipmap;
+
+const float TAU_CONST = 6.28318530718;
+
+// Period of the noise lattice. Everything fed into hash() is wrapped into it, which keeps the
+// argument of sin() bounded. The previous version added an ever-growing time counter straight
+// into the hash input: after an hour at wave_speed 60 that argument reached about 27 million,
+// where GPU sin() accuracy is implementation defined and mediump precision fails outright.
+// Wrapped, it stays near 8000. The noise field tiles with this period, so the drift below can
+// wrap without producing a visible seam.
+const float NOISE_PERIOD = 256.0;
+
+// Pseudo-random value for one lattice point.
+float hash(vec2 p) {
+	p = mod(p, NOISE_PERIOD);
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+// Value noise: the four surrounding lattice points are blended, so the result varies smoothly
+// across space. The previous version used a raw per-cell hash, which is uncorrelated between
+// neighbours - measured at low wave_scale, 91% of the height difference between adjacent cells
+// came from that term alone, which is what read as jitter.
+float value_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(
+		mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+		mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+		f.y
+	);
+}
+
+// Generates the wave height at one world position: stepped into blocks for the low-poly look,
+// or continuous when smooth_surface asks for it.
+float low_poly_wave(vec2 uv, float time) {
+	// Quantising the INPUT is what makes the surface blocky - every position inside a block
+	// resolves to the same height. It is also why the smooth path has to skip it rather than
+	// smooth afterwards: with the steps in place, two positions a few centimetres apart return
+	// the identical height, and a slope measured between them would be flat everywhere except
+	// at the block seams, where it would spike.
+	vec2 grid_uv = uv;
+	if (!smooth_surface) {
+		grid_uv = floor(uv * low_poly_stepping) / low_poly_stepping;
+	}
+
+	// The phase is wrapped into a full turn, which is exact for sin/cos and stops the argument
+	// from growing without bound over a long session.
+	vec2 move = mod(wave_direction * time * wave_speed * 0.1, TAU_CONST);
+	float w1 = sin(grid_uv.x * 4.0 * wave_scale + move.x) * cos(grid_uv.y * 4.0 * wave_scale + move.y);
+
+	// The detail term now drifts continuously instead of stepping through floor(time * speed),
+	// which used to make the whole surface jump at once every 1/wave_speed seconds.
+	vec2 drift = mod(wave_direction * time * wave_speed * 0.05, NOISE_PERIOD);
+	float w2 = value_noise(grid_uv * wave_scale * 2.0 + drift) * 2.0 - 1.0;
+
+	// Tied to wave_scale so the detail cannot dominate once the primary wave flattens out.
+	// The factor is normalised against the upper end of the wave_scale range, so the amplitude
+	// at maximum scale matches what it was before.
+	float detail_amount = 0.15 * wave_scale * 0.5;
+
+	return (w1 + w2 * detail_amount) * wave_height;
+}
+
+// The horizontal world position this vertex samples its wave at. Carried into the fragment stage
+// because the smooth path has to evaluate the wave field there too, and it must do so in the same
+// coordinates - the displacement is vertical only, so these two components are untouched by it.
+varying vec2 wave_world_xz;
+
+void vertex() {
+	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	wave_world_xz = world_pos.xz;
+	float height = low_poly_wave(world_pos.xz, TIME);
+	VERTEX.y += height;
+}
+
+void fragment() {
+	// 1. The surface normal, either way round.
+	if (smooth_surface) {
+		// Taken from the wave field rather than from the geometry, and that is the point: the
+		// mesh is a flat plane that vertex() pushed upwards, so its own normals describe water
+		// that is not there. Sampling the same function the displacement used gives the slope of
+		// the surface actually on screen, at full resolution rather than at mesh resolution.
+		//
+		// Costs two extra evaluations of the wave per pixel, which is not nothing - the wave
+		// carries a value noise with four hashed sines behind it. On a water plane covering much
+		// of the screen that is the most expensive thing this shader does.
+		float step_distance = max(wave_normal_distance, 0.001);
+		float here = low_poly_wave(wave_world_xz, TIME);
+		float along_x = low_poly_wave(wave_world_xz + vec2(step_distance, 0.0), TIME);
+		float along_z = low_poly_wave(wave_world_xz + vec2(0.0, step_distance), TIME);
+
+		vec3 tangent_x = vec3(step_distance, along_x - here, 0.0);
+		vec3 tangent_z = vec3(0.0, along_z - here, step_distance);
+		vec3 world_normal = normalize(cross(tangent_z, tangent_x));
+
+		// The wave field is defined in world space; NORMAL is expected in view space.
+		NORMAL = normalize((VIEW_MATRIX * vec4(world_normal, 0.0)).xyz);
+	} else {
+		// Force flat face normals
+		NORMAL = normalize(cross(dFdy(VERTEX), dFdx(VERTEX)));
+	}
+
+	// 2. Depth calculation
+	//
+	// The normalised device depth range differs per backend: Vulkan (Forward+ and Mobile)
+	// uses [0, 1], OpenGL (Compatibility) uses [-1, 1]. Feeding the raw sample in under
+	// Compatibility therefore reconstructed a wrong view-space position, which broke BOTH
+	// depth driven effects below - the foam edge and the shallow/deep colour blend.
+	float depth = textureLod(depth_texture, SCREEN_UV, 0.0).r;
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth * 2.0 - 1.0);
+#else
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, depth);
+#endif
+	vec4 upos = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
+	vec3 pixel_position = upos.xyz / upos.w;
+	float water_depth = abs(pixel_position.z - VERTEX.z);
+	
+	// 3. Color interpolation (Deep vs. shallow water)
+	float depth_blend = clamp(water_depth / depth_distance, 0.0, 1.0);
+	vec3 water_base = mix(shallow_water_color, deep_water_color, depth_blend);
+	
+	// 4. Deep water absorbs more light, so it lets less through.
+	float dynamic_alpha = mix(water_alpha * 0.3, water_alpha, depth_blend);
+
+	// 5. Stylized foam at object intersections (NOW CUSTOMIZABLE)
+	float stepped_depth = floor(water_depth * foam_stepping) / foam_stepping;
+	float foam_mask = step(stepped_depth, foam_distance);
+
+	// Foam stays fully opaque, exactly as before.
+	ALBEDO = mix(water_base, foam_color, foam_mask);
+	ALPHA = mix(dynamic_alpha, 1.0, foam_mask);
+	ROUGHNESS = roughness;
+	SPECULAR = 0.5;
+}

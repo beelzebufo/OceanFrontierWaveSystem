@@ -76,8 +76,8 @@ EXPECTED STARTUP LOG
 At 384 AWF resolution, GeometryDownSampleFactor=2, 8 LODs:
 
   [Ocean] Crest4 nested surface ready: 8 LODs, 100 tiles, AWF 384²,
-          geometry 192², tile density 48, 10 Crest patch types,
-          LOD alpha black=0.066667, range=0.866667.
+		  geometry 192², tile density 48, 10 Crest patch types,
+		  LOD alpha black=0.066667, range=0.866667.
 
 100 tiles is still expected:
   LOD0 = 16
