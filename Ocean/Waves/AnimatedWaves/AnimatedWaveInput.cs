@@ -24,6 +24,13 @@ public enum AnimatedWaveInputBlendMode
 }
 
 
+public enum AnimatedWaveInputOperation
+{
+	Displacement = 0,
+	ScaleByFactor = 1,
+}
+
+
 /// <summary>
 /// Public Stage 5A-1 input contract. Implementations snapshot these values on
 /// the main thread; renderer and physics continue to consume only the composed
@@ -34,13 +41,9 @@ public interface IAnimatedWaveInput
 	bool Enabled { get; }
 	int Priority { get; }
 	AnimatedWaveInputPlacement Placement { get; }
-	AnimatedWaveInputBlendMode BlendMode { get; }
-	float Weight { get; }
-	float SourceAmplitude { get; }
 	float WavelengthMeters { get; }
 	Vector2 SizeXZ { get; }
 	float FeatherWidth { get; }
-	Vector3 Displacement { get; }
 }
 
 
@@ -61,6 +64,7 @@ internal readonly struct AnimatedWaveInputSnapshot
 {
 	public readonly int Priority;
 	public readonly long RegistrationOrder;
+	public readonly AnimatedWaveInputOperation Operation;
 	public readonly AnimatedWaveInputPlacement Placement;
 	public readonly AnimatedWaveInputBlendMode BlendMode;
 	public readonly float Weight;
@@ -72,11 +76,14 @@ internal readonly struct AnimatedWaveInputSnapshot
 	public readonly Vector2 SizeXZ;
 	public readonly float FeatherWidth;
 	public readonly Vector3 Displacement;
+	public readonly float Scale;
+	public readonly bool Invert;
 
 
 	public AnimatedWaveInputSnapshot(
 		int priority,
 		long registrationOrder,
+		AnimatedWaveInputOperation operation,
 		AnimatedWaveInputPlacement placement,
 		AnimatedWaveInputBlendMode blendMode,
 		float weight,
@@ -87,10 +94,13 @@ internal readonly struct AnimatedWaveInputSnapshot
 		Vector2 axisZ,
 		Vector2 sizeXZ,
 		float featherWidth,
-		Vector3 displacement)
+		Vector3 displacement,
+		float scale,
+		bool invert)
 	{
 		Priority = priority;
 		RegistrationOrder = registrationOrder;
+		Operation = operation;
 		Placement = placement;
 		BlendMode = blendMode;
 		Weight = weight;
@@ -102,5 +112,7 @@ internal readonly struct AnimatedWaveInputSnapshot
 		SizeXZ = sizeXZ;
 		FeatherWidth = featherWidth;
 		Displacement = displacement;
+		Scale = scale;
+		Invert = invert;
 	}
 }

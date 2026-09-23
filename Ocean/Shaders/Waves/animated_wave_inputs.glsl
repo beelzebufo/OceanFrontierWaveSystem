@@ -6,6 +6,8 @@
 // - LodDataMgrAnimWaves.FilterWavelength
 // - ShapeWaves.WaveBatch blend/IgnoreTransitionWeight behaviour
 // - AnimWavesGerstnerBatchGeometry feather-at-UV-extents formula
+// - ScaleByFactor.shader multiplicative scalar/invert behaviour
+// - LodDataMgr.SubmitDrawsFiltered transition weight forwarding
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -43,11 +45,11 @@ struct AnimatedWaveInputDescriptor
 	// z = source amplitude, w = wavelength metres.
 	vec4 feather_weight_amplitude_wavelength;
 
-	// xyz = constant source displacement.
-	vec4 displacement_xyz_padding;
+	// xyz = constant source displacement, w = ScaleByFactor scalar.
+	vec4 displacement_xyz_scale;
 
-	// x = placement, y = blend mode.
-	uvec4 placement_blend_padding;
+	// x = placement, y = blend mode, z = operation, w = flags.
+	uvec4 placement_blend_operation_flags;
 };
 
 
@@ -82,6 +84,8 @@ const uint PLACEMENT_WAVELENGTH_PRE_COMBINE = 0u;
 const uint PLACEMENT_ALL_LODS_PRE_COMBINE = 1u;
 const uint PLACEMENT_ALL_LODS_POST_COMBINE = 2u;
 const uint BLEND_MODE_BLEND = 1u;
+const uint OPERATION_SCALE_BY_FACTOR = 1u;
+const uint FLAG_INVERT = 1u;
 
 
 // Direct port of Crest 4 LodDataMgrAnimWaves.FilterWavelength semantics.
@@ -131,9 +135,10 @@ bool wavelength_lod_weight(
 }
 
 
-float spatial_feather(
+bool spatial_feather(
 	vec2 world_xz,
-	AnimatedWaveInputDescriptor descriptor)
+	AnimatedWaveInputDescriptor descriptor,
+	out float feather)
 {
 	vec2 delta = world_xz - descriptor.center_xz_axis_x.xy;
 	vec2 local = vec2(
@@ -144,7 +149,8 @@ float spatial_feather(
 	if (any(lessThan(uv, vec2(0.0))) ||
 		any(greaterThan(uv, vec2(1.0))))
 	{
-		return 0.0;
+		feather = 0.0;
+		return false;
 	}
 
 	// Direct port of Crest AnimWavesGerstnerBatchGeometry feather formula.
@@ -153,10 +159,12 @@ float spatial_feather(
 	float feather_width =
 		clamp(descriptor.feather_weight_amplitude_wavelength.x, 0.001, 0.5);
 
-	return clamp(
+	feather = clamp(
 		1.0 - (radius - (0.5 - feather_width)) / feather_width,
 		0.0,
 		1.0);
+
+	return true;
 }
 
 
@@ -185,7 +193,7 @@ void main()
 		 ++input_index)
 	{
 		AnimatedWaveInputDescriptor descriptor = u_inputs.inputs[input_index];
-		uint placement = descriptor.placement_blend_padding.x;
+		uint placement = descriptor.placement_blend_operation_flags.x;
 
 		if ((pc.phase == 0u && placement == PLACEMENT_ALL_LODS_POST_COMBINE) ||
 			(pc.phase == 1u && placement != PLACEMENT_ALL_LODS_POST_COMBINE))
@@ -209,17 +217,51 @@ void main()
 			continue;
 		}
 
-		float feather = spatial_feather(world_xz, descriptor);
+		float feather = 0.0;
+		if (!spatial_feather(world_xz, descriptor, feather))
+		{
+			continue;
+		}
+
+		uint operation = descriptor.placement_blend_operation_flags.z;
+
+		if (operation == OPERATION_SCALE_BY_FACTOR)
+		{
+			// Crest LodDataMgr.SubmitDrawsFiltered skips the draw at alpha 0.
+			// For alpha > 0 it forwards weight * alpha as _Weight.
+			if (transition_weight <= 0.0)
+			{
+				continue;
+			}
+
+			float selected_scale =
+				clamp(descriptor.displacement_xyz_scale.w, 0.0, 1.0);
+
+			if ((descriptor.placement_blend_operation_flags.w & FLAG_INVERT) != 0u)
+			{
+				selected_scale = 1.0 - selected_scale;
+			}
+
+			// Direct port of Crest ScaleByFactor.shader:
+			// scale = lerp(1, selectedScale, FeatherWeightFromUV(...));
+			// return scale * _Weight;
+			float factor =
+				mix(1.0, selected_scale, feather) * transition_weight;
+
+			result.xyz *= factor;
+			continue;
+		}
+
 		if (feather <= 0.0)
 		{
 			continue;
 		}
 
 		float weight = descriptor.feather_weight_amplitude_wavelength.y;
-		vec3 source = descriptor.displacement_xyz_padding.xyz *
+		vec3 source = descriptor.displacement_xyz_scale.xyz *
 			descriptor.feather_weight_amplitude_wavelength.z;
 
-		if (descriptor.placement_blend_padding.y == BLEND_MODE_BLEND)
+		if (descriptor.placement_blend_operation_flags.y == BLEND_MODE_BLEND)
 		{
 			// Crest WaveBatch performs a transition-independent multiply pass,
 			// followed by the normal transition-weighted additive pass.

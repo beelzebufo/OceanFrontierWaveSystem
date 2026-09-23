@@ -260,8 +260,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	///  0 vec4 center_xz_axis_x
 	/// 16 vec4 axis_z_size_xz
 	/// 32 vec4 feather_weight_amplitude_wavelength
-	/// 48 vec4 displacement_xyz_padding
-	/// 64 uvec4 placement_blend_padding
+	/// 48 vec4 displacement_xyz_scale
+	/// 64 uvec4 placement_blend_operation_flags
 	/// </summary>
 	public void Upload(
 		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs)
@@ -462,12 +462,12 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		WriteFloat(_descriptorBytes, offset + 48, input.Displacement.X);
 		WriteFloat(_descriptorBytes, offset + 52, input.Displacement.Y);
 		WriteFloat(_descriptorBytes, offset + 56, input.Displacement.Z);
-		WriteFloat(_descriptorBytes, offset + 60, 0.0f);
+		WriteFloat(_descriptorBytes, offset + 60, input.Scale);
 
 		WriteUInt(_descriptorBytes, offset + 64, (uint)input.Placement);
 		WriteUInt(_descriptorBytes, offset + 68, (uint)input.BlendMode);
-		WriteUInt(_descriptorBytes, offset + 72, 0);
-		WriteUInt(_descriptorBytes, offset + 76, 0);
+		WriteUInt(_descriptorBytes, offset + 72, (uint)input.Operation);
+		WriteUInt(_descriptorBytes, offset + 76, input.Invert ? 1u : 0u);
 	}
 
 
