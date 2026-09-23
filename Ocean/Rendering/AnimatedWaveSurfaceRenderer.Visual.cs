@@ -63,11 +63,6 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
-
-
-		SetSurfaceParameter(
-			"surface_opacity",
-			_surfaceOpacity);
 	}
 
 

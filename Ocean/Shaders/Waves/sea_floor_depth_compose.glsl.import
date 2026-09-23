@@ -11,3 +11,4 @@ source_file="res://Ocean/Shaders/Waves/sea_floor_depth_compose.glsl"
 dest_files=["res://.godot/imported/sea_floor_depth_compose.glsl-38509629af66b9d28c72756ed3bfdfdf.res"]
 
 [params]
+

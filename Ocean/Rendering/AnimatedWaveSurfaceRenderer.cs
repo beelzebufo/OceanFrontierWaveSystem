@@ -94,8 +94,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	[Export(PropertyHint.Range, "0,2,0.01")]
 	public float VisualNormalStrength { get; set; } = 0.08f;
-	
-
 
 
 	private OceanRuntime _runtime;
@@ -170,7 +168,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private bool _showNormalVectors;
 
 	private float _diagnosticRoughness = 0.65f;
-	private float _surfaceOpacity = 1.0f;
 
 
 	private int _meshResolution;
@@ -302,22 +299,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
-	}
-
-
-	internal void SetSurfaceOpacity(
-		float opacity)
-	{
-		_surfaceOpacity =
-			Mathf.Clamp(
-				opacity,
-				0.0f,
-				1.0f);
-
-
-		SetSurfaceParameter(
-			"surface_opacity",
-			_surfaceOpacity);
 	}
 
 
@@ -595,8 +576,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_normalMaterial.SetShaderParameter(
 			"animated_wave_field",
 			_textureArray);
-			
-
 
 
 		ApplyDisplayParameters();

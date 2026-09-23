@@ -11,10 +11,6 @@ uniform bool lighting_enabled = true;
 uniform float diagnostic_roughness :
     hint_range(0.0, 1.0) = 0.65;
 
-uniform float surface_opacity :
-    hint_range(0.0, 1.0) = 1.0;
-
-
 
 // Renderer-only visual micro-normal layer.
 //
@@ -658,13 +654,4 @@ void fragment()
         SPECULAR =
             0.0;
     }
-
-
-    ALPHA =
-        clamp(
-            surface_opacity,
-            0.0,
-            1.0);
-
-
 }
