@@ -3,11 +3,12 @@ using Godot;
 namespace OceanFrontier.Water.Waves.AnimatedWaves;
 
 /// <summary>
-/// Scene-usable rectangular constant-displacement Animated Waves input.
+/// Rectangular local source which resamples every eligible cascade of the
+/// existing global FFT at a relative direction. It does not own an FFT.
 /// </summary>
 [GlobalClass]
-public partial class AnimatedWaveRectInput :
-	AnimatedWaveRectPlacedInputBase
+public partial class AnimatedWaveRectDirectionInput :
+	AnimatedWaveRectInputBase
 {
 	[Export]
 	public AnimatedWaveInputBlendMode BlendMode { get; set; } =
@@ -16,17 +17,12 @@ public partial class AnimatedWaveRectInput :
 	[Export(PropertyHint.Range, "0,1,0.01")]
 	public float Weight { get; set; } = 1.0f;
 
-	[Export(PropertyHint.Range, "0,10,0.01,or_greater")]
-	public float SourceAmplitude { get; set; } = 1.0f;
-
-	[Export]
-	public Vector3 Displacement { get; set; } = new(0.0f, 0.5f, 0.0f);
+	[Export(PropertyHint.Range, "-180,180,0.1")]
+	public float DirectionOffsetDegrees { get; set; }
 
 
-	internal override AnimatedWaveInputSnapshot CreatePlacedSnapshot(
+	internal override AnimatedWaveInputSnapshot CreateSnapshot(
 		long registrationOrder,
-		AnimatedWaveInputPlacement placement,
-		float wavelengthMeters,
 		Vector2 centerXZ,
 		Vector2 axisX,
 		Vector2 axisZ,
@@ -47,31 +43,29 @@ public partial class AnimatedWaveRectInput :
 				: 0.0f;
 
 
-		float sourceAmplitude =
-			float.IsFinite(SourceAmplitude)
-				? Mathf.Max(SourceAmplitude, 0.0f)
+		float directionDegrees =
+			float.IsFinite(DirectionOffsetDegrees)
+				? Mathf.PosMod(DirectionOffsetDegrees + 180.0f, 360.0f) - 180.0f
 				: 0.0f;
 
 
 		return new AnimatedWaveInputSnapshot(
 			Priority,
 			registrationOrder,
-			AnimatedWaveInputOperation.Displacement,
-			placement,
+			AnimatedWaveInputOperation.DirectionalFft,
+			AnimatedWaveInputPlacement.WavelengthFilteredPreCombine,
 			blendMode,
 			weight,
-			sourceAmplitude,
-			wavelengthMeters,
+			1.0f,
+			0.0f,
 			centerXZ,
 			axisX,
 			axisZ,
 			sizeXZ,
 			featherWidth,
-			Displacement.IsFinite()
-				? Displacement
-				: Vector3.Zero,
+			Vector3.Zero,
 			1.0f,
 			false,
-			0.0f);
+			Mathf.DegToRad(directionDegrees));
 	}
 }

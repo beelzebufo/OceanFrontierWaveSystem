@@ -7,7 +7,7 @@ namespace OceanFrontier.Water.Waves.AnimatedWaves;
 /// </summary>
 [GlobalClass]
 public partial class AnimatedWaveRectScaleInput :
-	AnimatedWaveRectInputBase
+	AnimatedWaveRectPlacedInputBase
 {
 	[Export(PropertyHint.Range, "0,1,0.01")]
 	public float ScaleFactor { get; set; } = 1.0f;
@@ -16,7 +16,7 @@ public partial class AnimatedWaveRectScaleInput :
 	public bool Invert { get; set; }
 
 
-	internal override AnimatedWaveInputSnapshot CreateSnapshot(
+	internal override AnimatedWaveInputSnapshot CreatePlacedSnapshot(
 		long registrationOrder,
 		AnimatedWaveInputPlacement placement,
 		float wavelengthMeters,
@@ -48,6 +48,7 @@ public partial class AnimatedWaveRectScaleInput :
 			featherWidth,
 			Vector3.Zero,
 			scale,
-			Invert);
+			Invert,
+			0.0f);
 	}
 }

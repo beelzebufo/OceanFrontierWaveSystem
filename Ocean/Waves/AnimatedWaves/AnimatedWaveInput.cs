@@ -28,20 +28,19 @@ public enum AnimatedWaveInputOperation
 {
 	Displacement = 0,
 	ScaleByFactor = 1,
+	DirectionalFft = 2,
 }
 
 
 /// <summary>
-/// Public Stage 5A-1 input contract. Implementations snapshot these values on
-/// the main thread; renderer and physics continue to consume only the composed
-/// AnimatedWaveField.
+/// Common public input contract. Operation-specific scene components add only
+/// meaningful properties; renderer and physics continue to consume only the
+/// composed AnimatedWaveField.
 /// </summary>
 public interface IAnimatedWaveInput
 {
 	bool Enabled { get; }
 	int Priority { get; }
-	AnimatedWaveInputPlacement Placement { get; }
-	float WavelengthMeters { get; }
 	Vector2 SizeXZ { get; }
 	float FeatherWidth { get; }
 }
@@ -78,6 +77,7 @@ internal readonly struct AnimatedWaveInputSnapshot
 	public readonly Vector3 Displacement;
 	public readonly float Scale;
 	public readonly bool Invert;
+	public readonly float DirectionRadians;
 
 
 	public AnimatedWaveInputSnapshot(
@@ -96,7 +96,8 @@ internal readonly struct AnimatedWaveInputSnapshot
 		float featherWidth,
 		Vector3 displacement,
 		float scale,
-		bool invert)
+		bool invert,
+		float directionRadians)
 	{
 		Priority = priority;
 		RegistrationOrder = registrationOrder;
@@ -114,5 +115,6 @@ internal readonly struct AnimatedWaveInputSnapshot
 		Displacement = displacement;
 		Scale = scale;
 		Invert = invert;
+		DirectionRadians = directionRadians;
 	}
 }

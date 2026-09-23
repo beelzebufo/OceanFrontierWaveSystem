@@ -218,14 +218,6 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					lodCount);
 
 
-			_inputPass =
-				new AnimatedWaveInputPass(
-					rd,
-					LodGpuBuffer.Buffer,
-					DirectField.Displacement,
-					Field.Displacement,
-					resolution,
-					lodCount);
 		}
 		catch
 		{
@@ -315,6 +307,11 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		_fftDirectPass =
 			null;
 
+		_inputPass?.Dispose();
+
+		_inputPass =
+			null;
+
 
 		try
 		{
@@ -329,6 +326,21 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					fftDisplacement,
 					LodGpuBuffer.Buffer,
 					DirectField.Displacement,
+					Field.Resolution,
+					Field.LodCount,
+					fftCascadeCount,
+					waveResolutionMultiplier);
+
+
+			// Ordered local inputs borrow the same raw FFT source. This adds
+			// sampling access only; DirectionalFft never owns or evolves an FFT.
+			_inputPass =
+				new AnimatedWaveInputPass(
+					_rd,
+					fftDisplacement,
+					LodGpuBuffer.Buffer,
+					DirectField.Displacement,
+					Field.Displacement,
 					Field.Resolution,
 					Field.LodCount,
 					fftCascadeCount,
@@ -350,6 +362,11 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		}
 		catch
 		{
+			_inputPass?.Dispose();
+
+			_inputPass =
+				null;
+
 			_combinePass?.Dispose();
 
 			_combinePass =

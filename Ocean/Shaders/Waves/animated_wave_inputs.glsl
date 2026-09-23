@@ -8,6 +8,9 @@
 // - AnimWavesGerstnerBatchGeometry feather-at-UV-extents formula
 // - ScaleByFactor.shader multiplicative scalar/invert behaviour
 // - LodDataMgr.SubmitDrawsFiltered transition weight forwarding
+// - AnimWavesSpectrum.shader two-angle directional FFT sampling
+// - ShapeWaves.cs::WaveBatch one-erase-per-source Blend behaviour
+// - ShapeFFT.cs local geometry direction contract
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -45,7 +48,8 @@ struct AnimatedWaveInputDescriptor
 	// z = source amplitude, w = wavelength metres.
 	vec4 feather_weight_amplitude_wavelength;
 
-	// xyz = constant source displacement, w = ScaleByFactor scalar.
+	// x = displacement X or DirectionalFft relative angle radians,
+	// yz = constant source displacement YZ, w = ScaleByFactor scalar.
 	vec4 displacement_xyz_scale;
 
 	// x = placement, y = blend mode, z = operation, w = flags.
@@ -65,6 +69,12 @@ layout(rgba16f, set = 0, binding = 2)
 uniform image2DArray u_target;
 
 
+// Existing global raw FFT source. DirectionalFft only resamples this texture;
+// it does not own or evolve another FFT.
+layout(set = 0, binding = 3)
+uniform sampler2DArray u_fft_displacement;
+
+
 layout(push_constant, std430)
 uniform PushConstants
 {
@@ -73,8 +83,8 @@ uniform PushConstants
 	uint input_count;
 	uint phase;
 	float lod_scale_alpha;
-	float padding_0;
-	float padding_1;
+	uint fft_cascade_count;
+	float wave_resolution_multiplier;
 	float padding_2;
 }
 pc;
@@ -85,7 +95,11 @@ const uint PLACEMENT_ALL_LODS_PRE_COMBINE = 1u;
 const uint PLACEMENT_ALL_LODS_POST_COMBINE = 2u;
 const uint BLEND_MODE_BLEND = 1u;
 const uint OPERATION_SCALE_BY_FACTOR = 1u;
+const uint OPERATION_DIRECTIONAL_FFT = 2u;
 const uint FLAG_INVERT = 1u;
+const float PI = 3.14159265358979323846;
+const float TWO_PI = 2.0 * PI;
+const float DIRECTION_STEP = PI / 20.0;
 
 
 // Direct port of Crest 4 LodDataMgrAnimWaves.FilterWavelength semantics.
@@ -168,6 +182,73 @@ bool spatial_feather(
 }
 
 
+float fft_world_size(uint cascade_index)
+{
+	return 0.5 * exp2(float(cascade_index));
+}
+
+
+float effective_fft_wavelength(uint cascade_index)
+{
+	return
+		(fft_world_size(cascade_index) / 8.0) /
+		pc.wave_resolution_multiplier;
+}
+
+
+// Direct mathematical port of Crest 4 AnimWavesSpectrum.shader. Positive
+// relative angles rotate +X toward +Z. Sampling uses R(-angle) world XZ and
+// horizontal displacement uses R(+angle), matching SeaState's (cos, sin).
+vec3 sample_directional_fft(
+	vec2 world_xz,
+	uint cascade_index,
+	float direction_radians)
+{
+	vec2 requested_axis = vec2(
+		cos(direction_radians),
+		sin(direction_radians));
+
+	float axis_heading =
+		atan(requested_axis.y, requested_axis.x) + TWO_PI;
+	float remainder = mod(axis_heading, DIRECTION_STEP);
+	float angle_0 = axis_heading - remainder;
+	float angle_1 = angle_0 + DIRECTION_STEP;
+
+	vec2 axis_x_0 = vec2(cos(angle_0), sin(angle_0));
+	vec2 axis_x_1 = vec2(cos(angle_1), sin(angle_1));
+	vec2 axis_z_0 = vec2(-axis_x_0.y, axis_x_0.x);
+	vec2 axis_z_1 = vec2(-axis_x_1.y, axis_x_1.x);
+
+	vec2 scaled_world = world_xz / fft_world_size(cascade_index);
+	vec2 uv_0 = vec2(
+		dot(scaled_world, axis_x_0),
+		dot(scaled_world, axis_z_0));
+	vec2 uv_1 = vec2(
+		dot(scaled_world, axis_x_1),
+		dot(scaled_world, axis_z_1));
+
+	vec3 displacement_0 = textureLod(
+		u_fft_displacement,
+		vec3(uv_0, float(cascade_index)),
+		0.0).xyz;
+	vec3 displacement_1 = textureLod(
+		u_fft_displacement,
+		vec3(uv_1, float(cascade_index)),
+		0.0).xyz;
+
+	vec3 displacement = mix(
+		displacement_0,
+		displacement_1,
+		remainder / DIRECTION_STEP);
+
+	displacement.xz =
+		displacement.x * requested_axis +
+		displacement.z * vec2(-requested_axis.y, requested_axis.x);
+
+	return displacement;
+}
+
+
 void main()
 {
 	uvec3 id = gl_GlobalInvocationID;
@@ -194,8 +275,18 @@ void main()
 	{
 		AnimatedWaveInputDescriptor descriptor = u_inputs.inputs[input_index];
 		uint placement = descriptor.placement_blend_operation_flags.x;
+		uint operation = descriptor.placement_blend_operation_flags.z;
 
-		if ((pc.phase == 0u && placement == PLACEMENT_ALL_LODS_POST_COMBINE) ||
+		if (operation == OPERATION_DIRECTIONAL_FFT)
+		{
+			// Direction sources always write the direct field. A corrupted post
+			// placement is rejected rather than modifying canonical AWF.
+			if (pc.phase != 0u || placement == PLACEMENT_ALL_LODS_POST_COMBINE)
+			{
+				continue;
+			}
+		}
+		else if ((pc.phase == 0u && placement == PLACEMENT_ALL_LODS_POST_COMBINE) ||
 			(pc.phase == 1u && placement != PLACEMENT_ALL_LODS_POST_COMBINE))
 		{
 			continue;
@@ -204,7 +295,8 @@ void main()
 		float transition_weight = 1.0;
 		bool eligible = true;
 
-		if (placement == PLACEMENT_WAVELENGTH_PRE_COMBINE)
+		if (operation != OPERATION_DIRECTIONAL_FFT &&
+			placement == PLACEMENT_WAVELENGTH_PRE_COMBINE)
 		{
 			eligible = wavelength_lod_weight(
 				descriptor.feather_weight_amplitude_wavelength.w,
@@ -223,7 +315,72 @@ void main()
 			continue;
 		}
 
-		uint operation = descriptor.placement_blend_operation_flags.z;
+		if (operation == OPERATION_DIRECTIONAL_FFT)
+		{
+			float input_weight =
+				clamp(descriptor.feather_weight_amplitude_wavelength.y, 0.0, 1.0);
+
+			if (feather <= 0.0 || input_weight <= 0.0)
+			{
+				continue;
+			}
+
+			bool has_eligible_cascade = false;
+			vec3 directional_source = vec3(0.0);
+			float direction_radians = descriptor.displacement_xyz_scale.x;
+
+			for (uint cascade_index = 0u;
+				 cascade_index < pc.fft_cascade_count;
+				 ++cascade_index)
+			{
+				float cascade_transition_weight = 1.0;
+				bool cascade_eligible = wavelength_lod_weight(
+					effective_fft_wavelength(cascade_index),
+					id.z,
+					cascade_transition_weight);
+
+				if (!cascade_eligible)
+				{
+					continue;
+				}
+
+				has_eligible_cascade = true;
+
+				if (cascade_transition_weight <= 0.0)
+				{
+					continue;
+				}
+
+				directional_source +=
+					cascade_transition_weight *
+					sample_directional_fft(
+						world_xz,
+						cascade_index,
+						direction_radians);
+			}
+
+			if (!has_eligible_cascade)
+			{
+				continue;
+			}
+
+			float override_weight = input_weight * feather;
+
+			if (descriptor.placement_blend_operation_flags.y == BLEND_MODE_BLEND)
+			{
+				// Crest WaveBatch erases once per ShapeWaves source and LOD,
+				// independent of per-cascade transition alpha.
+				result =
+					result * (1.0 - override_weight) +
+					directional_source * override_weight;
+			}
+			else
+			{
+				result += directional_source * override_weight;
+			}
+
+			continue;
+		}
 
 		if (operation == OPERATION_SCALE_BY_FACTOR)
 		{

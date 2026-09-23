@@ -23,6 +23,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	private readonly RenderingDevice _rd;
 	private readonly int _resolution;
 	private readonly int _lodCount;
+	private readonly int _fftCascadeCount;
+	private readonly float _waveResolutionMultiplier;
 
 	private readonly byte[] _descriptorBytes =
 		new byte[DescriptorBufferBytes];
@@ -33,6 +35,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 	private Rid _shader;
 	private Rid _pipeline;
+	private Rid _fftSampler;
 	private Rid _descriptorBuffer;
 	private Rid _directUniformSet;
 	private Rid _finalUniformSet;
@@ -46,18 +49,22 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 	public AnimatedWaveInputPass(
 		RenderingDevice rd,
+		Rid fftDisplacement,
 		Rid lodBuffer,
 		Rid directField,
 		Rid finalField,
 		int resolution,
-		int lodCount)
+		int lodCount,
+		int fftCascadeCount,
+		float waveResolutionMultiplier)
 	{
 		_rd = rd ??
 			throw new ArgumentNullException(
 				nameof(rd));
 
 
-		if (!lodBuffer.IsValid ||
+		if (!fftDisplacement.IsValid ||
+			!lodBuffer.IsValid ||
 			!directField.IsValid ||
 			!finalField.IsValid)
 		{
@@ -67,7 +74,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 
 		if (resolution <= 0 ||
-			lodCount <= 0)
+			lodCount <= 0 ||
+			fftCascadeCount <= 0)
 		{
 			throw new ArgumentOutOfRangeException(
 				nameof(resolution));
@@ -80,10 +88,22 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		_lodCount =
 			lodCount;
 
+		if (!float.IsFinite(waveResolutionMultiplier) ||
+			waveResolutionMultiplier < 1.0f ||
+			waveResolutionMultiplier > 4.0f)
+		{
+			throw new ArgumentOutOfRangeException(
+				nameof(waveResolutionMultiplier));
+		}
+
+		_fftCascadeCount = fftCascadeCount;
+		_waveResolutionMultiplier = waveResolutionMultiplier;
+
 
 		try
 		{
 			Create(
+				fftDisplacement,
 				lodBuffer,
 				directField,
 				finalField);
@@ -98,6 +118,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 
 	private void Create(
+		Rid fftDisplacement,
 		Rid lodBuffer,
 		Rid directField,
 		Rid finalField)
@@ -166,14 +187,35 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		}
 
 
+		var samplerState = new RDSamplerState
+		{
+			MinFilter = RenderingDevice.SamplerFilter.Linear,
+			MagFilter = RenderingDevice.SamplerFilter.Linear,
+			MipFilter = RenderingDevice.SamplerFilter.Nearest,
+			RepeatU = RenderingDevice.SamplerRepeatMode.Repeat,
+			RepeatV = RenderingDevice.SamplerRepeatMode.Repeat,
+			RepeatW = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+		};
+
+		_fftSampler = _rd.SamplerCreate(samplerState);
+
+		if (!_fftSampler.IsValid)
+		{
+			throw new InvalidOperationException(
+				"Failed to create Animated Wave directional FFT sampler.");
+		}
+
+
 		_directUniformSet =
 			CreateUniformSet(
+				fftDisplacement,
 				lodBuffer,
 				directField);
 
 
 		_finalUniformSet =
 			CreateUniformSet(
+				fftDisplacement,
 				lodBuffer,
 				finalField);
 
@@ -194,6 +236,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 
 	private Rid CreateUniformSet(
+		Rid fftDisplacement,
 		Rid lodBuffer,
 		Rid target)
 	{
@@ -241,6 +284,15 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		targetUniform.AddId(
 			target);
 
+		var fftUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.SamplerWithTexture,
+			Binding = 3,
+		};
+
+		fftUniform.AddId(_fftSampler);
+		fftUniform.AddId(fftDisplacement);
+
 
 		return _rd.UniformSetCreate(
 			new Godot.Collections.Array<RDUniform>
@@ -248,6 +300,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				lodUniform,
 				descriptorUniform,
 				targetUniform,
+				fftUniform,
 			},
 			_shader,
 			0);
@@ -260,7 +313,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	///  0 vec4 center_xz_axis_x
 	/// 16 vec4 axis_z_size_xz
 	/// 32 vec4 feather_weight_amplitude_wavelength
-	/// 48 vec4 displacement_xyz_scale
+	/// 48 vec4 displacement_xyz_scale; x aliases DirectionalFft radians
 	/// 64 uvec4 placement_blend_operation_flags
 	/// </summary>
 	public void Upload(
@@ -399,6 +452,16 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				0.0f,
 				1.0f));
 
+		WriteUInt(
+			_pushBytes,
+			20,
+			(uint)_fftCascadeCount);
+
+		WriteFloat(
+			_pushBytes,
+			24,
+			_waveResolutionMultiplier);
+
 
 		long computeList =
 			_rd.ComputeListBegin();
@@ -459,7 +522,13 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		WriteFloat(_descriptorBytes, offset + 40, input.SourceAmplitude);
 		WriteFloat(_descriptorBytes, offset + 44, input.WavelengthMeters);
 
-		WriteFloat(_descriptorBytes, offset + 48, input.Displacement.X);
+		// DirectionalFft aliases offset 48 as relative direction radians.
+		WriteFloat(
+			_descriptorBytes,
+			offset + 48,
+			input.Operation == AnimatedWaveInputOperation.DirectionalFft
+				? input.DirectionRadians
+				: input.Displacement.X);
 		WriteFloat(_descriptorBytes, offset + 52, input.Displacement.Y);
 		WriteFloat(_descriptorBytes, offset + 56, input.Displacement.Z);
 		WriteFloat(_descriptorBytes, offset + 60, input.Scale);
@@ -517,6 +586,12 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		{
 			_rd.FreeRid(_descriptorBuffer);
 			_descriptorBuffer = default;
+		}
+
+		if (_fftSampler.IsValid)
+		{
+			_rd.FreeRid(_fftSampler);
+			_fftSampler = default;
 		}
 
 

@@ -18,13 +18,6 @@ public abstract partial class AnimatedWaveRectInputBase :
 	public int Priority { get; set; }
 
 	[Export]
-	public AnimatedWaveInputPlacement Placement { get; set; } =
-		AnimatedWaveInputPlacement.AllLodsPostCombine;
-
-	[Export(PropertyHint.Range, "0.001,8192,0.001,or_greater")]
-	public float WavelengthMeters { get; set; } = 1.0f;
-
-	[Export]
 	public Vector2 SizeXZ { get; set; } = new(20.0f, 20.0f);
 
 	[Export(PropertyHint.Range, "0.001,0.5,0.001")]
@@ -123,21 +116,6 @@ public abstract partial class AnimatedWaveRectInputBase :
 		}
 
 
-		AnimatedWaveInputPlacement placement =
-			Placement is
-				AnimatedWaveInputPlacement.WavelengthFilteredPreCombine or
-				AnimatedWaveInputPlacement.AllLodsPreCombine or
-				AnimatedWaveInputPlacement.AllLodsPostCombine
-					? Placement
-					: AnimatedWaveInputPlacement.AllLodsPostCombine;
-
-
-		float wavelength =
-			float.IsFinite(WavelengthMeters)
-				? Mathf.Max(WavelengthMeters, 0.001f)
-				: 0.001f;
-
-
 		float featherWidth =
 			float.IsFinite(FeatherWidth)
 				? Mathf.Clamp(FeatherWidth, 0.001f, 0.5f)
@@ -149,8 +127,6 @@ public abstract partial class AnimatedWaveRectInputBase :
 
 		snapshot = CreateSnapshot(
 			registrationOrder,
-			placement,
-			wavelength,
 			new Vector2(position.X, position.Z),
 			axisX,
 			axisZ,
@@ -164,8 +140,6 @@ public abstract partial class AnimatedWaveRectInputBase :
 
 	internal abstract AnimatedWaveInputSnapshot CreateSnapshot(
 		long registrationOrder,
-		AnimatedWaveInputPlacement placement,
-		float wavelengthMeters,
 		Vector2 centerXZ,
 		Vector2 axisX,
 		Vector2 axisZ,
