@@ -99,6 +99,19 @@ internal sealed class OceanDiagnosticLightingPanel
 						(float)value);
 
 
+		OceanDiagnosticUi.Spin(
+			parent,
+			"Ocean opacity",
+			1.0,
+			0.0,
+			1.0,
+			0.01)
+			.ValueChanged +=
+				value =>
+					_surface?.SetSurfaceOpacity(
+						(float)value);
+
+
 		OceanDiagnosticUi.Check(
 			parent,
 			"Show light direction",
