@@ -62,6 +62,7 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 		Rid fftDisplacement,
 		Rid lodBuffer,
 		Rid directWaveField,
+		Rid seaFloorDepthField,
 		int resolution,
 		int lodCount,
 		int fftCascadeCount,
@@ -89,7 +90,7 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 		}
 
 
-		if (!directWaveField.IsValid)
+		if (!directWaveField.IsValid || !seaFloorDepthField.IsValid)
 		{
 			throw new ArgumentException(
 				"Animated Wave direct-field RID is invalid.",
@@ -146,7 +147,8 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 			Create(
 				fftDisplacement,
 				lodBuffer,
-				directWaveField);
+				directWaveField,
+				seaFloorDepthField);
 		}
 		catch
 		{
@@ -160,7 +162,8 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 	private void Create(
 		Rid fftDisplacement,
 		Rid lodBuffer,
-		Rid directWaveField)
+		Rid directWaveField,
+		Rid seaFloorDepthField)
 	{
 		RDShaderFile shaderFile =
 			GD.Load<RDShaderFile>(
@@ -368,6 +371,7 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 				fftUniform,
 				lodUniform,
 				outputUniform,
+				CreateImageUniform(3, seaFloorDepthField),
 			};
 
 
@@ -395,9 +399,9 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 		//  8 : uint  fft_cascade_count
 		// 12 : float wave_resolution_multiplier
 		// 16 : float lod_scale_alpha
-		// 20 : float padding
-		// 24 : float padding
-		// 28 : float padding
+		// 20 : uint  has_sea_floor_depth
+		// 24 : float shallow_water_attenuation
+		// 28 : float shallow_water_maximum_depth
 		//
 
 		BitConverter.TryWriteBytes(
@@ -451,7 +455,10 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 	/// This pass does not create cumulative Animated Waves.
 	/// </summary>
 	public void Dispatch(
-		float lodScaleAlpha)
+		float lodScaleAlpha,
+		bool hasSeaFloorDepth,
+		float shallowWaterAttenuation,
+		float shallowWaterMaximumDepth)
 	{
 		if (!float.IsFinite(
 				lodScaleAlpha))
@@ -473,6 +480,10 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 				16,
 				sizeof(float)),
 			lodScaleAlpha);
+
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(20, sizeof(uint)), hasSeaFloorDepth ? 1u : 0u);
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(24, sizeof(float)), Mathf.Clamp(shallowWaterAttenuation, 0.0f, 1.0f));
+		BitConverter.TryWriteBytes(_pushBytes.AsSpan(28, sizeof(float)), Mathf.Clamp(shallowWaterMaximumDepth, 1.0f, 1000.0f));
 
 
 		long computeList =
@@ -537,6 +548,13 @@ internal sealed class AnimatedWaveFftDirectPass : IDisposable
 			GD.Print(
 				"[Ocean] Animated Wave FFT first direct-input dispatch recorded.");
 		}
+	}
+
+	private static RDUniform CreateImageUniform(int binding, Rid texture)
+	{
+		var uniform = new RDUniform { UniformType = RenderingDevice.UniformType.Image, Binding = binding };
+		uniform.AddId(texture);
+		return uniform;
 	}
 
 

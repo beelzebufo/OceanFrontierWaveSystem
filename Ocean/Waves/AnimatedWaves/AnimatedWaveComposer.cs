@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using OceanFrontier.Water.Waves.SeaFloorDepth;
 
 namespace OceanFrontier.Water.Waves.AnimatedWaves;
 
@@ -97,6 +98,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	/// </summary>
 	public AnimatedWaveRenderState RenderState { get; private set; }
 
+	public SeaFloorDepthField SeaFloorDepthField { get; private set; }
+
 
 	//
 	// FFT is currently one Animated Waves input.
@@ -117,6 +120,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	//
 
 	private AnimatedWaveInputPass _inputPass;
+	private SeaFloorDepthComposePass _seaFloorDepthPass;
 
 
 	internal int ActiveInputCount =>
@@ -125,6 +129,12 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	internal long InputDispatchCount =>
 		_inputPass?.DispatchCount ?? 0;
 
+	internal int ActiveSeaFloorDepthInputCount =>
+		_seaFloorDepthPass?.ActiveInputCount ?? 0;
+
+	internal long SeaFloorDepthDispatchCount =>
+		_seaFloorDepthPass?.DispatchCount ?? 0;
+
 
 	public bool IsInitialized =>
 		Field != null &&
@@ -132,6 +142,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		LodLayout != null &&
 		LodGpuBuffer != null &&
 		RenderState != null &&
+		SeaFloorDepthField != null &&
+		_seaFloorDepthPass != null &&
 		_inputPass != null;
 
 
@@ -215,6 +227,17 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 			RenderState =
 				new AnimatedWaveRenderState(
+					lodCount);
+
+			SeaFloorDepthField =
+				new SeaFloorDepthField(rd, resolution, lodCount);
+
+			_seaFloorDepthPass =
+				new SeaFloorDepthComposePass(
+					rd,
+					LodGpuBuffer.Buffer,
+					SeaFloorDepthField.Height,
+					resolution,
 					lodCount);
 
 
@@ -326,6 +349,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					fftDisplacement,
 					LodGpuBuffer.Buffer,
 					DirectField.Displacement,
+					SeaFloorDepthField.Height,
 					Field.Resolution,
 					Field.LodCount,
 					fftCascadeCount,
@@ -341,6 +365,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 					LodGpuBuffer.Buffer,
 					DirectField.Displacement,
 					Field.Displacement,
+					SeaFloorDepthField.Height,
 					Field.Resolution,
 					Field.LodCount,
 					fftCascadeCount,
@@ -440,9 +465,29 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		float lodScaleAlpha,
 		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs)
 	{
+		ComposeFft(
+			focusXZ,
+			worldScale,
+			lodScaleAlpha,
+			inputs,
+			ReadOnlySpan<SeaFloorDepthInputSnapshot>.Empty,
+			0.95f,
+			1000.0f);
+	}
+
+	public void ComposeFft(
+		Vector2 focusXZ,
+		float worldScale,
+		float lodScaleAlpha,
+		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs,
+		ReadOnlySpan<SeaFloorDepthInputSnapshot> seaFloorDepthInputs,
+		float shallowWaterAttenuation,
+		float shallowWaterMaximumDepth)
+	{
 		if (_fftDirectPass == null ||
 			_combinePass == null ||
 			_inputPass == null ||
+			_seaFloorDepthPass == null ||
 			LodLayout == null ||
 			LodGpuBuffer == null ||
 			DirectField == null ||
@@ -489,12 +534,16 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// Upload the coherent, priority-sorted input snapshot once.
-		// With zero inputs this performs no GPU buffer update.
+		// Upload the coherent input snapshots once. Depth uses the same LOD
+		// metadata and is composed before every FFT-derived source.
 		//
 
 		_inputPass.Upload(
 			inputs);
+
+		_seaFloorDepthPass.Upload(seaFloorDepthInputs);
+		_seaFloorDepthPass.Dispatch();
+		bool hasSeaFloorDepth = !seaFloorDepthInputs.IsEmpty;
 
 
 		//
@@ -504,7 +553,10 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//
 
 		_fftDirectPass.Dispatch(
-			lodScaleAlpha);
+			lodScaleAlpha,
+			hasSeaFloorDepth,
+			shallowWaterAttenuation,
+			shallowWaterMaximumDepth);
 
 
 		//
@@ -514,7 +566,10 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//
 
 		_inputPass.DispatchPreCombine(
-			lodScaleAlpha);
+			lodScaleAlpha,
+			hasSeaFloorDepth,
+			shallowWaterAttenuation,
+			shallowWaterMaximumDepth);
 
 
 		//
@@ -574,6 +629,9 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		_inputPass =
 			null;
 
+		_seaFloorDepthPass?.Dispose();
+		_seaFloorDepthPass = null;
+
 
 		_combinePass?.Dispose();
 
@@ -603,6 +661,9 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 		DirectField =
 			null;
+
+		SeaFloorDepthField?.Dispose();
+		SeaFloorDepthField = null;
 
 
 		LodGpuBuffer?.Dispose();

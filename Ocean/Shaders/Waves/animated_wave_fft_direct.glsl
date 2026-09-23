@@ -93,6 +93,9 @@ layout(
 )
 uniform writeonly image2DArray u_direct_wave_field;
 
+layout(r16f, set = 0, binding = 3)
+uniform readonly image2DArray u_sea_floor_depth;
+
 
 // -----------------------------------------------------------------------------
 // Push constants.
@@ -127,11 +130,11 @@ uniform PushConstants
 
 	float lod_scale_alpha;
 
-	float padding_0;
+	uint has_sea_floor_depth;
 
-	float padding_1;
+	float shallow_water_attenuation;
 
-	float padding_2;
+	float shallow_water_maximum_depth;
 }
 pc;
 
@@ -191,6 +194,25 @@ float effective_input_wavelength(
 		fft_min_wavelength(
 			cascade_index) /
 		pc.wave_resolution_multiplier;
+}
+
+
+float shallow_attenuation_weight(float terrain_y, uint cascade_index)
+{
+	// Direct port of Crest 4 AnimWavesSpectrum.shader shallow attenuation
+	// at db0658ff0b2e93e4a9e28cc2867509658b0ecc00 (MIT).
+	float average_wavelength = fft_min_wavelength(cascade_index) * 1.5;
+	float depth = 0.0 - terrain_y;
+	float depth_weight = clamp(2.0 * depth / average_wavelength, 0.0, 1.0);
+	if (pc.shallow_water_maximum_depth < 1000.0)
+	{
+		depth_weight = mix(
+			depth_weight,
+			1.0,
+			clamp(depth / pc.shallow_water_maximum_depth, 0.0, 1.0));
+	}
+	float amount = clamp(pc.shallow_water_attenuation, 0.0, 1.0);
+	return amount * depth_weight + (1.0 - amount);
 }
 
 
@@ -406,6 +428,12 @@ void main()
 	vec3 displacement =
 		vec3(0.0);
 
+	float terrain_y = 0.0;
+	if (pc.has_sea_floor_depth != 0u)
+	{
+		terrain_y = imageLoad(u_sea_floor_depth, ivec3(id)).r;
+	}
+
 
 	//
 	// Each raw FFT cascade behaves as one Crest WaveBatch input.
@@ -463,6 +491,11 @@ void main()
 						cascade)),
 				0.0
 			).xyz;
+
+		if (pc.has_sea_floor_depth != 0u)
+		{
+			source_displacement *= shallow_attenuation_weight(terrain_y, cascade);
+		}
 
 
 		displacement +=

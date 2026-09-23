@@ -4,6 +4,7 @@ using Godot;
 using OceanFrontier.Water.Waves;
 using OceanFrontier.Water.Waves.FFT;
 using OceanFrontier.Water.Waves.AnimatedWaves;
+using OceanFrontier.Water.Waves.SeaFloorDepth;
 using OceanFrontier.Water.Queries;
 
 namespace OceanFrontier.Water.Runtime;
@@ -51,6 +52,10 @@ public partial class OceanRuntime : Node
 
 	private readonly AnimatedWaveInputSnapshot[] _animatedWaveInputRenderScratch =
 		new AnimatedWaveInputSnapshot[AnimatedWaveInputRegistry.Capacity];
+
+	private readonly SeaFloorDepthInputRegistry _seaFloorDepthInputs = new();
+	private readonly SeaFloorDepthInputSnapshot[] _seaFloorDepthRenderScratch =
+		new SeaFloorDepthInputSnapshot[SeaFloorDepthInputRegistry.Capacity];
 
 	public OceanPointQueryService PointQueries { get; } = new();
 
@@ -188,6 +193,12 @@ public partial class OceanRuntime : Node
 	internal long RuntimeAnimatedWaveInputDispatchCount =>
 		_animatedWaveComposer.InputDispatchCount;
 
+	internal int RuntimeSeaFloorDepthInputCount =>
+		_animatedWaveComposer.ActiveSeaFloorDepthInputCount;
+
+	internal long RuntimeSeaFloorDepthDispatchCount =>
+		_animatedWaveComposer.SeaFloorDepthDispatchCount;
+
 
 	internal void RegisterAnimatedWaveInput(
 		IAnimatedWaveInputSnapshotSource input)
@@ -203,6 +214,12 @@ public partial class OceanRuntime : Node
 		_animatedWaveInputs.Unregister(
 			input);
 	}
+
+	internal void RegisterSeaFloorDepthInput(ISeaFloorDepthInputSnapshotSource input) =>
+		_seaFloorDepthInputs.Register(input);
+
+	internal void UnregisterSeaFloorDepthInput(ISeaFloorDepthInputSnapshotSource input) =>
+		_seaFloorDepthInputs.Unregister(input);
 
 	internal bool LodScaleOverrideEnabled
 	{
@@ -526,6 +543,7 @@ public partial class OceanRuntime : Node
 
 
 		_animatedWaveInputs.CaptureMainThread();
+		_seaFloorDepthInputs.CaptureMainThread();
 
 
 		_surfaceFieldResolution =
@@ -683,6 +701,10 @@ public partial class OceanRuntime : Node
 						_animatedWaveInputs.CopyLatest(
 							_animatedWaveInputRenderScratch);
 
+					int initialDepthInputCount =
+						_seaFloorDepthInputs.CopyLatest(
+							_seaFloorDepthRenderScratch);
+
 
 					composer.ComposeFft(
 						initialFocusXZ,
@@ -690,7 +712,12 @@ public partial class OceanRuntime : Node
 						initialLodScaleAlpha,
 						_animatedWaveInputRenderScratch.AsSpan(
 							0,
-							initialInputCount));
+							initialInputCount),
+						_seaFloorDepthRenderScratch.AsSpan(
+							0,
+							initialDepthInputCount),
+						initialSettings.ShallowWaterAttenuation,
+						initialSettings.ShallowWaterMaximumDepth);
 
 
 					var lod0 =
@@ -835,6 +862,7 @@ public partial class OceanRuntime : Node
 
 
 		_animatedWaveInputs.CaptureMainThread();
+		_seaFloorDepthInputs.CaptureMainThread();
 
 
 		//
@@ -974,6 +1002,10 @@ public partial class OceanRuntime : Node
 			_animatedWaveInputs.CopyLatest(
 				_animatedWaveInputRenderScratch);
 
+		int seaFloorDepthInputCount =
+			_seaFloorDepthInputs.CopyLatest(
+				_seaFloorDepthRenderScratch);
+
 
 		_animatedWaveComposer.ComposeFft(
 			focusXZ,
@@ -981,7 +1013,12 @@ public partial class OceanRuntime : Node
 			lodScaleAlpha,
 			_animatedWaveInputRenderScratch.AsSpan(
 				0,
-				animatedWaveInputCount));
+				animatedWaveInputCount),
+			_seaFloorDepthRenderScratch.AsSpan(
+				0,
+				seaFloorDepthInputCount),
+			settings.ShallowWaterAttenuation,
+			settings.ShallowWaterMaximumDepth);
 
 
 		//

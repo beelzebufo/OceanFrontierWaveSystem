@@ -14,6 +14,8 @@ internal sealed class RuntimeWaveSettings
 	internal float Gravity;
 	internal float LoopPeriod;
 	internal float Chop;
+	internal float ShallowWaterAttenuation;
+	internal float ShallowWaterMaximumDepth;
 	internal float Multiplier;
 	internal float SmallestWavelengthPowerOfTwo;
 	internal float[] PowerLog10;
@@ -28,6 +30,8 @@ internal sealed class RuntimeWaveSettings
 		Gravity = sea.Gravity,
 		LoopPeriod = sea.LoopPeriodSeconds,
 		Chop = sea.Chop,
+		ShallowWaterAttenuation = Mathf.Clamp(sea.ShallowWaterAttenuation, 0.0f, 1.0f),
+		ShallowWaterMaximumDepth = Mathf.Clamp(sea.ShallowWaterMaximumDepth, 1.0f, 1000.0f),
 		Multiplier = spectrum.Multiplier,
 		SmallestWavelengthPowerOfTwo = spectrum.SmallestWavelengthPowerOfTwo,
 		PowerLog10 = (float[])spectrum.PowerLog10.Clone(),

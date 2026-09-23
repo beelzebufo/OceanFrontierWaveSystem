@@ -20,6 +20,12 @@ public partial class SeaState : Resource
 	[Export(PropertyHint.Range, "0.0,4.0,0.01,or_greater")]
 	public float Chop { get; set; } = 1.6f;
 
+	[Export(PropertyHint.Range, "0.0,1.0,0.01")]
+	public float ShallowWaterAttenuation { get; set; } = 0.95f;
+
+	[Export(PropertyHint.Range, "1.0,1000.0,1.0")]
+	public float ShallowWaterMaximumDepth { get; set; } = 1000.0f;
+
 	/// <summary>
 	/// 0 = no forced temporal looping.
 	/// Used by spectral dispersion quantization.

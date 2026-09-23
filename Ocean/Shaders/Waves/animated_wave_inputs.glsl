@@ -74,6 +74,9 @@ uniform image2DArray u_target;
 layout(set = 0, binding = 3)
 uniform sampler2DArray u_fft_displacement;
 
+layout(r16f, set = 0, binding = 4)
+uniform readonly image2DArray u_sea_floor_depth;
+
 
 layout(push_constant, std430)
 uniform PushConstants
@@ -85,7 +88,11 @@ uniform PushConstants
 	float lod_scale_alpha;
 	uint fft_cascade_count;
 	float wave_resolution_multiplier;
-	float padding_2;
+	uint has_sea_floor_depth;
+	float shallow_water_attenuation;
+	float shallow_water_maximum_depth;
+	float padding_0;
+	float padding_1;
 }
 pc;
 
@@ -196,6 +203,27 @@ float effective_fft_wavelength(uint cascade_index)
 }
 
 
+float shallow_attenuation_weight(float terrain_y, uint cascade_index)
+{
+	// Direct port of Crest 4 AnimWavesSpectrum.shader shallow attenuation
+	// at db0658ff0b2e93e4a9e28cc2867509658b0ecc00 (MIT). It uses the raw FFT
+	// band's average wavelength. LOD assignment alone uses the multiplier.
+	float minimum_wavelength = fft_world_size(cascade_index) / 8.0;
+	float average_wavelength = minimum_wavelength * 1.5;
+	float depth = 0.0 - terrain_y;
+	float depth_weight = clamp(2.0 * depth / average_wavelength, 0.0, 1.0);
+	if (pc.shallow_water_maximum_depth < 1000.0)
+	{
+		depth_weight = mix(
+			depth_weight,
+			1.0,
+			clamp(depth / pc.shallow_water_maximum_depth, 0.0, 1.0));
+	}
+	float amount = clamp(pc.shallow_water_attenuation, 0.0, 1.0);
+	return amount * depth_weight + (1.0 - amount);
+}
+
+
 // Direct mathematical port of Crest 4 AnimWavesSpectrum.shader. Positive
 // relative angles rotate +X toward +Z. Sampling uses R(-angle) world XZ and
 // horizontal displacement uses R(+angle), matching SeaState's (cos, sin).
@@ -268,6 +296,11 @@ void main()
 	ivec3 coordinate = ivec3(id);
 	vec4 target = imageLoad(u_target, coordinate);
 	vec3 result = target.xyz;
+	float terrain_y = 0.0;
+	if (pc.has_sea_floor_depth != 0u)
+	{
+		terrain_y = imageLoad(u_sea_floor_depth, coordinate).r;
+	}
 
 	for (uint input_index = 0u;
 		 input_index < pc.input_count;
@@ -351,12 +384,15 @@ void main()
 					continue;
 				}
 
-				directional_source +=
-					cascade_transition_weight *
-					sample_directional_fft(
+				vec3 cascade_source = sample_directional_fft(
 						world_xz,
 						cascade_index,
 						direction_radians);
+				if (pc.has_sea_floor_depth != 0u)
+				{
+					cascade_source *= shallow_attenuation_weight(terrain_y, cascade_index);
+				}
+				directional_source += cascade_transition_weight * cascade_source;
 			}
 
 			if (!has_eligible_cascade)

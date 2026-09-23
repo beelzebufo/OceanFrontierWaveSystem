@@ -37,6 +37,8 @@ internal sealed class OceanDiagnosticOceanPanel
 	private SpinBox _windTurbulence;
 
 	private SpinBox _multiplier;
+	private SpinBox _shallowAttenuation;
+	private SpinBox _shallowMaximumDepth;
 
 	private SpinBox _lodControl;
 
@@ -211,6 +213,43 @@ internal sealed class OceanDiagnosticOceanPanel
 				0.0,
 				10.0,
 				0.05);
+
+		_shallowAttenuation =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Shallow attenuation",
+				0.95,
+				0.0,
+				1.0,
+				0.01);
+
+		_shallowMaximumDepth =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Shallow maximum depth",
+				1000.0,
+				1.0,
+				1000.0,
+				1.0,
+				" m");
+
+		void UpdateShallowSettings()
+		{
+			if (_syncing) return;
+			RuntimeWaveSettings settings = _runtime.GetWaveSettingsSnapshot();
+			if (settings == null) return;
+			settings.ShallowWaterAttenuation = (float)_shallowAttenuation.Value;
+			settings.ShallowWaterMaximumDepth = (float)_shallowMaximumDepth.Value;
+			if (_draft != null)
+			{
+				_draft.ShallowWaterAttenuation = settings.ShallowWaterAttenuation;
+				_draft.ShallowWaterMaximumDepth = settings.ShallowWaterMaximumDepth;
+			}
+			_runtime.RequestWaveSettings(settings);
+		}
+
+		_shallowAttenuation.ValueChanged += _ => UpdateShallowSettings();
+		_shallowMaximumDepth.ValueChanged += _ => UpdateShallowSettings();
 
 
 		_windSpeed.ValueChanged +=
@@ -680,6 +719,12 @@ internal sealed class OceanDiagnosticOceanPanel
 
 		_multiplier.Value =
 			settings.Multiplier;
+
+		_shallowAttenuation.Value =
+			settings.ShallowWaterAttenuation;
+
+		_shallowMaximumDepth.Value =
+			settings.ShallowWaterMaximumDepth;
 
 
 		SyncBandControls(

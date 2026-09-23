@@ -17,7 +17,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 	private const int LocalSizeX = 8;
 	private const int LocalSizeY = 8;
-	private const int PushConstantBytes = 32;
+	private const int PushConstantBytes = 48;
 
 
 	private readonly RenderingDevice _rd;
@@ -53,6 +53,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		Rid lodBuffer,
 		Rid directField,
 		Rid finalField,
+		Rid seaFloorDepthField,
 		int resolution,
 		int lodCount,
 		int fftCascadeCount,
@@ -66,7 +67,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		if (!fftDisplacement.IsValid ||
 			!lodBuffer.IsValid ||
 			!directField.IsValid ||
-			!finalField.IsValid)
+			!finalField.IsValid ||
+			!seaFloorDepthField.IsValid)
 		{
 			throw new ArgumentException(
 				"Animated Wave input pass received an invalid GPU resource.");
@@ -106,7 +108,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				fftDisplacement,
 				lodBuffer,
 				directField,
-				finalField);
+				finalField,
+				seaFloorDepthField);
 		}
 		catch
 		{
@@ -121,7 +124,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		Rid fftDisplacement,
 		Rid lodBuffer,
 		Rid directField,
-		Rid finalField)
+		Rid finalField,
+		Rid seaFloorDepthField)
 	{
 		RDShaderFile shaderFile =
 			GD.Load<RDShaderFile>(
@@ -210,14 +214,16 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			CreateUniformSet(
 				fftDisplacement,
 				lodBuffer,
-				directField);
+				directField,
+				seaFloorDepthField);
 
 
 		_finalUniformSet =
 			CreateUniformSet(
 				fftDisplacement,
 				lodBuffer,
-				finalField);
+				finalField,
+				seaFloorDepthField);
 
 
 		if (!_directUniformSet.IsValid ||
@@ -238,7 +244,8 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	private Rid CreateUniformSet(
 		Rid fftDisplacement,
 		Rid lodBuffer,
-		Rid target)
+		Rid target,
+		Rid seaFloorDepthField)
 	{
 		var lodUniform =
 			new RDUniform
@@ -293,6 +300,13 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		fftUniform.AddId(_fftSampler);
 		fftUniform.AddId(fftDisplacement);
 
+		var depthUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.Image,
+			Binding = 4,
+		};
+		depthUniform.AddId(seaFloorDepthField);
+
 
 		return _rd.UniformSetCreate(
 			new Godot.Collections.Array<RDUniform>
@@ -301,6 +315,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				descriptorUniform,
 				targetUniform,
 				fftUniform,
+				depthUniform,
 			},
 			_shader,
 			0);
@@ -395,14 +410,20 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 
 	public void DispatchPreCombine(
-		float lodScaleAlpha)
+		float lodScaleAlpha,
+		bool hasSeaFloorDepth,
+		float shallowWaterAttenuation,
+		float shallowWaterMaximumDepth)
 	{
 		if (HasPreCombineInputs)
 		{
 			Dispatch(
 				_directUniformSet,
 				0,
-				lodScaleAlpha);
+				lodScaleAlpha,
+				hasSeaFloorDepth,
+				shallowWaterAttenuation,
+				shallowWaterMaximumDepth);
 		}
 	}
 
@@ -414,7 +435,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			Dispatch(
 				_finalUniformSet,
 				1,
-				1.0f);
+				1.0f,
+				false,
+				0.0f,
+				1000.0f);
 		}
 	}
 
@@ -422,7 +446,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	private void Dispatch(
 		Rid uniformSet,
 		uint phase,
-		float lodScaleAlpha)
+		float lodScaleAlpha,
+		bool hasSeaFloorDepth,
+		float shallowWaterAttenuation,
+		float shallowWaterMaximumDepth)
 	{
 		WriteUInt(
 			_pushBytes,
@@ -461,6 +488,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			_pushBytes,
 			24,
 			_waveResolutionMultiplier);
+
+		WriteUInt(_pushBytes, 28, hasSeaFloorDepth ? 1u : 0u);
+		WriteFloat(_pushBytes, 32, Mathf.Clamp(shallowWaterAttenuation, 0.0f, 1.0f));
+		WriteFloat(_pushBytes, 36, Mathf.Clamp(shallowWaterMaximumDepth, 1.0f, 1000.0f));
 
 
 		long computeList =
