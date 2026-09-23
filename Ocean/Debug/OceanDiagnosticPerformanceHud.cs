@@ -19,9 +19,10 @@ internal sealed class OceanDiagnosticPerformanceHud
 
 	private Label _label;
 
-	private double _sampleSeconds;
+	private ulong _nextSampleTimeUsec;
 
-	private int _sampleFrames;
+	private const ulong SampleIntervalUsec =
+		250_000;
 
 
 	internal void Initialize(
@@ -55,7 +56,7 @@ internal sealed class OceanDiagnosticPerformanceHud
 					8.0f,
 
 				OffsetTop =
-					-132.0f,
+					-166.0f,
 
 				OffsetRight =
 					275.0f,
@@ -72,11 +73,13 @@ internal sealed class OceanDiagnosticPerformanceHud
 			new Label
 			{
 				Text =
-					"FPS: --\n" +
-					"Frame: -- ms\n" +
+					"Render FPS: --\n" +
+					"Render frame: -- ms\n" +
+					"Physics TPS: --\n" +
+					"Time scale: --\n" +
 					"Queries: --\n" +
 					"Readback: --\n" +
-					"Physics: --",
+					"Physics model: --",
 
 				MouseFilter =
 					Control.MouseFilterEnum.Ignore,
@@ -93,7 +96,7 @@ internal sealed class OceanDiagnosticPerformanceHud
 
 
 	internal void Tick(
-		double delta)
+		double _)
 	{
 		if (_runtime == null ||
 			_label == null)
@@ -102,18 +105,20 @@ internal sealed class OceanDiagnosticPerformanceHud
 		}
 
 
-		_sampleSeconds +=
-			delta;
+		ulong currentTimeUsec =
+			Time.GetTicksUsec();
 
 
-		_sampleFrames++;
-
-
-		if (_sampleSeconds <
-			0.25)
+		if (currentTimeUsec <
+			_nextSampleTimeUsec)
 		{
 			return;
 		}
+
+
+		_nextSampleTimeUsec =
+			currentTimeUsec +
+			SampleIntervalUsec;
 
 
 		_runtime.PointQueries.GetDiagnostics(
@@ -123,30 +128,23 @@ internal sealed class OceanDiagnosticPerformanceHud
 
 
 		double fps =
-			_sampleFrames /
-			_sampleSeconds;
+			Engine.GetFramesPerSecond();
 
 
 		double frameMs =
-			_sampleSeconds *
-			1000.0 /
-			_sampleFrames;
+			fps > 0.0
+				? 1000.0 / fps
+				: 0.0;
 
 
 		_label.Text =
-			$"FPS: {fps:0.0}\n" +
-			$"Frame: {frameMs:0.00} ms\n" +
+			$"Render FPS: {fps:0.0}\n" +
+			$"Render frame: {frameMs:0.00} ms\n" +
+			$"Physics TPS: {Engine.PhysicsTicksPerSecond}\n" +
+			$"Time scale: {Engine.TimeScale:0.##}x\n" +
 			$"Queries: {queries}\n" +
 			$"Readback: {(hasResult ? readbackFrames.ToString() : "--")} frames\n" +
-			$"Physics: {GetPhysicsStatus()}";
-
-
-		_sampleSeconds =
-			0.0;
-
-
-		_sampleFrames =
-			0;
+			$"Physics model: {GetPhysicsStatus()}";
 	}
 
 
