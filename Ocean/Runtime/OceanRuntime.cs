@@ -630,6 +630,13 @@ public partial class OceanRuntime : Node
 						$"{animatedWaveLodCount} LOD slices.");
 
 
+					GD.Print(
+						$"[Ocean] AnimatedWaveDerivativeField matches canonical field: " +
+						$"{composer.DerivativeField.Resolution}x" +
+						$"{composer.DerivativeField.Resolution}, " +
+						$"{composer.DerivativeField.LodCount} LOD slices, RGBA16F.");
+
+
 					//
 					// FFT becomes an input of AnimatedWaveComposer.
 					//
@@ -1398,5 +1405,32 @@ public partial class OceanRuntime : Node
 		return
 			texture.IsValid &&
 			lodCount > 0;
+	}
+
+
+	internal bool TryGetAnimatedWaveDerivativeDebugTexture(
+		out Rid texture,
+		out int lodCount)
+	{
+		texture = default;
+		lodCount = 0;
+
+		if (!_gpuReady)
+		{
+			return false;
+		}
+
+		AnimatedWaveDerivativeField field =
+			_animatedWaveComposer.DerivativeField;
+
+		if (field == null)
+		{
+			return false;
+		}
+
+		texture = field.NormalJacobian;
+		lodCount = field.LodCount;
+
+		return texture.IsValid && lodCount > 0;
 	}
 }

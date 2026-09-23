@@ -10,6 +10,7 @@ namespace OceanFrontier.Water.Debug;
 /// Can display:
 /// - raw FFT spectral displacement slices;
 /// - canonical AnimatedWaveField spatial LOD slices.
+/// - derived normal/Jacobian spatial LOD slices.
 ///
 /// Debug only.
 /// Must never become the production ocean rendering path.
@@ -24,6 +25,7 @@ public partial class FftDisplacementDebugView : CanvasLayer
 	{
 		RawFft = 0,
 		AnimatedWaveField = 1,
+		AnimatedWaveDerivativeField = 2,
 	}
 
 
@@ -41,6 +43,8 @@ public partial class FftDisplacementDebugView : CanvasLayer
 		Sign = 1,
 		Magnitude = 2,
 		UvTest = 3,
+		Normal = 4,
+		Jacobian = 5,
 	}
 
 
@@ -309,6 +313,13 @@ public partial class FftDisplacementDebugView : CanvasLayer
 						out sliceCount);
 
 
+			case DebugSource.AnimatedWaveDerivativeField:
+				return
+					_runtime.TryGetAnimatedWaveDerivativeDebugTexture(
+						out textureRid,
+						out sliceCount);
+
+
 			default:
 				return false;
 		}
@@ -325,6 +336,9 @@ public partial class FftDisplacementDebugView : CanvasLayer
 
 				DebugSource.AnimatedWaveField =>
 					"AnimatedWaveField",
+
+				DebugSource.AnimatedWaveDerivativeField =>
+					"AnimatedWaveDerivativeField",
 
 				_ =>
 					"Unknown displacement source",

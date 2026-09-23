@@ -28,6 +28,8 @@ namespace OceanFrontier.Water.Waves.AnimatedWaves;
 ///         -> AnimatedWaveCombinePass
 ///         -> AnimatedWaveField
 ///         -> optional post-combine input pass
+///         -> AnimatedWaveDerivativePass
+///         -> AnimatedWaveDerivativeField
 ///
 /// Spatial-state contract:
 ///
@@ -48,6 +50,12 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	/// Canonical cumulative final Animated Waves field.
 	/// </summary>
 	public AnimatedWaveField Field { get; private set; }
+
+	/// <summary>
+	/// Derived normal/Jacobian GPU cache. Field remains the sole
+	/// authoritative displacement source.
+	/// </summary>
+	public AnimatedWaveDerivativeField DerivativeField { get; private set; }
 
 
 	/// <summary>
@@ -113,6 +121,7 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	//
 
 	private AnimatedWaveCombinePass _combinePass;
+	private AnimatedWaveDerivativePass _derivativePass;
 
 
 	//
@@ -129,6 +138,9 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	internal long InputDispatchCount =>
 		_inputPass?.DispatchCount ?? 0;
 
+	internal long DerivativeDispatchCount =>
+		_derivativePass?.DispatchCount ?? 0;
+
 	internal int ActiveSeaFloorDepthInputCount =>
 		_seaFloorDepthPass?.ActiveInputCount ?? 0;
 
@@ -138,11 +150,13 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 	public bool IsInitialized =>
 		Field != null &&
+		DerivativeField != null &&
 		DirectField != null &&
 		LodLayout != null &&
 		LodGpuBuffer != null &&
 		RenderState != null &&
 		SeaFloorDepthField != null &&
+		_derivativePass != null &&
 		_seaFloorDepthPass != null &&
 		_inputPass != null;
 
@@ -216,6 +230,21 @@ internal sealed class AnimatedWaveComposer : IDisposable
 				new AnimatedWaveLodGpuBuffer(
 					rd,
 					LodLayout);
+
+			DerivativeField =
+				new AnimatedWaveDerivativeField(
+					rd,
+					resolution,
+					lodCount);
+
+			_derivativePass =
+				new AnimatedWaveDerivativePass(
+					rd,
+					Field.Displacement,
+					LodGpuBuffer.Buffer,
+					DerivativeField.NormalJacobian,
+					resolution,
+					lodCount);
 
 
 			//
@@ -300,6 +329,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		if (Field == null ||
+			DerivativeField == null ||
+			_derivativePass == null ||
 			DirectField == null ||
 			LodLayout == null ||
 			LodGpuBuffer == null ||
@@ -435,7 +466,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	///     2. Upload CascadeParams-equivalent metadata once.
 	///     3. Raw FFT -> direct per-LOD contributions.
 	///     4. Coarse-to-fine ShapeCombine.
-	///     5. Publish the exact same spatial state as committed
+	///     5. Derive normals/Jacobian from the final field.
+	///     6. Publish the exact same spatial state as committed
 	///        AnimatedWaveRenderState.
 	///
 	/// The committed CPU state is never independently recalculated.
@@ -486,12 +518,14 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	{
 		if (_fftDirectPass == null ||
 			_combinePass == null ||
+			_derivativePass == null ||
 			_inputPass == null ||
 			_seaFloorDepthPass == null ||
 			LodLayout == null ||
 			LodGpuBuffer == null ||
 			DirectField == null ||
 			Field == null ||
+			DerivativeField == null ||
 			RenderState == null)
 		{
 			return;
@@ -594,7 +628,15 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
-		// 5. Commit the spatial state belonging to this AWF generation.
+		// 4c. Derive normal.xyz and raw Jacobian from the completely
+		//     composed canonical field, including post-combine modifiers.
+		//
+
+		_derivativePass.Dispatch();
+
+
+		//
+		// 6. Commit the spatial state belonging to this AWF generation.
 		//
 		// IMPORTANT:
 		//
@@ -627,6 +669,11 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		_inputPass?.Dispose();
 
 		_inputPass =
+			null;
+
+		_derivativePass?.Dispose();
+
+		_derivativePass =
 			null;
 
 		_seaFloorDepthPass?.Dispose();
@@ -669,6 +716,12 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		LodGpuBuffer?.Dispose();
 
 		LodGpuBuffer =
+			null;
+
+
+		DerivativeField?.Dispose();
+
+		DerivativeField =
 			null;
 
 

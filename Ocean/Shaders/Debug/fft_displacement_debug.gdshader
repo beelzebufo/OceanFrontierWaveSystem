@@ -30,6 +30,8 @@ uniform int channel = 1;
 // 1 = sign diagnostic
 // 2 = logarithmic magnitude
 // 3 = UV/material diagnostic
+// 4 = derivative normal RGB
+// 5 = derivative raw Jacobian classification
 uniform int debug_mode = 3;
 
 
@@ -91,11 +93,100 @@ void fragment()
 
 
         // -------------------------------------------------------------
+        // Modes 4/5 read AnimatedWaveDerivativeField directly.
+        // This shader never recomputes derivatives.
+        // -------------------------------------------------------------
+
+        if (debug_mode == 4)
+        {
+            vec3 normal = displacement.xyz;
+
+            if (any(isnan(normal)) || any(isinf(normal)))
+            {
+                result_color = vec4(
+                    1.0,
+                    0.0,
+                    1.0,
+                    1.0
+                );
+            }
+            else
+            {
+                result_color = vec4(
+                    normal * 0.5 + 0.5,
+                    1.0
+                );
+            }
+        }
+        else if (debug_mode == 5)
+        {
+            float determinant = displacement.a;
+
+            if (isnan(determinant) || isinf(determinant))
+            {
+                result_color = vec4(
+                    1.0,
+                    0.0,
+                    1.0,
+                    1.0
+                );
+            }
+            else if (determinant < 0.0)
+            {
+                // Magenta = overlap/inversion.
+                float severity =
+                    clamp(
+                        -determinant,
+                        0.0,
+                        1.0
+                    );
+
+                result_color = vec4(
+                    1.0,
+                    0.0,
+                    0.5 + 0.5 * severity,
+                    1.0
+                );
+            }
+            else if (determinant < 1.0)
+            {
+                // Yellow -> red = increasing compression.
+                float compression =
+                    1.0 - determinant;
+
+                result_color = vec4(
+                    1.0,
+                    1.0 - compression,
+                    0.0,
+                    1.0
+                );
+            }
+            else
+            {
+                // Green -> cyan = stretch above neutral detJ=1.
+                float stretch =
+                    clamp(
+                        determinant - 1.0,
+                        0.0,
+                        1.0
+                    );
+
+                result_color = vec4(
+                    0.0,
+                    1.0,
+                    stretch,
+                    1.0
+                );
+            }
+        }
+
+
+        // -------------------------------------------------------------
         // Invalid floating-point data.
         // Magenta = NaN / Infinity.
         // -------------------------------------------------------------
 
-        if (isnan(value) || isinf(value))
+        else if (isnan(value) || isinf(value))
         {
             result_color = vec4(
                 1.0,

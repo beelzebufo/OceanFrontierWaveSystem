@@ -128,7 +128,8 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 				parent,
 				"Source",
 				"Raw FFT",
-				"AnimatedWaveField");
+				"AnimatedWaveField",
+				"AnimatedWaveDerivativeField");
 
 
 		_debugSlice =
@@ -156,7 +157,9 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 				"Display mode",
 				"Grayscale",
 				"Sign",
-				"Magnitude");
+				"Magnitude",
+				"Normal RGB",
+				"Jacobian");
 
 
 		_debugGain =
@@ -184,9 +187,7 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 
 
 			_debugMode.Selected =
-				Math.Min(
-					(int)_inset.Mode,
-					2);
+				(int)_inset.Mode;
 
 
 			_debugGain.Value =
