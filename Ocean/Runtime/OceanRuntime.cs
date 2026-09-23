@@ -47,6 +47,11 @@ public partial class OceanRuntime : Node
 
 	private readonly AnimatedWaveComposer _animatedWaveComposer = new();
 
+	private readonly AnimatedWaveInputRegistry _animatedWaveInputs = new();
+
+	private readonly AnimatedWaveInputSnapshot[] _animatedWaveInputRenderScratch =
+		new AnimatedWaveInputSnapshot[AnimatedWaveInputRegistry.Capacity];
+
 	public OceanPointQueryService PointQueries { get; } = new();
 
 
@@ -176,6 +181,28 @@ public partial class OceanRuntime : Node
 
 	internal float RuntimeLodScaleAlpha =>
 		_pendingLodScaleAlpha;
+
+	internal int RuntimeAnimatedWaveInputCount =>
+		_animatedWaveComposer.ActiveInputCount;
+
+	internal long RuntimeAnimatedWaveInputDispatchCount =>
+		_animatedWaveComposer.InputDispatchCount;
+
+
+	internal void RegisterAnimatedWaveInput(
+		IAnimatedWaveInputSnapshotSource input)
+	{
+		_animatedWaveInputs.Register(
+			input);
+	}
+
+
+	internal void UnregisterAnimatedWaveInput(
+		IAnimatedWaveInputSnapshotSource input)
+	{
+		_animatedWaveInputs.Unregister(
+			input);
+	}
 
 	internal bool LodScaleOverrideEnabled
 	{
@@ -498,6 +525,9 @@ public partial class OceanRuntime : Node
 			initialLodScaleAlpha;
 
 
+		_animatedWaveInputs.CaptureMainThread();
+
+
 		_surfaceFieldResolution =
 			animatedWaveResolution;
 
@@ -649,10 +679,18 @@ public partial class OceanRuntime : Node
 					// the same initial spatial LOD state.
 					//
 
+					int initialInputCount =
+						_animatedWaveInputs.CopyLatest(
+							_animatedWaveInputRenderScratch);
+
+
 					composer.ComposeFft(
 						initialFocusXZ,
 						initialLodScale,
-						initialLodScaleAlpha);
+						initialLodScaleAlpha,
+						_animatedWaveInputRenderScratch.AsSpan(
+							0,
+							initialInputCount));
 
 
 					var lod0 =
@@ -796,6 +834,9 @@ public partial class OceanRuntime : Node
 			_requestedWaveSettings);
 
 
+		_animatedWaveInputs.CaptureMainThread();
+
+
 		//
 		// Queue the persistent callable.
 		//
@@ -929,10 +970,18 @@ public partial class OceanRuntime : Node
 		// transition during whole-stack scale changes.
 		//
 
+		int animatedWaveInputCount =
+			_animatedWaveInputs.CopyLatest(
+				_animatedWaveInputRenderScratch);
+
+
 		_animatedWaveComposer.ComposeFft(
 			focusXZ,
 			lodScale,
-			lodScaleAlpha);
+			lodScaleAlpha,
+			_animatedWaveInputRenderScratch.AsSpan(
+				0,
+				animatedWaveInputCount));
 
 
 		//

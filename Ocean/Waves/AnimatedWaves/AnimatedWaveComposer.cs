@@ -13,17 +13,20 @@ namespace OceanFrontier.Water.Waves.AnimatedWaves;
 ///         -> coarse-to-fine ShapeCombine
 ///         -> final Animated Waves texture array
 ///
-/// Current Stage A input:
+/// Current inputs:
 ///
 ///     FFT source
+///     ordered rectangular constant-displacement inputs
 ///
 /// Pipeline:
 ///
 ///     Raw FFT displacement
 ///         -> AnimatedWaveFftDirectPass
 ///         -> AnimatedWaveDirectField
+///         -> optional pre-combine input pass
 ///         -> AnimatedWaveCombinePass
 ///         -> AnimatedWaveField
+///         -> optional post-combine input pass
 ///
 /// Spatial-state contract:
 ///
@@ -109,12 +112,27 @@ internal sealed class AnimatedWaveComposer : IDisposable
 	private AnimatedWaveCombinePass _combinePass;
 
 
+	//
+	// Ordered generic Animated Waves inputs.
+	//
+
+	private AnimatedWaveInputPass _inputPass;
+
+
+	internal int ActiveInputCount =>
+		_inputPass?.ActiveInputCount ?? 0;
+
+	internal long InputDispatchCount =>
+		_inputPass?.DispatchCount ?? 0;
+
+
 	public bool IsInitialized =>
 		Field != null &&
 		DirectField != null &&
 		LodLayout != null &&
 		LodGpuBuffer != null &&
-		RenderState != null;
+		RenderState != null &&
+		_inputPass != null;
 
 
 	public void Initialize(
@@ -197,6 +215,16 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 			RenderState =
 				new AnimatedWaveRenderState(
+					lodCount);
+
+
+			_inputPass =
+				new AnimatedWaveInputPass(
+					rd,
+					LodGpuBuffer.Buffer,
+					DirectField.Displacement,
+					Field.Displacement,
+					resolution,
 					lodCount);
 		}
 		catch
@@ -350,7 +378,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		ComposeFft(
 			focusXZ,
 			worldScale,
-			0.0f);
+			0.0f,
+			ReadOnlySpan<AnimatedWaveInputSnapshot>.Empty);
 	}
 
 
@@ -374,8 +403,29 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		float worldScale,
 		float lodScaleAlpha)
 	{
+		ComposeFft(
+			focusXZ,
+			worldScale,
+			lodScaleAlpha,
+			ReadOnlySpan<AnimatedWaveInputSnapshot>.Empty);
+	}
+
+
+	/// <summary>
+	/// Composes FFT and ordered generic Animated Waves inputs.
+	///
+	/// Exact phase order follows Crest 4 LodDataMgrAnimWaves:
+	/// wavelength/all-LOD pre inputs -> ShapeCombine -> all-LOD post inputs.
+	/// </summary>
+	public void ComposeFft(
+		Vector2 focusXZ,
+		float worldScale,
+		float lodScaleAlpha,
+		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs)
+	{
 		if (_fftDirectPass == null ||
 			_combinePass == null ||
+			_inputPass == null ||
 			LodLayout == null ||
 			LodGpuBuffer == null ||
 			DirectField == null ||
@@ -422,12 +472,31 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 
 		//
+		// Upload the coherent, priority-sorted input snapshot once.
+		// With zero inputs this performs no GPU buffer update.
+		//
+
+		_inputPass.Upload(
+			inputs);
+
+
+		//
 		// 3. FFT Animated-Wave input.
 		//
 		// Writes DirectField[L] only.
 		//
 
 		_fftDirectPass.Dispatch(
+			lodScaleAlpha);
+
+
+		//
+		// 3b. Inputs which belong to the direct field.
+		//
+		// This is exactly one dispatch when the phase has any active input.
+		//
+
+		_inputPass.DispatchPreCombine(
 			lodScaleAlpha);
 
 
@@ -443,6 +512,13 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//
 
 		_combinePass.Dispatch();
+
+
+		//
+		// 4b. LOD-independent inputs modify the canonical final field.
+		//
+
+		_inputPass.DispatchPostCombine();
 
 
 		//
@@ -475,6 +551,12 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		//
 		// Release GPU passes first because they borrow resources below.
 		//
+
+		_inputPass?.Dispose();
+
+		_inputPass =
+			null;
+
 
 		_combinePass?.Dispose();
 

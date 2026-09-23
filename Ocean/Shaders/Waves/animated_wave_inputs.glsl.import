@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bxsymq8etc30q"
+path="res://.godot/imported/animated_wave_inputs.glsl-d360438768dcee03e7a5277b3c167ebc.res"
+
+[deps]
+
+source_file="res://Ocean/Shaders/Waves/animated_wave_inputs.glsl"
+dest_files=["res://.godot/imported/animated_wave_inputs.glsl-d360438768dcee03e7a5277b3c167ebc.res"]
+
+[params]
+
