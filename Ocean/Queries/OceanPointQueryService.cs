@@ -157,6 +157,26 @@ public sealed class OceanPointQueryService
 		}
 	}
 
+
+	/// <summary>
+	/// Returns true when this owner has no undispatched batch. Consumers with a
+	/// faster update cadence can use this to avoid rebuilding batches that the
+	/// render-thread dispatcher could only replace before dispatch.
+	/// </summary>
+	public bool CanSubmitBatch(
+		OwnerHandle owner)
+	{
+		lock (_sync)
+		{
+			OwnerState state =
+				GetOwner(owner);
+
+
+			return state.PendingGeneration ==
+				state.DispatchedGeneration;
+		}
+	}
+
 	/// <summary>
 	/// Replaces this owner's undispatched batch and returns its generation.
 	///

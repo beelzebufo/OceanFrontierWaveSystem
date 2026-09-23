@@ -233,6 +233,11 @@ internal sealed class OceanBuoyancyWaterPatch :
 			: double.NaN;
 
 
+	public bool CanSubmit =>
+		_runtime.PointQueries.CanSubmitBatch(
+			_queryOwner);
+
+
 	/// <summary>
 	/// Consumes the newest completed GPU result, if any.
 	///

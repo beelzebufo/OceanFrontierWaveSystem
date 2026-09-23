@@ -727,6 +727,12 @@ public partial class OceanBuoyancy : Node
 
 	private void SubmitCurrentWaterPatch()
 	{
+		if (!_waterPatch.CanSubmit)
+		{
+			return;
+		}
+
+
 		float minGridSize =
 			MinSpatialLength /
 				QueryScaleDivisor;
