@@ -23,7 +23,8 @@ public partial class AnimatedWaveSurfaceRenderer
 			_renderStateSlices == null ||
 			!_runtime.TryCopyAnimatedWaveSurfaceState(
 				_renderStateSlices,
-				out Rid textureRid,
+				out Rid animatedWaveRid,
+				out Rid derivativeRid,
 				out int resolution,
 				out int lodCount,
 				out Vector2 focusXZ,
@@ -45,8 +46,9 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
-		BindAwfTexture(
-			textureRid);
+		BindWaveTextures(
+			animatedWaveRid,
+			derivativeRid);
 
 
 		//
@@ -207,19 +209,33 @@ public partial class AnimatedWaveSurfaceRenderer
 	}
 
 
-	private void BindAwfTexture(
-		Rid textureRid)
+	private void BindWaveTextures(
+		Rid animatedWaveRid,
+		Rid derivativeRid)
 	{
-		if (!_boundRid.IsValid ||
-			_boundRid.Id !=
-			textureRid.Id)
+		if (!_boundAnimatedWaveRid.IsValid ||
+			_boundAnimatedWaveRid.Id !=
+			animatedWaveRid.Id)
 		{
-			_textureArray.TextureRdRid =
-				textureRid;
+			_animatedWaveTexture.TextureRdRid =
+				animatedWaveRid;
 
 
-			_boundRid =
-				textureRid;
+			_boundAnimatedWaveRid =
+				animatedWaveRid;
+		}
+
+
+		if (!_boundDerivativeRid.IsValid ||
+			_boundDerivativeRid.Id !=
+			derivativeRid.Id)
+		{
+			_derivativeTexture.TextureRdRid =
+				derivativeRid;
+
+
+			_boundDerivativeRid =
+				derivativeRid;
 		}
 	}
 

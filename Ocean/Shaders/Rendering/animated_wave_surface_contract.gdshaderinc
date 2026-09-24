@@ -4,6 +4,7 @@
 // Crest is licensed under the MIT License. See THIRD_PARTY_NOTICES_CREST4.txt.
 
 uniform sampler2DArray animated_wave_field : filter_linear, repeat_disable;
+uniform sampler2DArray animated_wave_derivative_field : filter_linear, repeat_disable;
 uniform vec2 lod_center_xz;
 uniform float lod_world_size;
 uniform float current_lod_texel_width;
@@ -14,7 +15,7 @@ uniform float next_lod_world_size;
 uniform float next_lod_texel_width;
 uniform float next_lod;
 uniform bool has_next_lod = false;
-uniform int normal_method = 0;
+uniform int normal_method = 2;
 uniform int wave_content_mode = 0;
 uniform int display_mode = 0;
 uniform float horizontal_display_scale = 1.0;
@@ -36,6 +37,7 @@ uniform float lod_alpha_black_point_white_point_fade = 0.86666667;
 
 const int NORMAL_METHOD_BLENDED_XYZ_FORWARD = 0;
 const int NORMAL_METHOD_CREST_PER_LOD_FORWARD = 1;
+const int NORMAL_METHOD_DERIVATIVE_FIELD = 2;
 
 vec2 world_to_lod_uv(vec2 world_xz, vec2 center_xz, float world_size)
 {
@@ -378,6 +380,132 @@ vec3 safe_surface_normal(
             len2);
 }
 
+
+vec3 safe_normalize_or_up(
+    vec3 value)
+{
+    if (any(isnan(value)) ||
+        any(isinf(value)))
+    {
+        return vec3(
+            0.0,
+            1.0,
+            0.0);
+    }
+
+    float len2 =
+        dot(
+            value,
+            value);
+
+    if (len2 < 1e-12 ||
+        isnan(len2) ||
+        isinf(len2))
+    {
+        return vec3(
+            0.0,
+            1.0,
+            0.0);
+    }
+
+    return value *
+        inversesqrt(
+            len2);
+}
+
+
+vec3 sample_derivative_normal_lod(
+    vec2 world_xz,
+    vec2 center_xz,
+    float world_size,
+    float layer)
+{
+    vec2 uv =
+        world_to_lod_uv(
+            world_xz,
+            center_xz,
+            world_size);
+
+    vec3 normal =
+        textureLod(
+            animated_wave_derivative_field,
+            vec3(
+                uv,
+                layer),
+            0.0).xyz;
+
+    // Linear filtering of normalized texels can reduce vector length.
+    return safe_normalize_or_up(
+        normal);
+}
+
+
+vec3 normal_derivative_field(
+    vec2 world_xz,
+    float center_lod_alpha)
+{
+    float weight_current =
+        1.0 -
+        center_lod_alpha;
+
+    float weight_next =
+        has_next_lod
+            ? center_lod_alpha
+            : 0.0;
+
+    vec2 accumulated_normal_xz =
+        vec2(0.0);
+
+    if (weight_current > 0.001)
+    {
+        vec3 current_normal =
+            sample_derivative_normal_lod(
+                world_xz,
+                lod_center_xz,
+                lod_world_size,
+                selected_lod);
+
+        accumulated_normal_xz +=
+            weight_current *
+            current_normal.xz;
+    }
+
+    if (has_next_lod &&
+        weight_next > 0.001)
+    {
+        vec3 next_normal =
+            sample_derivative_normal_lod(
+                world_xz,
+                next_lod_center_xz,
+                next_lod_world_size,
+                next_lod);
+
+        accumulated_normal_xz +=
+            weight_next *
+            next_normal.xz;
+    }
+
+    return safe_normalize_or_up(
+        vec3(
+            accumulated_normal_xz.x,
+            1.0,
+            accumulated_normal_xz.y));
+}
+
+
+bool can_use_derivative_field_normal()
+{
+    // The derivative field represents only the canonical cumulative flat
+    // surface. Renderer-only diagnostic transforms and planet curvature
+    // must retain geometry-consistent displacement-neighbour normals.
+    return
+        wave_content_mode == 0 &&
+        display_mode == 0 &&
+        abs(horizontal_display_scale - 1.0) < 1e-5 &&
+        abs(vertical_display_scale - 1.0) < 1e-5 &&
+        !planet_curvature_enabled;
+}
+
 vec3 normal_blended_xyz_forward(
     vec2 world_xz,
     float finite_difference_step,
@@ -612,6 +740,26 @@ vec3 compute_surface_normal(
     vec3 center_next_disp,
     float center_lod_alpha)
 {
+    if (normal_method ==
+        NORMAL_METHOD_DERIVATIVE_FIELD)
+    {
+        if (can_use_derivative_field_normal())
+        {
+            return normal_derivative_field(
+                world_xz,
+                center_lod_alpha);
+        }
+
+        // DerivativeField does not encode diagnostic displacement transforms
+        // or renderer-only planet curvature. Preserve the previous default
+        // Crest reconstruction so the normal follows displayed geometry.
+        return normal_crest_per_lod_forward(
+            world_xz,
+            center_current_disp,
+            center_next_disp,
+            center_lod_alpha);
+    }
+
     if (normal_method ==
         NORMAL_METHOD_CREST_PER_LOD_FORWARD)
     {

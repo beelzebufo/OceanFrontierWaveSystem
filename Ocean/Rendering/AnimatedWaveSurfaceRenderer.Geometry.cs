@@ -880,7 +880,12 @@ public partial class AnimatedWaveSurfaceRenderer
 
 			material.SetShaderParameter(
 				"animated_wave_field",
-				_textureArray);
+				_animatedWaveTexture);
+
+
+			material.SetShaderParameter(
+				"animated_wave_derivative_field",
+				_derivativeTexture);
 
 
 			_nestedMaterials[lod] =

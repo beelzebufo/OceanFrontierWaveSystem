@@ -8,7 +8,8 @@ namespace OceanFrontier.Water.Rendering;
 
 /// <summary>
 /// Single-LOD validation grid or static nested tiles sampling canonical spatial LODs.
-/// The AnimatedWaveField owns the RenderingDevice texture RID.
+/// AnimatedWaveField owns canonical displacement; AnimatedWaveDerivativeField
+/// owns the derived geometric-normal cache sampled by the production material.
 /// Visual micro normals are renderer-only and never modify the canonical field.
 /// </summary>
 public partial class AnimatedWaveSurfaceRenderer : Node3D
@@ -54,8 +55,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	public int SpatialLodIndex { get; set; } = 4;
 
 
-	[Export(PropertyHint.Enum, "Blended XYZ Forward,Crest Per LOD Forward")]
-	public int NormalMethod { get; set; } = 1;
+	[Export(PropertyHint.Enum, "Blended XYZ Forward,Crest Per LOD Forward,Derivative Field")]
+	public int NormalMethod { get; set; } = 2;
 
 
 	[Export]
@@ -139,9 +140,13 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		new();
 
 
-	private Texture2DArrayRD _textureArray;
+	// Persistent Godot wrappers around the two persistent RenderingDevice RIDs.
+	// Their objects are created once; only TextureRdRid changes if a RID changes.
+	private Texture2DArrayRD _animatedWaveTexture;
+	private Texture2DArrayRD _derivativeTexture;
 	private Texture2D _visualNormalFallback;
-	private Rid _boundRid;
+	private Rid _boundAnimatedWaveRid;
+	private Rid _boundDerivativeRid;
 
 
 	private Vector2 _lastCenter =
@@ -358,9 +363,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		int method)
 	{
 		NormalMethod =
-			method <= 0
-				? 0
-				: 1;
+			Math.Clamp(
+				method,
+				0,
+				2);
 
 
 		SetAllSamplingParameter(
@@ -484,13 +490,20 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		ApplyDisplayParameters();
 
 
-		_textureArray =
+		_animatedWaveTexture =
+			new Texture2DArrayRD();
+
+		_derivativeTexture =
 			new Texture2DArrayRD();
 
 
 		_material.SetShaderParameter(
 			"animated_wave_field",
-			_textureArray);
+			_animatedWaveTexture);
+
+		_material.SetShaderParameter(
+			"animated_wave_derivative_field",
+			_derivativeTexture);
 
 
 		//
@@ -575,7 +588,11 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 		_normalMaterial.SetShaderParameter(
 			"animated_wave_field",
-			_textureArray);
+			_animatedWaveTexture);
+
+		_normalMaterial.SetShaderParameter(
+			"animated_wave_derivative_field",
+			_derivativeTexture);
 
 
 		ApplyDisplayParameters();
@@ -610,14 +627,22 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	public override void _ExitTree()
 	{
-		if (_textureArray != null)
+		if (_animatedWaveTexture != null)
 		{
-			_textureArray.TextureRdRid =
+			_animatedWaveTexture.TextureRdRid =
 				default;
 		}
 
+		if (_derivativeTexture != null)
+		{
+			_derivativeTexture.TextureRdRid =
+				default;
+		}
 
-		_boundRid =
+		_boundAnimatedWaveRid =
+			default;
+
+		_boundDerivativeRid =
 			default;
 	}
 }

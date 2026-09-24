@@ -136,7 +136,8 @@ internal sealed class OceanDiagnosticLightingPanel
 				normals,
 				"Normal method",
 				"Blended XYZ Forward",
-				"Crest Per-LOD Forward");
+				"Crest Per-LOD Forward",
+				"Derivative Field");
 
 
 		normalMethod.Selected =

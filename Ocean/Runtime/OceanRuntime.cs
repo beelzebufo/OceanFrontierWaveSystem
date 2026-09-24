@@ -1082,8 +1082,9 @@ public partial class OceanRuntime : Node
 
 
 	/// <summary>
-	/// Copies one coherent committed spatial state belonging to the
-	/// canonical AnimatedWaveField.
+	/// Copies one coherent committed spatial state and the persistent texture
+	/// RIDs belonging to the canonical AnimatedWaveField generation and its
+	/// AnimatedWaveDerivativeField cache.
 	///
 	/// Crest equivalent:
 	///
@@ -1102,7 +1103,8 @@ public partial class OceanRuntime : Node
 	/// </summary>
 	internal bool TryCopyAnimatedWaveSurfaceState(
 		Span<AnimatedWaveLodSlice> destination,
-		out Rid texture,
+		out Rid displacementTexture,
+		out Rid derivativeTexture,
 		out int resolution,
 		out int lodCount,
 		out Vector2 focusXZ,
@@ -1110,7 +1112,10 @@ public partial class OceanRuntime : Node
 		out float lodScaleAlpha,
 		out long generation)
 	{
-		texture =
+		displacementTexture =
+			default;
+
+		derivativeTexture =
 			default;
 
 		resolution =
@@ -1141,13 +1146,18 @@ public partial class OceanRuntime : Node
 		AnimatedWaveField field =
 			_animatedWaveComposer.Field;
 
+		AnimatedWaveDerivativeField derivativeField =
+			_animatedWaveComposer.DerivativeField;
+
 		AnimatedWaveRenderState renderState =
 			_animatedWaveComposer.RenderState;
 
 
 		if (field == null ||
+			derivativeField == null ||
 			renderState == null ||
-			!field.Displacement.IsValid)
+			!field.Displacement.IsValid ||
+			!derivativeField.NormalJacobian.IsValid)
 		{
 			return false;
 		}
@@ -1167,14 +1177,18 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// The texture RID is persistent.
+		// Both texture RIDs are persistent. The derivative pass completes after
+		// final composition and before this generation's RenderState is published.
 		//
 		// Spatial metadata above belongs to the committed generation
 		// written into this canonical field by AnimatedWaveComposer.
 		//
 
-		texture =
+		displacementTexture =
 			field.Displacement;
+
+		derivativeTexture =
+			derivativeField.NormalJacobian;
 
 
 		return true;
@@ -1214,6 +1228,7 @@ public partial class OceanRuntime : Node
 		if (!TryCopyAnimatedWaveSurfaceState(
 				_surfaceStateScratch,
 				out texture,
+				out _,
 				out resolution,
 				out lodCount,
 				out _,
@@ -1292,6 +1307,7 @@ public partial class OceanRuntime : Node
 		if (!TryCopyAnimatedWaveSurfaceState(
 				_surfaceStateScratch,
 				out texture,
+				out _,
 				out resolution,
 				out lodCount,
 				out focusXZ,
