@@ -114,10 +114,6 @@ varying float displacement_height;
 // vertex stage. Non-canonical diagnostic geometry deliberately receives 1.
 varying float surface_det_j;
 
-// Vertex-sampled vertical distance from the fixed sea level Y=0 to the
-// bathymetry field. Fragment shading receives only this scalar varying.
-varying float surface_water_depth;
-
 varying vec2 base_uv;
 
 
@@ -568,55 +564,6 @@ void vertex()
     {
         lod_alpha =
             0.0;
-    }
-
-
-    float shallow_depth_max =
-        max(
-            water_shallow_depth_max,
-            0.0001);
-
-
-    surface_water_depth =
-        shallow_depth_max;
-
-
-    if (has_sea_floor_depth &&
-        !planet_curvature_enabled)
-    {
-        float current_water_depth =
-            sample_surface_water_depth_lod(
-                world_xz,
-                lod_center_xz,
-                lod_world_size,
-                selected_lod,
-                shallow_depth_max);
-
-
-        float next_water_depth =
-            current_water_depth;
-
-
-        if (has_next_lod)
-        {
-            next_water_depth =
-                sample_surface_water_depth_lod(
-                    world_xz,
-                    next_lod_center_xz,
-                    next_lod_world_size,
-                    next_lod,
-                    shallow_depth_max);
-        }
-
-
-        surface_water_depth =
-            mix(
-                current_water_depth,
-                next_water_depth,
-                clamp(
-                    lod_alpha,
-                    0.0,
-                    1.0));
     }
 
 
@@ -1137,12 +1084,59 @@ void fragment()
         }
 
 
+        float shallow_depth_max =
+            max(
+                water_shallow_depth_max,
+                0.0001);
+
+
+        float surface_water_depth =
+            shallow_depth_max;
+
+
+        if (has_sea_floor_depth &&
+            !planet_curvature_enabled)
+        {
+            float current_water_depth =
+                sample_surface_water_depth_lod(
+                    undisplaced_world_xz,
+                    lod_center_xz,
+                    lod_world_size,
+                    selected_lod,
+                    shallow_depth_max);
+
+
+            float next_water_depth =
+                current_water_depth;
+
+
+            if (has_next_lod)
+            {
+                next_water_depth =
+                    sample_surface_water_depth_lod(
+                        undisplaced_world_xz,
+                        next_lod_center_xz,
+                        next_lod_world_size,
+                        next_lod,
+                        shallow_depth_max);
+            }
+
+
+            surface_water_depth =
+                mix(
+                    current_water_depth,
+                    next_water_depth,
+                    clamp(
+                        visual_normal_lod_alpha,
+                        0.0,
+                        1.0));
+        }
+
+
         float normalized_water_depth =
             clamp(
                 surface_water_depth /
-                    max(
-                        water_shallow_depth_max,
-                        0.0001),
+                    shallow_depth_max,
                 0.0,
                 1.0);
 
