@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode world_vertex_coords, cull_disabled;
+render_mode world_vertex_coords, cull_disabled, depth_draw_always;
 
 #include "res://Ocean/Shaders/Rendering/animated_wave_surface_contract.gdshaderinc"
 
@@ -13,6 +13,27 @@ uniform float diagnostic_roughness :
 
 uniform float water_ior :
     hint_range(1.0, 2.0, 0.001) = 1.333;
+
+uniform float water_refraction_strength :
+    hint_range(0.0, 0.1, 0.0001) = 0.008;
+
+// Extinction coefficients are inverse metres. Godot world units are treated
+// as metres for this optical baseline.
+uniform vec3 water_extinction :
+    source_color = vec3(0.18, 0.07, 0.025);
+
+uniform vec3 water_scatter_color :
+    source_color = vec3(0.015, 0.12, 0.18);
+
+uniform sampler2D screen_texture :
+    hint_screen_texture,
+    repeat_disable,
+    filter_linear;
+
+uniform sampler2D depth_texture :
+    hint_depth_texture,
+    repeat_disable,
+    filter_nearest;
 
 
 // Renderer-only visual micro-normal layer.
@@ -60,6 +81,75 @@ varying vec2 undisplaced_world_xz;
 // Visual normals use it to blend continuously into
 // the next x2 texture scale.
 varying float visual_normal_lod_alpha;
+
+
+const float MAX_OPTICAL_PATH_METRES = 100.0;
+
+
+vec3 reconstruct_view_position(
+    vec2 uv,
+    float depth,
+    mat4 inverse_projection)
+{
+    // Forward+ and Mobile use Godot's reverse-Z [0, 1] NDC convention.
+    vec4 view_position =
+        inverse_projection *
+        vec4(
+            uv * 2.0 - 1.0,
+            depth,
+            1.0);
+
+
+    return
+        view_position.xyz /
+        view_position.w;
+}
+
+
+vec2 clamp_screen_uv(
+    vec2 uv,
+    vec2 viewport_size)
+{
+    vec2 half_texel =
+        0.5 /
+        max(
+            viewport_size,
+            vec2(1.0));
+
+
+    return clamp(
+        uv,
+        half_texel,
+        vec2(1.0) -
+            half_texel);
+}
+
+
+float water_f0_from_ior(
+    float ior)
+{
+    float ratio =
+        (1.0 - ior) /
+        (1.0 + ior);
+
+
+    return
+        ratio *
+        ratio;
+}
+
+
+float water_fresnel_schlick(
+    float f0,
+    float ndotv)
+{
+    return
+        f0 +
+        (1.0 - f0) *
+        pow(
+            1.0 - ndotv,
+            5.0);
+}
 
 
 
@@ -637,22 +727,143 @@ void fragment()
 
     if (lighting_enabled)
     {
+        // Keep the diagnostic surface colour as a restrained overlay. The
+        // refracted/scattered scene below is now the water body's base colour.
         ALBEDO =
-            diagnostic_colour;
+            diagnostic_colour *
+            (
+                show_surface_grid ||
+                show_surface_markers
+                    ? 0.12
+                    : 0.015
+            );
 
 
-        EMISSION =
-            vec3(0.0);
+        vec3 final_normal =
+            normalize(
+                NORMAL);
 
 
-        float ior_ratio =
-            (1.0 - water_ior) /
-            (1.0 + water_ior);
+        // Match Godot 4.7 BaseMaterial3D's screen-space refraction sign.
+        vec2 candidate_uv =
+            clamp_screen_uv(
+                SCREEN_UV -
+                    final_normal.xy *
+                    water_refraction_strength,
+                VIEWPORT_SIZE);
+
+
+        float candidate_depth =
+            textureLod(
+                depth_texture,
+                candidate_uv,
+                0.0).r;
+
+
+        vec3 candidate_view_position =
+            reconstruct_view_position(
+                candidate_uv,
+                candidate_depth,
+                INV_PROJECTION_MATRIX);
+
+
+        // Positive separation means the refracted sample is behind the
+        // current water fragment. Fade to the unrefracted UV across one metre
+        // when the offset crosses foreground geometry.
+        float refraction_validity =
+            smoothstep(
+                0.0,
+                1.0,
+                VERTEX.z -
+                    candidate_view_position.z);
+
+
+        vec2 refracted_uv =
+            mix(
+                SCREEN_UV,
+                candidate_uv,
+                refraction_validity);
+
+
+        float scene_depth =
+            textureLod(
+                depth_texture,
+                refracted_uv,
+                0.0).r;
+
+
+        vec3 scene_view_position =
+            reconstruct_view_position(
+                refracted_uv,
+                scene_depth,
+                INV_PROJECTION_MATRIX);
+
+
+        // This deliberately uses geometric path length rather than Crest's
+        // linear eye-Z difference. Visible opaque depth, not bathymetry data,
+        // defines the optical consumer path.
+        float optical_path =
+            clamp(
+                length(
+                    scene_view_position -
+                    VERTEX),
+                0.0,
+                MAX_OPTICAL_PATH_METRES);
+
+
+        vec3 transmittance =
+            exp(
+                -max(
+                    water_extinction,
+                    vec3(0.0)) *
+                optical_path);
+
+
+        vec3 refracted_scene_colour =
+            textureLod(
+                screen_texture,
+                refracted_uv,
+                0.0).rgb *
+            EXPOSURE;
+
+
+        vec3 water_volume_colour =
+            refracted_scene_colour *
+                transmittance +
+            water_scatter_color *
+                (
+                    vec3(1.0) -
+                    transmittance
+                );
 
 
         float water_f0 =
-            ior_ratio *
-            ior_ratio;
+            water_f0_from_ior(
+                water_ior);
+
+
+        float ndotv =
+            clamp(
+                dot(
+                    final_normal,
+                    normalize(
+                        VIEW)),
+                0.0,
+                1.0);
+
+
+        float transmission_weight =
+            1.0 -
+            water_fresnel_schlick(
+                water_f0,
+                ndotv);
+
+
+        // Godot PBR owns reflected energy. This emission term supplies only
+        // the complementary transmitted/scattered energy.
+        EMISSION =
+            water_volume_colour *
+            transmission_weight;
 
 
         SPECULAR =
@@ -678,4 +889,11 @@ void fragment()
         SPECULAR =
             0.0;
     }
+
+
+    // Screen-sampled transmission is explicitly composited above. Keep an
+    // opaque result while the screen-texture dependency selects the
+    // transparent pass.
+    ALPHA =
+        1.0;
 }

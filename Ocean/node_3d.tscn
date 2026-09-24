@@ -40,6 +40,22 @@ roughness = 0.42
 material = SubResource("StandardMaterial3D_diagnostic_hull")
 size = Vector3(3.5, 1.7, 13)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_diagnostic_seabed"]
+albedo_color = Color(0.62, 0.58, 0.48, 1)
+roughness = 0.9
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_diagnostic_seabed"]
+material = SubResource("StandardMaterial3D_diagnostic_seabed")
+size = Vector2(512, 512)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_optical_reference"]
+albedo_color = Color(0.88, 0.76, 0.58, 1)
+roughness = 0.7
+
+[sub_resource type="BoxMesh" id="BoxMesh_optical_reference"]
+material = SubResource("StandardMaterial3D_optical_reference")
+size = Vector3(6, 0.8, 6)
+
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
 
@@ -83,6 +99,22 @@ shape = SubResource("BoxShape3D_diagnostic_hull")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="DiagnosticBuoyancyHull" unique_id=199489003]
 mesh = SubResource("BoxMesh_diagnostic_hull")
+
+[node name="DiagnosticSeabed" type="MeshInstance3D" parent="."]
+position = Vector3(0, -18, 0)
+mesh = SubResource("PlaneMesh_diagnostic_seabed")
+
+[node name="OpticalDepthShallow" type="MeshInstance3D" parent="."]
+position = Vector3(-9, -3.5, -6)
+mesh = SubResource("BoxMesh_optical_reference")
+
+[node name="OpticalDepthMedium" type="MeshInstance3D" parent="."]
+position = Vector3(0, -7, -6)
+mesh = SubResource("BoxMesh_optical_reference")
+
+[node name="OpticalDepthDeep" type="MeshInstance3D" parent="."]
+position = Vector3(9, -12, -6)
+mesh = SubResource("BoxMesh_optical_reference")
 
 [node name="OceanDiagnosticLightDirectionGizmo" type="Node3D" parent="." unique_id=853362279]
 script = ExtResource("7_light_gizmo")
