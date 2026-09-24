@@ -414,7 +414,7 @@ vec3 safe_normalize_or_up(
 }
 
 
-vec3 sample_derivative_normal_lod(
+vec4 sample_derivative_surface_lod(
     vec2 world_xz,
     vec2 center_xz,
     float world_size,
@@ -426,21 +426,23 @@ vec3 sample_derivative_normal_lod(
             center_xz,
             world_size);
 
-    vec3 normal =
+    vec4 surface =
         textureLod(
             animated_wave_derivative_field,
             vec3(
                 uv,
                 layer),
-            0.0).xyz;
+            0.0);
 
     // Linear filtering of normalized texels can reduce vector length.
-    return safe_normalize_or_up(
-        normal);
+    return vec4(
+        safe_normalize_or_up(
+            surface.xyz),
+        surface.a);
 }
 
 
-vec3 normal_derivative_field(
+vec4 derivative_surface_field(
     vec2 world_xz,
     float center_lod_alpha)
 {
@@ -456,10 +458,13 @@ vec3 normal_derivative_field(
     vec2 accumulated_normal_xz =
         vec2(0.0);
 
+    float accumulated_det_j =
+        0.0;
+
     if (weight_current > 0.001)
     {
-        vec3 current_normal =
-            sample_derivative_normal_lod(
+        vec4 current_surface =
+            sample_derivative_surface_lod(
                 world_xz,
                 lod_center_xz,
                 lod_world_size,
@@ -467,14 +472,18 @@ vec3 normal_derivative_field(
 
         accumulated_normal_xz +=
             weight_current *
-            current_normal.xz;
+            current_surface.xz;
+
+        accumulated_det_j +=
+            weight_current *
+            current_surface.a;
     }
 
     if (has_next_lod &&
         weight_next > 0.001)
     {
-        vec3 next_normal =
-            sample_derivative_normal_lod(
+        vec4 next_surface =
+            sample_derivative_surface_lod(
                 world_xz,
                 next_lod_center_xz,
                 next_lod_world_size,
@@ -482,14 +491,30 @@ vec3 normal_derivative_field(
 
         accumulated_normal_xz +=
             weight_next *
-            next_normal.xz;
+            next_surface.xz;
+
+        accumulated_det_j +=
+            weight_next *
+            next_surface.a;
     }
 
-    return safe_normalize_or_up(
-        vec3(
-            accumulated_normal_xz.x,
-            1.0,
-            accumulated_normal_xz.y));
+    return vec4(
+        safe_normalize_or_up(
+            vec3(
+                accumulated_normal_xz.x,
+                1.0,
+                accumulated_normal_xz.y)),
+        accumulated_det_j);
+}
+
+
+vec3 normal_derivative_field(
+    vec2 world_xz,
+    float center_lod_alpha)
+{
+    return derivative_surface_field(
+        world_xz,
+        center_lod_alpha).xyz;
 }
 
 
@@ -776,4 +801,50 @@ vec3 compute_surface_normal(
         center_current_disp,
         center_next_disp,
         center_lod_alpha);
+}
+
+
+vec4 compute_surface_normal_and_det_j(
+    vec2 world_xz,
+    float finite_difference_step,
+    vec3 center_current_disp,
+    vec3 center_next_disp,
+    float center_lod_alpha)
+{
+    if (!can_use_derivative_field_normal())
+    {
+        return vec4(
+            compute_surface_normal(
+                world_xz,
+                finite_difference_step,
+                center_current_disp,
+                center_next_disp,
+                center_lod_alpha),
+            1.0);
+    }
+
+    vec4 derivative_surface =
+        derivative_surface_field(
+            world_xz,
+            center_lod_alpha);
+
+    if (normal_method ==
+        NORMAL_METHOD_DERIVATIVE_FIELD)
+    {
+        // One derivative-field sample per participating LOD supplies both
+        // the production normal and raw horizontal Jacobian determinant.
+        return derivative_surface;
+    }
+
+    // Legacy normal A/B modes retain their normal reconstruction. Their
+    // renderer-only directional scattering may make one additional
+    // derivative-field sample per participating vertex to obtain raw detJ.
+    return vec4(
+        compute_surface_normal(
+            world_xz,
+            finite_difference_step,
+            center_current_disp,
+            center_next_disp,
+            center_lod_alpha),
+        derivative_surface.a);
 }

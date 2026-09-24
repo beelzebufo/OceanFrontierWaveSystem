@@ -25,6 +25,25 @@ uniform vec3 water_extinction =
 uniform vec3 water_scatter_color :
     source_color = vec3(0.015, 0.12, 0.18);
 
+// Direction in which the primary sun's rays travel, from the sun toward the
+// world. Godot DirectionalLight3D emits along its global local -Z axis.
+uniform vec3 primary_sun_ray_direction_world =
+    vec3(0.0, -1.0, 0.0);
+
+// Linear RGB radiance supplied explicitly by the renderer. Godot's built-in
+// light loop remains responsible for surface reflection and direct specular.
+uniform vec3 primary_sun_radiance =
+    vec3(0.0);
+
+uniform vec3 water_sun_scatter_tint :
+    source_color = vec3(0.25, 0.65, 0.70);
+
+uniform float water_sun_scatter_strength :
+    hint_range(0.0, 4.0, 0.01) = 0.5;
+
+uniform float water_sun_scatter_falloff :
+    hint_range(1.0, 16.0, 0.1) = 5.0;
+
 uniform sampler2D screen_texture :
     hint_screen_texture,
     repeat_disable,
@@ -65,6 +84,10 @@ uniform float visual_time = 0.0;
 
 
 varying float displacement_height;
+
+// Raw det(I + horizontal displacement gradient), sampled and blended in the
+// vertex stage. Non-canonical diagnostic geometry deliberately receives 1.
+varying float surface_det_j;
 
 varying vec2 base_uv;
 
@@ -499,13 +522,21 @@ void vertex()
     // Geometric surface normal remains AWF-derived.
     //
 
-    NORMAL =
-        compute_surface_normal(
+    vec4 surface_normal_and_det_j =
+        compute_surface_normal_and_det_j(
             world_xz,
             current_lod_texel_width,
             current_disp,
             next_disp,
             lod_alpha);
+
+
+    NORMAL =
+        surface_normal_and_det_j.xyz;
+
+
+    surface_det_j =
+        surface_normal_and_det_j.a;
 
 
     //
@@ -827,10 +858,119 @@ void fragment()
             EXPOSURE;
 
 
+        vec3 directional_scatter =
+            vec3(0.0);
+
+
+        // This is a deliberate Godot-side extension to Crest's directional
+        // scattering approximation: attenuate only the new in-scattered
+        // sunlight through a representative incident water path. The already
+        // shaded refracted scene colour is never multiplied by this term.
+        float sun_down_cos =
+            max(
+                -primary_sun_ray_direction_world.y,
+                0.0);
+
+
+        if (!planet_curvature_enabled &&
+            water_sun_scatter_strength > 0.0 &&
+            sun_down_cos > 0.0001)
+        {
+            vec3 view_world =
+                normalize(
+                    (
+                        INV_VIEW_MATRIX *
+                        vec4(
+                            VIEW,
+                            0.0)
+                    ).xyz);
+
+
+            vec3 to_sun_world =
+                normalize(
+                    -primary_sun_ray_direction_world);
+
+
+            float towards_sun =
+                pow(
+                    max(
+                        dot(
+                            to_sun_world,
+                            -view_world),
+                        0.0),
+                    water_sun_scatter_falloff);
+
+
+            float grazing =
+                1.0 -
+                clamp(
+                    view_world.y *
+                        view_world.y,
+                    0.0,
+                    1.0);
+
+
+            float crest_sss =
+                clamp(
+                    0.6 -
+                        0.12 *
+                        surface_det_j,
+                    0.0,
+                    1.0);
+
+
+            vec3 into_water_world =
+                -view_world;
+
+
+            float representative_vertical_depth =
+                0.5 *
+                optical_path *
+                max(
+                    -into_water_world.y,
+                    0.0);
+
+
+            float sun_optical_path =
+                clamp(
+                    representative_vertical_depth /
+                        max(
+                            sun_down_cos,
+                            0.0001),
+                    0.0,
+                    MAX_OPTICAL_PATH_METRES);
+
+
+            vec3 sun_transmittance =
+                exp(
+                    -max(
+                        water_extinction,
+                        vec3(0.0)) *
+                    sun_optical_path);
+
+
+            directional_scatter =
+                max(
+                    primary_sun_radiance,
+                    vec3(0.0)) *
+                water_sun_scatter_tint *
+                water_sun_scatter_strength *
+                towards_sun *
+                grazing *
+                crest_sss *
+                sun_transmittance;
+        }
+
+
+        vec3 effective_scatter_colour =
+            water_scatter_color +
+            directional_scatter;
+
+
         vec3 water_volume_colour =
             refracted_scene_colour *
                 transmittance +
-            water_scatter_color *
+            effective_scatter_colour *
                 (
                     vec3(1.0) -
                     transmittance

@@ -76,6 +76,28 @@ internal sealed class OceanDiagnosticLightingPanel
 			(float)sunProgress.Value);
 
 
+		var sunScatterStrength =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Sun scatter strength",
+				_surface?.WaterSunScatterStrength ??
+					AnimatedWaveSurfaceRenderer
+						.DefaultWaterSunScatterStrength,
+				0.0,
+				4.0,
+				0.01);
+
+
+		sunScatterStrength.ValueChanged +=
+			value =>
+				_surface?.SetWaterSunScatterStrength(
+					(float)value);
+
+
+		_surface?.SetWaterSunScatterStrength(
+			(float)sunScatterStrength.Value);
+
+
 		OceanDiagnosticUi.Check(
 			parent,
 			"Surface lighting",
@@ -235,5 +257,30 @@ internal sealed class OceanDiagnosticLightingPanel
 			_sun.GlobalPosition +
 				direction,
 			Vector3.Up);
+
+
+		// DirectionalLight3D emits along global local -Z. LightColor is stored
+		// as nonlinear sRGB, while the numerical shader uniform is linear RGB.
+		Vector3 rayDirection =
+			-_sun.GlobalTransform.Basis.Z.Normalized();
+
+
+		Color linearColor =
+			_sun.LightColor.SrgbToLinear();
+
+
+		float energy =
+			Mathf.Max(
+				_sun.LightEnergy,
+				0.0f);
+
+
+		_surface?.SetPrimarySunState(
+			rayDirection,
+			new Vector3(
+				linearColor.R,
+				linearColor.G,
+				linearColor.B) *
+			energy);
 	}
 }

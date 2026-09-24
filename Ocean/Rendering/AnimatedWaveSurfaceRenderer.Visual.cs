@@ -66,6 +66,30 @@ public partial class AnimatedWaveSurfaceRenderer
 	}
 
 
+	private void ApplyPrimarySunParameters()
+	{
+		if (_material == null)
+		{
+			return;
+		}
+
+
+		SetSurfaceParameter(
+			"primary_sun_ray_direction_world",
+			_primarySunRayDirectionWorld);
+
+
+		SetSurfaceParameter(
+			"primary_sun_radiance",
+			_primarySunRadiance);
+
+
+		SetSurfaceParameter(
+			"water_sun_scatter_strength",
+			_waterSunScatterStrength);
+	}
+
+
 	/// <summary>
 	/// Pushes renderer-only visual micro-normal settings to the actual
 	/// water materials.

@@ -23,6 +23,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const int TilesPerSide = 4;
 	private const int NormalGridResolution = 17;
 	private const float NormalVectorScale = 0.35f;
+	internal const float DefaultWaterSunScatterStrength = 0.5f;
 
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
@@ -174,6 +175,15 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private float _diagnosticRoughness = 0.65f;
 
+	private Vector3 _primarySunRayDirectionWorld =
+		new(0.0f, -1.0f, 0.0f);
+
+	private Vector3 _primarySunRadiance =
+		Vector3.Zero;
+
+	private float _waterSunScatterStrength =
+		DefaultWaterSunScatterStrength;
+
 
 	private int _meshResolution;
 	private float _meshWorldSize;
@@ -225,6 +235,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	internal int NestedTileCount =>
 		_nestedTileCount;
+
+
+	internal float WaterSunScatterStrength =>
+		_waterSunScatterStrength;
 
 
 	internal void SetSpatialLod(
@@ -304,6 +318,98 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
+	}
+
+
+	internal void SetPrimarySunState(
+		Vector3 rayDirectionWorld,
+		Vector3 linearRadiance)
+	{
+		if (!rayDirectionWorld.IsFinite() ||
+			rayDirectionWorld.LengthSquared() < 1e-8f)
+		{
+			rayDirectionWorld =
+				new Vector3(
+					0.0f,
+					-1.0f,
+					0.0f);
+		}
+		else
+		{
+			rayDirectionWorld =
+				rayDirectionWorld.Normalized();
+		}
+
+
+		linearRadiance =
+			new Vector3(
+				float.IsFinite(linearRadiance.X)
+					? Mathf.Max(linearRadiance.X, 0.0f)
+					: 0.0f,
+
+				float.IsFinite(linearRadiance.Y)
+					? Mathf.Max(linearRadiance.Y, 0.0f)
+					: 0.0f,
+
+				float.IsFinite(linearRadiance.Z)
+					? Mathf.Max(linearRadiance.Z, 0.0f)
+					: 0.0f);
+
+
+		if (_primarySunRayDirectionWorld.IsEqualApprox(
+				rayDirectionWorld) &&
+			_primarySunRadiance.IsEqualApprox(
+				linearRadiance))
+		{
+			return;
+		}
+
+
+		_primarySunRayDirectionWorld =
+			rayDirectionWorld;
+
+		_primarySunRadiance =
+			linearRadiance;
+
+
+		SetSurfaceParameter(
+			"primary_sun_ray_direction_world",
+			_primarySunRayDirectionWorld);
+
+
+		SetSurfaceParameter(
+			"primary_sun_radiance",
+			_primarySunRadiance);
+	}
+
+
+	internal void SetWaterSunScatterStrength(
+		float strength)
+	{
+		strength =
+			Mathf.Clamp(
+				float.IsFinite(strength)
+					? strength
+					: DefaultWaterSunScatterStrength,
+				0.0f,
+				4.0f);
+
+
+		if (Mathf.IsEqualApprox(
+			_waterSunScatterStrength,
+			strength))
+		{
+			return;
+		}
+
+
+		_waterSunScatterStrength =
+			strength;
+
+
+		SetSurfaceParameter(
+			"water_sun_scatter_strength",
+			_waterSunScatterStrength);
 	}
 
 
@@ -488,6 +594,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 
 		ApplyDisplayParameters();
+		ApplyPrimarySunParameters();
 
 
 		_animatedWaveTexture =

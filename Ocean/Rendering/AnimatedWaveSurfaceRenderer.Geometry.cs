@@ -947,6 +947,11 @@ public partial class AnimatedWaveSurfaceRenderer
 		ApplyDisplayParameters();
 
 
+		// New nested materials must receive the renderer-owned primary-sun
+		// state even when the light itself has not changed.
+		ApplyPrimarySunParameters();
+
+
 		SetAllSamplingParameter(
 			"normal_method",
 			NormalMethod);
