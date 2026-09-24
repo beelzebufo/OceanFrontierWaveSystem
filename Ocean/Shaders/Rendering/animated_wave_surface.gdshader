@@ -25,6 +25,24 @@ uniform vec3 water_extinction =
 uniform vec3 water_scatter_color :
     source_color = vec3(0.015, 0.12, 0.18);
 
+uniform vec3 water_shallow_scatter_color :
+    source_color = vec3(0.03, 0.22, 0.18);
+
+uniform float water_shallow_color_strength :
+    hint_range(0.0, 1.0, 0.01) = 1.0;
+
+uniform float water_shallow_depth_max :
+    hint_range(0.1, 50.0, 0.1) = 10.0;
+
+uniform float water_shallow_depth_power :
+    hint_range(0.01, 10.0, 0.01) = 2.5;
+
+uniform bool has_sea_floor_depth = false;
+
+uniform sampler2DArray sea_floor_depth_field :
+    repeat_disable,
+    filter_nearest;
+
 // Direction in which the primary sun's rays travel, from the sun toward the
 // world. Godot DirectionalLight3D emits along its global local -Z axis.
 uniform vec3 primary_sun_ray_direction_world =
@@ -95,6 +113,10 @@ varying float displacement_height;
 // Raw det(I + horizontal displacement gradient), sampled and blended in the
 // vertex stage. Non-canonical diagnostic geometry deliberately receives 1.
 varying float surface_det_j;
+
+// Vertex-sampled vertical distance from the fixed sea level Y=0 to the
+// bathymetry field. Fragment shading receives only this scalar varying.
+varying float surface_water_depth;
 
 varying vec2 base_uv;
 
@@ -444,6 +466,42 @@ vec3 apply_visual_micro_normal(
 
 
 
+float sample_surface_water_depth_lod(
+    vec2 world_xz,
+    vec2 center_xz,
+    float world_size,
+    float lod_index,
+    float depth_max)
+{
+    float terrain_y =
+        textureLod(
+            sea_floor_depth_field,
+            vec3(
+                world_to_lod_uv(
+                    world_xz,
+                    center_xz,
+                    world_size),
+                lod_index),
+            0.0).r;
+
+
+    if (isnan(terrain_y) ||
+        isinf(terrain_y) ||
+        terrain_y <= -65000.0)
+    {
+        return depth_max;
+    }
+
+
+    // SeaFloorDepth stores absolute terrain world Y. This renderer's sea
+    // level contract is exactly Y=0, independent of displaced wave height.
+    return clamp(
+        -terrain_y,
+        0.0,
+        depth_max);
+}
+
+
 void vertex()
 {
     //
@@ -510,6 +568,55 @@ void vertex()
     {
         lod_alpha =
             0.0;
+    }
+
+
+    float shallow_depth_max =
+        max(
+            water_shallow_depth_max,
+            0.0001);
+
+
+    surface_water_depth =
+        shallow_depth_max;
+
+
+    if (has_sea_floor_depth &&
+        !planet_curvature_enabled)
+    {
+        float current_water_depth =
+            sample_surface_water_depth_lod(
+                world_xz,
+                lod_center_xz,
+                lod_world_size,
+                selected_lod,
+                shallow_depth_max);
+
+
+        float next_water_depth =
+            current_water_depth;
+
+
+        if (has_next_lod)
+        {
+            next_water_depth =
+                sample_surface_water_depth_lod(
+                    world_xz,
+                    next_lod_center_xz,
+                    next_lod_world_size,
+                    next_lod,
+                    shallow_depth_max);
+        }
+
+
+        surface_water_depth =
+            mix(
+                current_water_depth,
+                next_water_depth,
+                clamp(
+                    lod_alpha,
+                    0.0,
+                    1.0));
     }
 
 
@@ -1030,8 +1137,45 @@ void fragment()
         }
 
 
+        float normalized_water_depth =
+            clamp(
+                surface_water_depth /
+                    max(
+                        water_shallow_depth_max,
+                        0.0001),
+                0.0,
+                1.0);
+
+
+        float shallowness =
+            pow(
+                1.0 -
+                    normalized_water_depth,
+                max(
+                    water_shallow_depth_power,
+                    0.0001)) *
+            clamp(
+                water_shallow_color_strength,
+                0.0,
+                1.0);
+
+
+        if (planet_curvature_enabled)
+        {
+            shallowness =
+                0.0;
+        }
+
+
+        vec3 base_scatter_colour =
+            mix(
+                water_scatter_color,
+                water_shallow_scatter_color,
+                shallowness);
+
+
         vec3 effective_scatter_colour =
-            water_scatter_color +
+            base_scatter_colour +
             directional_scatter;
 
 

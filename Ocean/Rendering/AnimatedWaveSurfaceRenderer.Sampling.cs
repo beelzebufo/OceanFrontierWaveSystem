@@ -25,11 +25,13 @@ public partial class AnimatedWaveSurfaceRenderer
 				_renderStateSlices,
 				out Rid animatedWaveRid,
 				out Rid derivativeRid,
+				out Rid seaFloorDepthRid,
 				out int resolution,
 				out int lodCount,
 				out Vector2 focusXZ,
 				out _,
 				out float lodScaleAlpha,
+				out bool hasSeaFloorDepth,
 				out _))
 		{
 			HideSurfaceRoots();
@@ -48,7 +50,21 @@ public partial class AnimatedWaveSurfaceRenderer
 
 		BindWaveTextures(
 			animatedWaveRid,
-			derivativeRid);
+			derivativeRid,
+			seaFloorDepthRid);
+
+
+		if (_hasSeaFloorDepth !=
+			hasSeaFloorDepth)
+		{
+			_hasSeaFloorDepth =
+				hasSeaFloorDepth;
+
+
+			SetSurfaceParameter(
+				"has_sea_floor_depth",
+				hasSeaFloorDepth);
+		}
 
 
 		//
@@ -211,7 +227,8 @@ public partial class AnimatedWaveSurfaceRenderer
 
 	private void BindWaveTextures(
 		Rid animatedWaveRid,
-		Rid derivativeRid)
+		Rid derivativeRid,
+		Rid seaFloorDepthRid)
 	{
 		if (!_boundAnimatedWaveRid.IsValid ||
 			_boundAnimatedWaveRid.Id !=
@@ -236,6 +253,19 @@ public partial class AnimatedWaveSurfaceRenderer
 
 			_boundDerivativeRid =
 				derivativeRid;
+		}
+
+
+		if (!_boundSeaFloorDepthRid.IsValid ||
+			_boundSeaFloorDepthRid.Id !=
+			seaFloorDepthRid.Id)
+		{
+			_seaFloorDepthTexture.TextureRdRid =
+				seaFloorDepthRid;
+
+
+			_boundSeaFloorDepthRid =
+				seaFloorDepthRid;
 		}
 	}
 

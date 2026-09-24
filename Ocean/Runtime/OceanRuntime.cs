@@ -1105,17 +1105,22 @@ public partial class OceanRuntime : Node
 		Span<AnimatedWaveLodSlice> destination,
 		out Rid displacementTexture,
 		out Rid derivativeTexture,
+		out Rid seaFloorDepthTexture,
 		out int resolution,
 		out int lodCount,
 		out Vector2 focusXZ,
 		out float worldScale,
 		out float lodScaleAlpha,
+		out bool hasSeaFloorDepth,
 		out long generation)
 	{
 		displacementTexture =
 			default;
 
 		derivativeTexture =
+			default;
+
+		seaFloorDepthTexture =
 			default;
 
 		resolution =
@@ -1133,6 +1138,9 @@ public partial class OceanRuntime : Node
 		lodScaleAlpha =
 			0.0f;
 
+		hasSeaFloorDepth =
+			false;
+
 		generation =
 			0;
 
@@ -1149,15 +1157,20 @@ public partial class OceanRuntime : Node
 		AnimatedWaveDerivativeField derivativeField =
 			_animatedWaveComposer.DerivativeField;
 
+		var seaFloorDepthField =
+			_animatedWaveComposer.SeaFloorDepthField;
+
 		AnimatedWaveRenderState renderState =
 			_animatedWaveComposer.RenderState;
 
 
 		if (field == null ||
 			derivativeField == null ||
+			seaFloorDepthField == null ||
 			renderState == null ||
 			!field.Displacement.IsValid ||
-			!derivativeField.NormalJacobian.IsValid)
+			!derivativeField.NormalJacobian.IsValid ||
+			!seaFloorDepthField.Height.IsValid)
 		{
 			return false;
 		}
@@ -1170,6 +1183,7 @@ public partial class OceanRuntime : Node
 				out focusXZ,
 				out worldScale,
 				out lodScaleAlpha,
+				out hasSeaFloorDepth,
 				out generation))
 		{
 			return false;
@@ -1177,8 +1191,9 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// Both texture RIDs are persistent. The derivative pass completes after
-		// final composition and before this generation's RenderState is published.
+		// All three texture RIDs are persistent. The derivative pass completes
+		// after final composition and before this generation's RenderState is
+		// published.
 		//
 		// Spatial metadata above belongs to the committed generation
 		// written into this canonical field by AnimatedWaveComposer.
@@ -1189,6 +1204,9 @@ public partial class OceanRuntime : Node
 
 		derivativeTexture =
 			derivativeField.NormalJacobian;
+
+		seaFloorDepthTexture =
+			seaFloorDepthField.Height;
 
 
 		return true;
@@ -1229,8 +1247,10 @@ public partial class OceanRuntime : Node
 				_surfaceStateScratch,
 				out texture,
 				out _,
+				out _,
 				out resolution,
 				out lodCount,
+				out _,
 				out _,
 				out _,
 				out _,
@@ -1308,9 +1328,11 @@ public partial class OceanRuntime : Node
 				_surfaceStateScratch,
 				out texture,
 				out _,
+				out _,
 				out resolution,
 				out lodCount,
 				out focusXZ,
+				out _,
 				out _,
 				out _,
 				out _))

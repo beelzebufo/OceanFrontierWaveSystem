@@ -77,6 +77,7 @@ internal sealed class AnimatedWaveRenderState
 
 	private float _worldScale;
 	private float _lodScaleAlpha;
+	private bool _hasSeaFloorDepth;
 
 
 	public int Capacity =>
@@ -111,7 +112,8 @@ internal sealed class AnimatedWaveRenderState
 	/// </summary>
 	public void Publish(
 		AnimatedWaveLodLayout layout,
-		float lodScaleAlpha)
+		float lodScaleAlpha,
+		bool hasSeaFloorDepth)
 	{
 		if (layout == null)
 		{
@@ -169,6 +171,9 @@ internal sealed class AnimatedWaveRenderState
 		_lodScaleAlpha =
 			lodScaleAlpha;
 
+		_hasSeaFloorDepth =
+			hasSeaFloorDepth;
+
 
 		for (int lod = 0;
 			 lod < layout.LodCount;
@@ -222,6 +227,7 @@ internal sealed class AnimatedWaveRenderState
 		out Vector2 focusXZ,
 		out float worldScale,
 		out float lodScaleAlpha,
+		out bool hasSeaFloorDepth,
 		out long generation)
 	{
 		resolution =
@@ -238,6 +244,9 @@ internal sealed class AnimatedWaveRenderState
 
 		lodScaleAlpha =
 			0.0f;
+
+		hasSeaFloorDepth =
+			false;
 
 		generation =
 			0;
@@ -294,6 +303,9 @@ internal sealed class AnimatedWaveRenderState
 			float localLodScaleAlpha =
 				_lodScaleAlpha;
 
+			bool localHasSeaFloorDepth =
+				_hasSeaFloorDepth;
+
 
 			for (int lod = 0;
 				 lod < localLodCount;
@@ -343,6 +355,9 @@ internal sealed class AnimatedWaveRenderState
 
 			lodScaleAlpha =
 				localLodScaleAlpha;
+
+			hasSeaFloorDepth =
+				localHasSeaFloorDepth;
 
 			generation =
 				localGeneration;

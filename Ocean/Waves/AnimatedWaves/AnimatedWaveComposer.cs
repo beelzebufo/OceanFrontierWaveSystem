@@ -656,7 +656,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 
 		RenderState.Publish(
 			LodLayout,
-			lodScaleAlpha);
+			lodScaleAlpha,
+			hasSeaFloorDepth);
 	}
 
 

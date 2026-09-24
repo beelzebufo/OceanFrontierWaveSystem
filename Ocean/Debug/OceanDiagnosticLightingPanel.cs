@@ -98,6 +98,28 @@ internal sealed class OceanDiagnosticLightingPanel
 			(float)sunScatterStrength.Value);
 
 
+		var shallowColorStrength =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Shallow colour strength",
+				_surface?.WaterShallowColorStrength ??
+					AnimatedWaveSurfaceRenderer
+						.DefaultWaterShallowColorStrength,
+				0.0,
+				1.0,
+				0.01);
+
+
+		shallowColorStrength.ValueChanged +=
+			value =>
+				_surface?.SetWaterShallowColorStrength(
+					(float)value);
+
+
+		_surface?.SetWaterShallowColorStrength(
+			(float)shallowColorStrength.Value);
+
+
 		OceanDiagnosticUi.Check(
 			parent,
 			"Surface lighting",

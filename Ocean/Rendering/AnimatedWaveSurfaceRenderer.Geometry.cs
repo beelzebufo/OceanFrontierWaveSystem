@@ -888,6 +888,11 @@ public partial class AnimatedWaveSurfaceRenderer
 				_derivativeTexture);
 
 
+			material.SetShaderParameter(
+				"sea_floor_depth_field",
+				_seaFloorDepthTexture);
+
+
 			_nestedMaterials[lod] =
 				material;
 
@@ -950,6 +955,9 @@ public partial class AnimatedWaveSurfaceRenderer
 		// New nested materials must receive the renderer-owned primary-sun
 		// state even when the light itself has not changed.
 		ApplyPrimarySunParameters();
+
+
+		ApplyShallowWaterParameters();
 
 
 		SetAllSamplingParameter(

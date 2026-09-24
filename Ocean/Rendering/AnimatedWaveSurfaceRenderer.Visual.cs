@@ -90,6 +90,25 @@ public partial class AnimatedWaveSurfaceRenderer
 	}
 
 
+	private void ApplyShallowWaterParameters()
+	{
+		if (_material == null)
+		{
+			return;
+		}
+
+
+		SetSurfaceParameter(
+			"water_shallow_color_strength",
+			_waterShallowColorStrength);
+
+
+		SetSurfaceParameter(
+			"has_sea_floor_depth",
+			_hasSeaFloorDepth);
+	}
+
+
 	/// <summary>
 	/// Pushes renderer-only visual micro-normal settings to the actual
 	/// water materials.

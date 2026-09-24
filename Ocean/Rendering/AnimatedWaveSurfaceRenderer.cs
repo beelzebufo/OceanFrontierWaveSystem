@@ -24,6 +24,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const int NormalGridResolution = 17;
 	private const float NormalVectorScale = 0.35f;
 	internal const float DefaultWaterSunScatterStrength = 0.5f;
+	internal const float DefaultWaterShallowColorStrength = 1.0f;
 
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
@@ -141,13 +142,15 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		new();
 
 
-	// Persistent Godot wrappers around the two persistent RenderingDevice RIDs.
+	// Persistent Godot wrappers around the three persistent RenderingDevice RIDs.
 	// Their objects are created once; only TextureRdRid changes if a RID changes.
 	private Texture2DArrayRD _animatedWaveTexture;
 	private Texture2DArrayRD _derivativeTexture;
+	private Texture2DArrayRD _seaFloorDepthTexture;
 	private Texture2D _visualNormalFallback;
 	private Rid _boundAnimatedWaveRid;
 	private Rid _boundDerivativeRid;
+	private Rid _boundSeaFloorDepthRid;
 
 
 	private Vector2 _lastCenter =
@@ -183,6 +186,11 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private float _waterSunScatterStrength =
 		DefaultWaterSunScatterStrength;
+
+	private float _waterShallowColorStrength =
+		DefaultWaterShallowColorStrength;
+
+	private bool _hasSeaFloorDepth;
 
 
 	private int _meshResolution;
@@ -239,6 +247,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	internal float WaterSunScatterStrength =>
 		_waterSunScatterStrength;
+
+
+	internal float WaterShallowColorStrength =>
+		_waterShallowColorStrength;
 
 
 	internal void SetSpatialLod(
@@ -410,6 +422,36 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"water_sun_scatter_strength",
 			_waterSunScatterStrength);
+	}
+
+
+	internal void SetWaterShallowColorStrength(
+		float strength)
+	{
+		strength =
+			Mathf.Clamp(
+				float.IsFinite(strength)
+					? strength
+					: DefaultWaterShallowColorStrength,
+				0.0f,
+				1.0f);
+
+
+		if (Mathf.IsEqualApprox(
+				_waterShallowColorStrength,
+				strength))
+		{
+			return;
+		}
+
+
+		_waterShallowColorStrength =
+			strength;
+
+
+		SetSurfaceParameter(
+			"water_shallow_color_strength",
+			_waterShallowColorStrength);
 	}
 
 
@@ -595,12 +637,16 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 		ApplyDisplayParameters();
 		ApplyPrimarySunParameters();
+		ApplyShallowWaterParameters();
 
 
 		_animatedWaveTexture =
 			new Texture2DArrayRD();
 
 		_derivativeTexture =
+			new Texture2DArrayRD();
+
+		_seaFloorDepthTexture =
 			new Texture2DArrayRD();
 
 
@@ -611,6 +657,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_material.SetShaderParameter(
 			"animated_wave_derivative_field",
 			_derivativeTexture);
+
+		_material.SetShaderParameter(
+			"sea_floor_depth_field",
+			_seaFloorDepthTexture);
 
 
 		//
@@ -746,10 +796,19 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				default;
 		}
 
+		if (_seaFloorDepthTexture != null)
+		{
+			_seaFloorDepthTexture.TextureRdRid =
+				default;
+		}
+
 		_boundAnimatedWaveRid =
 			default;
 
 		_boundDerivativeRid =
+			default;
+
+		_boundSeaFloorDepthRid =
 			default;
 	}
 }
