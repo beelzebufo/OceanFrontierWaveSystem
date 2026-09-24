@@ -25,6 +25,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const float NormalVectorScale = 0.35f;
 	internal const float DefaultWaterSunScatterStrength = 0.5f;
 	internal const float DefaultWaterShallowColorStrength = 1.0f;
+	internal const float DefaultWaterCausticsStrength = 1.0f;
 
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
@@ -99,6 +100,28 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	public float VisualNormalStrength { get; set; } = 0.08f;
 
 
+	// Optional renderer-only projected caustics source. This is an ordinary
+	// Godot visual texture, not an ocean-data or RenderingDevice resource.
+	[Export]
+	public Texture2D CausticsTexture { get; set; }
+
+
+	[Export(PropertyHint.Range, "0.1,50,0.1")]
+	public float CausticsScale { get; set; } = 5.0f;
+
+
+	[Export(PropertyHint.Range, "0,1,0.01")]
+	public float CausticsTextureAverage { get; set; } = 0.5f;
+
+
+	[Export(PropertyHint.Range, "0,100,0.1")]
+	public float CausticsFocalDepth { get; set; } = 2.0f;
+
+
+	[Export(PropertyHint.Range, "0.01,100,0.01")]
+	public float CausticsDepthOfField { get; set; } = 0.33f;
+
+
 	private OceanRuntime _runtime;
 
 	private Shader _surfaceShader;
@@ -148,6 +171,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private Texture2DArrayRD _derivativeTexture;
 	private Texture2DArrayRD _seaFloorDepthTexture;
 	private Texture2D _visualNormalFallback;
+	private Texture2D _causticsFallback;
 	private Rid _boundAnimatedWaveRid;
 	private Rid _boundDerivativeRid;
 	private Rid _boundSeaFloorDepthRid;
@@ -189,6 +213,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private float _waterShallowColorStrength =
 		DefaultWaterShallowColorStrength;
+
+	private float _waterCausticsStrength =
+		DefaultWaterCausticsStrength;
 
 	private bool _hasSeaFloorDepth;
 
@@ -237,6 +264,15 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		float.NaN;
 
 
+	private bool _causticsStateInitialized;
+	private bool _appliedCausticsEnabled;
+	private Texture2D _appliedCausticsTexture;
+	private float _appliedCausticsScale = float.NaN;
+	private float _appliedCausticsTextureAverage = float.NaN;
+	private float _appliedCausticsFocalDepth = float.NaN;
+	private float _appliedCausticsDepthOfField = float.NaN;
+
+
 	internal int SelectedLodIndex =>
 		_selectedLodIndex;
 
@@ -251,6 +287,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	internal float WaterShallowColorStrength =>
 		_waterShallowColorStrength;
+
+
+	internal float WaterCausticsStrength =>
+		_waterCausticsStrength;
 
 
 	internal void SetSpatialLod(
@@ -455,6 +495,36 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	}
 
 
+	internal void SetWaterCausticsStrength(
+		float strength)
+	{
+		strength =
+			Mathf.Clamp(
+				float.IsFinite(strength)
+					? strength
+					: DefaultWaterCausticsStrength,
+				0.0f,
+				4.0f);
+
+
+		if (Mathf.IsEqualApprox(
+				_waterCausticsStrength,
+				strength))
+		{
+			return;
+		}
+
+
+		_waterCausticsStrength =
+			strength;
+
+
+		SetSurfaceParameter(
+			"water_caustics_strength",
+			_waterCausticsStrength);
+	}
+
+
 	internal void SetNormalVectorsVisible(
 		bool visible)
 	{
@@ -627,6 +697,29 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				fallbackImage);
 
 
+		Image causticsFallbackImage =
+			Image.CreateEmpty(
+				1,
+				1,
+				false,
+				Image.Format.Rgba8);
+
+
+		causticsFallbackImage.SetPixel(
+			0,
+			0,
+			new Color(
+				0.5f,
+				0.5f,
+				0.5f,
+				1.0f));
+
+
+		_causticsFallback =
+			ImageTexture.CreateFromImage(
+				causticsFallbackImage);
+
+
 		_material =
 			new ShaderMaterial
 			{
@@ -638,6 +731,8 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		ApplyDisplayParameters();
 		ApplyPrimarySunParameters();
 		ApplyShallowWaterParameters();
+		ApplyCausticsParameters(
+			force: true);
 
 
 		_animatedWaveTexture =

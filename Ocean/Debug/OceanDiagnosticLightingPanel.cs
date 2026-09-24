@@ -120,6 +120,28 @@ internal sealed class OceanDiagnosticLightingPanel
 			(float)shallowColorStrength.Value);
 
 
+		var causticsStrength =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Caustics strength",
+				_surface?.WaterCausticsStrength ??
+					AnimatedWaveSurfaceRenderer
+						.DefaultWaterCausticsStrength,
+				0.0,
+				4.0,
+				0.01);
+
+
+		causticsStrength.ValueChanged +=
+			value =>
+				_surface?.SetWaterCausticsStrength(
+					(float)value);
+
+
+		_surface?.SetWaterCausticsStrength(
+			(float)causticsStrength.Value);
+
+
 		OceanDiagnosticUi.Check(
 			parent,
 			"Surface lighting",

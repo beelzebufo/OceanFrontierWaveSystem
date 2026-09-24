@@ -960,6 +960,12 @@ public partial class AnimatedWaveSurfaceRenderer
 		ApplyShallowWaterParameters();
 
 
+		// New nested materials share the same renderer-owned caustics texture
+		// and must receive the complete cached optical state.
+		ApplyCausticsParameters(
+			force: true);
+
+
 		SetAllSamplingParameter(
 			"normal_method",
 			NormalMethod);

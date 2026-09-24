@@ -72,6 +72,7 @@ public partial class AnimatedWaveSurfaceRenderer
 		//
 
 		ApplyVisualMicroNormalParameters();
+		ApplyCausticsParameters();
 		ApplyVisualTime();
 
 

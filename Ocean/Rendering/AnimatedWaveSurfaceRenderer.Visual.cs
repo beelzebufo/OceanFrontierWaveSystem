@@ -110,6 +110,172 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 	/// <summary>
+	/// Pushes renderer-only projected caustics settings to water surface
+	/// materials. The optional source is an ordinary Godot texture; the
+	/// neutral fallback keeps the sampler valid while the effect is disabled.
+	/// </summary>
+	private void ApplyCausticsParameters(
+		bool force = false)
+	{
+		if (_material == null)
+		{
+			return;
+		}
+
+
+		bool enabled =
+			CausticsTexture != null;
+
+
+		Texture2D textureToBind =
+			CausticsTexture ??
+			_causticsFallback;
+
+
+		float scale =
+			Mathf.Clamp(
+				float.IsFinite(CausticsScale)
+					? CausticsScale
+					: 5.0f,
+				0.1f,
+				50.0f);
+
+
+		float textureAverage =
+			Mathf.Clamp(
+				float.IsFinite(CausticsTextureAverage)
+					? CausticsTextureAverage
+					: 0.5f,
+				0.0f,
+				1.0f);
+
+
+		float focalDepth =
+			Mathf.Clamp(
+				float.IsFinite(CausticsFocalDepth)
+					? CausticsFocalDepth
+					: 2.0f,
+				0.0f,
+				100.0f);
+
+
+		float depthOfField =
+			Mathf.Clamp(
+				float.IsFinite(CausticsDepthOfField)
+					? CausticsDepthOfField
+					: 0.33f,
+				0.01f,
+				100.0f);
+
+
+		bool textureChanged =
+			!ReferenceEquals(
+				_appliedCausticsTexture,
+				CausticsTexture);
+
+
+		if (force ||
+			!_causticsStateInitialized ||
+			_appliedCausticsEnabled != enabled)
+		{
+			SetSurfaceParameter(
+				"water_caustics_enabled",
+				enabled);
+		}
+
+
+		if (textureToBind != null &&
+			(force ||
+			 !_causticsStateInitialized ||
+			 textureChanged))
+		{
+			SetSurfaceParameter(
+				"water_caustics_texture",
+				textureToBind);
+		}
+
+
+		if (force ||
+			!_causticsStateInitialized)
+		{
+			SetSurfaceParameter(
+				"water_caustics_strength",
+				_waterCausticsStrength);
+		}
+
+
+		if (force ||
+			!_causticsStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedCausticsScale,
+				scale))
+		{
+			SetSurfaceParameter(
+				"water_caustics_scale",
+				scale);
+		}
+
+
+		if (force ||
+			!_causticsStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedCausticsTextureAverage,
+				textureAverage))
+		{
+			SetSurfaceParameter(
+				"water_caustics_texture_average",
+				textureAverage);
+		}
+
+
+		if (force ||
+			!_causticsStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedCausticsFocalDepth,
+				focalDepth))
+		{
+			SetSurfaceParameter(
+				"water_caustics_focal_depth",
+				focalDepth);
+		}
+
+
+		if (force ||
+			!_causticsStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedCausticsDepthOfField,
+				depthOfField))
+		{
+			SetSurfaceParameter(
+				"water_caustics_depth_of_field",
+				depthOfField);
+		}
+
+
+		_appliedCausticsEnabled =
+			enabled;
+
+		_appliedCausticsTexture =
+			CausticsTexture;
+
+		_appliedCausticsScale =
+			scale;
+
+		_appliedCausticsTextureAverage =
+			textureAverage;
+
+		_appliedCausticsFocalDepth =
+			focalDepth;
+
+		_appliedCausticsDepthOfField =
+			depthOfField;
+
+		_causticsStateInitialized =
+			true;
+	}
+
+
+	/// <summary>
 	/// Pushes renderer-only visual micro-normal settings to the actual
 	/// water materials.
 	///

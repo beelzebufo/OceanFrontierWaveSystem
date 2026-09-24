@@ -62,6 +62,27 @@ uniform float water_sun_scatter_strength :
 uniform float water_sun_scatter_falloff :
     hint_range(1.0, 16.0, 0.1) = 5.0;
 
+uniform bool water_caustics_enabled = false;
+
+uniform sampler2D water_caustics_texture :
+    repeat_enable,
+    filter_linear_mipmap_anisotropic;
+
+uniform float water_caustics_strength :
+    hint_range(0.0, 4.0, 0.01) = 1.0;
+
+uniform float water_caustics_scale :
+    hint_range(0.1, 50.0, 0.1) = 5.0;
+
+uniform float water_caustics_texture_average :
+    hint_range(0.0, 1.0, 0.01) = 0.5;
+
+uniform float water_caustics_focal_depth :
+    hint_range(0.0, 100.0, 0.1) = 2.0;
+
+uniform float water_caustics_depth_of_field :
+    hint_range(0.01, 100.0, 0.01) = 0.33;
+
 uniform sampler2D screen_texture :
     hint_screen_texture,
     repeat_disable,
@@ -980,6 +1001,180 @@ void fragment()
             EXPOSURE;
 
 
+        // Crest-style projected caustics modify the already-lit opaque scene
+        // colour before water-volume extinction/scatter. Receiver depth comes
+        // only from the refracted screen-depth sample, never bathymetry.
+        vec3 to_sun_world =
+            normalize(
+                -primary_sun_ray_direction_world);
+
+
+        float primary_sun_energy =
+            max(
+                max(
+                    primary_sun_radiance.r,
+                    primary_sun_radiance.g),
+                primary_sun_radiance.b);
+
+
+        if (water_caustics_enabled &&
+            water_caustics_strength > 0.0 &&
+            !planet_curvature_enabled &&
+            scene_depth > 0.000001 &&
+            to_sun_world.y > 0.0001 &&
+            primary_sun_energy > 0.0001)
+        {
+            vec3 scene_world_position =
+                (
+                    INV_VIEW_MATRIX *
+                    vec4(
+                        scene_view_position,
+                        1.0)
+                ).xyz;
+
+
+            vec3 receiver_surface_displacement;
+
+
+            if (has_next_lod)
+            {
+                receiver_surface_displacement =
+                    sample_awf_lod(
+                        scene_world_position.xz,
+                        next_lod_center_xz,
+                        next_lod_world_size,
+                        next_lod);
+            }
+            else
+            {
+                receiver_surface_displacement =
+                    sample_awf_lod(
+                        scene_world_position.xz,
+                        lod_center_xz,
+                        lod_world_size,
+                        selected_lod);
+            }
+
+
+            // Canonical AnimatedWaveField displacement Y is relative to the
+            // current project sea-level baseline Y=0.
+            float receiver_surface_y =
+                receiver_surface_displacement.y;
+
+
+            float receiver_water_depth =
+                receiver_surface_y -
+                scene_world_position.y;
+
+
+            if (receiver_water_depth > 0.0)
+            {
+                // Crest's factor 4 reduces extreme projection stretching at
+                // grazing sun angles. This is an approximation, not ray tracing.
+                vec2 light_projection =
+                    to_sun_world.xz *
+                    receiver_water_depth /
+                    (
+                        4.0 *
+                        max(
+                            to_sun_world.y,
+                            0.0001)
+                    );
+
+
+                vec2 caustics_surface_xz =
+                    scene_world_position.xz +
+                    light_projection;
+
+
+                float caustics_scale =
+                    max(
+                        water_caustics_scale,
+                        0.1);
+
+
+                vec2 caustics_uv_1 =
+                    caustics_surface_xz /
+                        caustics_scale +
+                    vec2(
+                        0.044 * visual_time + 17.16,
+                        -0.169 * visual_time);
+
+
+                vec2 caustics_uv_2 =
+                    1.37 *
+                    caustics_surface_xz /
+                        caustics_scale +
+                    vec2(
+                        0.248 * visual_time,
+                        0.117 * visual_time);
+
+
+                float scene_z =
+                    max(
+                        -scene_view_position.z,
+                        1.0);
+
+
+                float caustics_mip_lod =
+                    log2(
+                        scene_z) +
+                    abs(
+                        receiver_water_depth -
+                        water_caustics_focal_depth) /
+                    max(
+                        water_caustics_depth_of_field,
+                        0.01);
+
+
+                vec3 luminance_weights =
+                    vec3(
+                        0.2126,
+                        0.7152,
+                        0.0722);
+
+
+                float caustics_1 =
+                    dot(
+                        textureLod(
+                            water_caustics_texture,
+                            caustics_uv_1,
+                            caustics_mip_lod).rgb,
+                        luminance_weights);
+
+
+                float caustics_2 =
+                    dot(
+                        textureLod(
+                            water_caustics_texture,
+                            caustics_uv_2,
+                            caustics_mip_lod).rgb,
+                        luminance_weights);
+
+
+                float caustics_signal =
+                    0.5 *
+                    (
+                        caustics_1 +
+                        caustics_2
+                    ) -
+                    water_caustics_texture_average;
+
+
+                float caustics_multiplier =
+                    max(
+                        0.0,
+                        1.0 +
+                            water_caustics_strength *
+                            caustics_signal);
+
+
+                refracted_scene_colour *=
+                    caustics_multiplier;
+            }
+        }
+
+
         vec3 directional_scatter =
             vec3(0.0);
 
@@ -1006,11 +1201,6 @@ void fragment()
                             VIEW,
                             0.0)
                     ).xyz);
-
-
-            vec3 to_sun_world =
-                normalize(
-                    -primary_sun_ray_direction_world);
 
 
             float towards_sun =
