@@ -158,6 +158,7 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 				"Grayscale",
 				"Sign",
 				"Magnitude",
+				"UV/material diagnostic",
 				"Normal RGB",
 				"Jacobian");
 

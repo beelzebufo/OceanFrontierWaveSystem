@@ -164,16 +164,15 @@ internal sealed class AnimatedWaveDerivativePass : IDisposable
 		uint groupsX = (uint)((_resolution + LocalSizeX - 1) / LocalSizeX);
 		uint groupsY = (uint)((_resolution + LocalSizeY - 1) / LocalSizeY);
 
+		// This list contains one dispatch and has no intra-list dependency.
+		// Cross-list ordering and resource visibility use RenderingDevice's
+		// existing command-list/resource synchronization contract, matching
+		// the neighbouring composition and consumer passes.
 		long computeList = _rd.ComputeListBegin();
 
-		// Make preceding final-field writes visible to this read pass.
-		_rd.ComputeListAddBarrier(computeList);
 		_rd.ComputeListBindComputePipeline(computeList, _pipeline);
 		_rd.ComputeListBindUniformSet(computeList, _uniformSet, 0);
 		_rd.ComputeListDispatch(computeList, groupsX, groupsY, (uint)_lodCount);
-
-		// Publish derivative image writes before later draw/compute consumers.
-		_rd.ComputeListAddBarrier(computeList);
 		_rd.ComputeListEnd();
 
 		DispatchCount++;
