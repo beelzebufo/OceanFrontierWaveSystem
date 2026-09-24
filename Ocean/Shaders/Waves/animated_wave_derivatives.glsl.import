@@ -11,3 +11,4 @@ source_file="res://Ocean/Shaders/Waves/animated_wave_derivatives.glsl"
 dest_files=["res://.godot/imported/animated_wave_derivatives.glsl-1c4aca73420881504e008153fe185992.res"]
 
 [params]
+
