@@ -11,6 +11,9 @@ uniform bool lighting_enabled = true;
 uniform float diagnostic_roughness :
     hint_range(0.0, 1.0) = 0.65;
 
+uniform float water_ior :
+    hint_range(1.0, 2.0, 0.001) = 1.333;
+
 
 // Renderer-only visual micro-normal layer.
 //
@@ -628,6 +631,10 @@ void fragment()
         diagnostic_roughness;
 
 
+    METALLIC =
+        0.0;
+
+
     if (lighting_enabled)
     {
         ALBEDO =
@@ -638,8 +645,25 @@ void fragment()
             vec3(0.0);
 
 
+        float ior_ratio =
+            (1.0 - water_ior) /
+            (1.0 + water_ior);
+
+
+        float water_f0 =
+            ior_ratio *
+            ior_ratio;
+
+
         SPECULAR =
-            0.5;
+            clamp(
+                sqrt(
+                    max(
+                        water_f0,
+                        0.0) /
+                    0.16),
+                0.0,
+                1.0);
     }
     else
     {

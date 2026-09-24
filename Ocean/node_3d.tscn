@@ -11,11 +11,22 @@
 [ext_resource type="Script" uid="uid://b6gwaay7q6jtl" path="res://Ocean/Debug/OceanPointQueryDiagnostic.cs" id="8_point_queries"]
 [ext_resource type="Script" uid="uid://babws5gk4e73c" path="res://Ocean/Waves/AnimatedWaves/AnimatedWaveRectDirectionInput.cs" id="10_ixw6g"]
 
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_diagnostic"]
+sky_top_color = Color(0.2, 0.43, 0.72, 1)
+sky_horizon_color = Color(0.69, 0.79, 0.9, 1)
+ground_bottom_color = Color(0.1, 0.13, 0.17, 1)
+ground_horizon_color = Color(0.55, 0.64, 0.72, 1)
+sun_angle_max = 8.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky_diagnostic"]
+sky_material = SubResource("ProceduralSkyMaterial_diagnostic")
+
 [sub_resource type="Environment" id="Environment_diagnostic_sky"]
-background_mode = 1
-background_color = Color(0.45, 0.7, 0.92, 1)
-ambient_light_source = 1
-reflected_light_source = 1
+background_mode = 2
+sky = SubResource("Sky_diagnostic")
+ambient_light_source = 3
+reflected_light_source = 2
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_diagnostic_hull"]
 size = Vector3(3.5, 1.7, 13)
@@ -44,7 +55,7 @@ environment = SubResource("Environment_diagnostic_sky")
 
 [node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
 script = ExtResource("3_surface")
-PlanetCurvatureEnabled = true
+PlanetCurvatureEnabled = false
 SpatialLodIndex = 0
 LayoutMode = 1
 VisualNormalMap = ExtResource("4_8gmc7")
