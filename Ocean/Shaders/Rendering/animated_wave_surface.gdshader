@@ -65,6 +65,13 @@ uniform sampler2D visual_normal_map :
     hint_normal,
     repeat_enable,
     filter_linear_mipmap_anisotropic;
+	
+	
+uniform vec3 water_horizon_radiance :
+    source_color = vec3(0.69, 0.79, 0.90);
+
+uniform float water_horizon_guard_fade :
+    hint_range(0.001, 0.2, 0.001) = 0.03;	
 
 
 // Crest-compatible parameter convention.
@@ -756,6 +763,13 @@ void fragment()
         0.0;
 
 
+    // RADIANCE.rgb/alpha overrides only environment radiance. Alpha 0 keeps
+    // Godot's native IBL unchanged. This lets the water guard reflections
+    // that point below the world horizon without replacing the PBR BRDF.
+    RADIANCE =
+        vec4(0.0);
+
+
     if (lighting_enabled)
     {
         // Keep the diagnostic surface colour as a restrained overlay. The
@@ -773,6 +787,60 @@ void fragment()
         vec3 final_normal =
             normalize(
                 NORMAL);
+
+
+        // Crest prevents ocean reflections from sampling below the world
+        // horizon. Godot's native IBL does not perform this water-specific
+        // clamp, so low-roughness wave slopes can sample the dark ground
+        // hemisphere and appear as black streaks.
+        //
+        // Mirror Godot 4.7's environment lookup direction first:
+        //     ref = reflect(-view, normal)
+        //     ref = mix(ref, normal, roughness^2)
+        // Then detect only the below-world-horizon portion and replace that
+        // environment radiance with the configured horizon radiance. Godot
+        // still applies its native IBL BRDF/Fresnel afterwards.
+        if (!planet_curvature_enabled)
+        {
+            vec3 reflection_view =
+                reflect(
+                    -normalize(
+                        VIEW),
+                    final_normal);
+
+
+            reflection_view =
+                mix(
+                    reflection_view,
+                    final_normal,
+                    diagnostic_roughness *
+                        diagnostic_roughness);
+
+
+            vec3 reflection_world =
+                normalize(
+                    (
+                        INV_VIEW_MATRIX *
+                        vec4(
+                            reflection_view,
+                            0.0)
+                    ).xyz);
+
+
+            float below_horizon =
+                smoothstep(
+                    0.0,
+                    max(
+                        water_horizon_guard_fade,
+                        0.0001),
+                    -reflection_world.y);
+
+
+            RADIANCE =
+                vec4(
+                    water_horizon_radiance,
+                    below_horizon);
+        }
 
 
         // Match Godot 4.7 BaseMaterial3D's screen-space refraction sign.
