@@ -19,8 +19,8 @@ uniform float water_refraction_strength :
 
 // Extinction coefficients are inverse metres. Godot world units are treated
 // as metres for this optical baseline.
-uniform vec3 water_extinction :
-    source_color = vec3(0.18, 0.07, 0.025);
+uniform vec3 water_extinction =
+    vec3(0.18, 0.07, 0.025);
 
 uniform vec3 water_scatter_color :
     source_color = vec3(0.015, 0.12, 0.18);
