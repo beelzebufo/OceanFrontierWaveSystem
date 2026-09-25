@@ -60,7 +60,7 @@ internal sealed class OceanDiagnosticLightingPanel
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Sun position",
-				0.35,
+				0.10,
 				0.0,
 				1.0,
 				0.01);
@@ -80,9 +80,7 @@ internal sealed class OceanDiagnosticLightingPanel
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Sun scatter strength",
-				_surface?.WaterSunScatterStrength ??
-					AnimatedWaveSurfaceRenderer
-						.DefaultWaterSunScatterStrength,
+				3.00,
 				0.0,
 				4.0,
 				0.01);
@@ -102,9 +100,7 @@ internal sealed class OceanDiagnosticLightingPanel
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Shallow colour strength",
-				_surface?.WaterShallowColorStrength ??
-					AnimatedWaveSurfaceRenderer
-						.DefaultWaterShallowColorStrength,
+				1.00,
 				0.0,
 				1.0,
 				0.01);
@@ -124,9 +120,7 @@ internal sealed class OceanDiagnosticLightingPanel
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Caustics strength",
-				_surface?.WaterCausticsStrength ??
-					AnimatedWaveSurfaceRenderer
-						.DefaultWaterCausticsStrength,
+				0.70,
 				0.0,
 				4.0,
 				0.01);
@@ -146,9 +140,7 @@ internal sealed class OceanDiagnosticLightingPanel
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Caustics distortion strength",
-				_surface?.WaterCausticsDistortionStrength ??
-					AnimatedWaveSurfaceRenderer
-						.DefaultWaterCausticsDistortionStrength,
+				0.25,
 				0.0,
 				2.0,
 				0.01);
@@ -164,27 +156,41 @@ internal sealed class OceanDiagnosticLightingPanel
 			(float)causticsDistortionStrength.Value);
 
 
-		OceanDiagnosticUi.Check(
+		var surfaceLighting =
+			OceanDiagnosticUi.Check(
 			parent,
 			"Surface lighting",
-			true)
-			.Toggled +=
-				value =>
-					_surface?.SetLightingEnabled(
-						value);
+			true);
 
 
-		OceanDiagnosticUi.Spin(
-			parent,
-			"Roughness",
-			0.65,
-			0.0,
-			1.0,
-			0.01)
-			.ValueChanged +=
-				value =>
-					_surface?.SetDiagnosticRoughness(
-						(float)value);
+		surfaceLighting.Toggled +=
+			value =>
+				_surface?.SetLightingEnabled(
+					value);
+
+
+		_surface?.SetLightingEnabled(
+			surfaceLighting.ButtonPressed);
+
+
+		var roughness =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Roughness",
+				0.08,
+				0.0,
+				1.0,
+				0.01);
+
+
+		roughness.ValueChanged +=
+			value =>
+				_surface?.SetDiagnosticRoughness(
+					(float)value);
+
+
+		_surface?.SetDiagnosticRoughness(
+			(float)roughness.Value);
 
 
 		OceanDiagnosticUi.Check(

@@ -50,8 +50,14 @@ void main()
     }
 
 
-    // Forward+/Mobile reverse-Z clear depth is zero. Leave invalid/far
-    // pixels unchanged rather than reconstructing an infinite position.
+    vec4 scene_color =
+        imageLoad(
+            color_image,
+            pixel);
+
+
+    // Forward+/Mobile reverse-Z clear depth is zero. Far/invalid pixels use
+    // the same maximum optical path as valid reconstructed geometry.
     float depth =
         texelFetch(
             depth_texture,
@@ -59,72 +65,61 @@ void main()
             0).r;
 
 
-    if (depth <= 0.000001)
-    {
-        return;
-    }
-
-
-    vec2 screen_uv =
-        (
-            vec2(
-                pixel) +
-            vec2(0.5)
-        ) /
-        params.raster_size;
-
-
-    vec4 view_h =
-        params.inverse_projection *
-        vec4(
-            screen_uv *
-                2.0 -
-                1.0,
-            depth,
-            1.0);
-
-
-    if (abs(
-            view_h.w) <= 0.000001)
-    {
-        return;
-    }
-
-
-    vec3 view_position =
-        view_h.xyz /
-        view_h.w;
-
-
-    if (any(
-            isnan(
-                view_position)) ||
-        any(
-            isinf(
-                view_position)))
-    {
-        return;
-    }
-
-
     float optical_path =
-        clamp(
-            length(
-                view_position),
-            0.0,
-            MAX_OPTICAL_PATH_METRES);
+        MAX_OPTICAL_PATH_METRES;
+
+
+    if (depth > 0.000001)
+    {
+        vec2 screen_uv =
+            (
+                vec2(
+                    pixel) +
+                vec2(0.5)
+            ) /
+            params.raster_size;
+
+
+        vec4 view_h =
+            params.inverse_projection *
+            vec4(
+                screen_uv *
+                    2.0 -
+                    1.0,
+                depth,
+                1.0);
+
+
+        if (abs(
+                view_h.w) > 0.000001)
+        {
+            vec3 view_position =
+                view_h.xyz /
+                view_h.w;
+
+
+            if (!any(
+                    isnan(
+                        view_position)) &&
+                !any(
+                    isinf(
+                        view_position)))
+            {
+                optical_path =
+                    clamp(
+                        length(
+                            view_position),
+                        0.0,
+                        MAX_OPTICAL_PATH_METRES);
+            }
+        }
+    }
 
 
     vec3 transmittance =
         exp(
             -WATER_EXTINCTION *
             optical_path);
-
-
-    vec4 scene_color =
-        imageLoad(
-            color_image,
-            pixel);
 
 
     vec3 result =

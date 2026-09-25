@@ -130,7 +130,7 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 
 		_runtime.FocusOverrideEnabled =
-			true;
+			false;
 
 
 		_runtime.LodScaleOverride =
@@ -138,7 +138,21 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 
 		_runtime.LodScaleOverrideEnabled =
-			true;
+			false;
+
+
+		if (_reference != null)
+		{
+			_reference.Visible =
+				false;
+		}
+
+
+		if (_pointQueries != null)
+		{
+			_pointQueries.Visible =
+				false;
+		}
 
 
 		if (_inset != null)

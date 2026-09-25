@@ -1,16 +1,32 @@
 using System;
 using Godot;
 using Godot.Collections;
+using OceanFrontier.Water.Queries;
+using OceanFrontier.Water.Runtime;
 
 namespace OceanFrontier.Water.Rendering.Underwater;
 
 /// <summary>
-/// Main-thread owner for the forced UW-2A compositor toggle.
+/// Main-thread owner for automatic underwater classification and the forced
+/// UW-2A compositor override.
 /// </summary>
 public partial class OceanUnderwaterController : Node
 {
-	private bool _forceUnderwater;
+	private readonly Vector2[] _queryPositions =
+		new Vector2[1];
 
+	private readonly Vector4[] _queryResults =
+		new Vector4[1];
+
+	private bool _forceUnderwater;
+	private bool _automaticUnderwaterEnabled = true;
+	private bool _hasValidSurface;
+	private bool _automaticUnderwater;
+
+	private long _lastCompletedGeneration;
+
+	private OceanRuntime _runtime;
+	private OceanPointQueryService.OwnerHandle _queryOwner;
 	private Camera3D _camera;
 	private Compositor _previousCompositor;
 	private Compositor _underwaterCompositor;
@@ -29,17 +45,47 @@ public partial class OceanUnderwaterController : Node
 				value;
 
 
-			if (_effect != null)
-			{
-				_effect.Enabled =
-					value;
-			}
+			ApplyEnabledState();
+		}
+	}
+
+
+	[Export]
+	public bool AutomaticUnderwater
+	{
+		get =>
+			_automaticUnderwaterEnabled;
+
+		set
+		{
+			_automaticUnderwaterEnabled =
+				value;
+
+
+			ApplyEnabledState();
 		}
 	}
 
 
 	public override void _Ready()
 	{
+		_runtime =
+			GetParent() as OceanRuntime;
+
+
+		if (_runtime == null)
+		{
+			GD.PushError(
+				"OceanUnderwaterController must be a direct child of OceanRuntime.");
+		}
+		else
+		{
+			_queryOwner =
+				_runtime.PointQueries.RegisterOwner(
+					1);
+		}
+
+
 		_camera =
 			GetViewport()?.GetCamera3D();
 
@@ -58,7 +104,7 @@ public partial class OceanUnderwaterController : Node
 			new OceanUnderwaterCompositorEffect
 			{
 				Enabled =
-					_forceUnderwater,
+					false,
 			};
 
 
@@ -95,11 +141,99 @@ public partial class OceanUnderwaterController : Node
 
 		_camera.Compositor =
 			_underwaterCompositor;
+
+
+		ApplyEnabledState();
+	}
+
+
+	public override void _Process(
+		double delta)
+	{
+		if (_runtime == null ||
+			_queryOwner == null ||
+			_camera == null)
+		{
+			return;
+		}
+
+
+		if (_runtime.PointQueries.TryCopyLatest(
+				_queryOwner,
+				_queryResults,
+				out int count,
+				out long generation,
+				out _,
+				out _) &&
+			generation >
+				_lastCompletedGeneration)
+		{
+			_lastCompletedGeneration =
+				generation;
+
+
+			Vector4 result =
+				_queryResults[0];
+
+
+			if (count == 1 &&
+				result.W > 0.5f &&
+				float.IsFinite(result.X) &&
+				float.IsFinite(result.Y) &&
+				float.IsFinite(result.Z))
+			{
+				_automaticUnderwater =
+					_camera.GlobalPosition.Y <
+					result.Y;
+
+				_hasValidSurface =
+					true;
+
+
+				ApplyEnabledState();
+			}
+		}
+
+
+		if (!_runtime.PointQueries.CanSubmitBatch(
+				_queryOwner))
+		{
+			return;
+		}
+
+
+		Vector3 cameraPosition =
+			_camera.GlobalPosition;
+
+
+		_queryPositions[0] =
+			new Vector2(
+				cameraPosition.X,
+				cameraPosition.Z);
+
+
+		_runtime.PointQueries.SubmitBatch(
+			_queryOwner,
+			_queryPositions,
+			0.0f);
 	}
 
 
 	public override void _ExitTree()
 	{
+		if (_queryOwner != null &&
+			_runtime != null &&
+			GodotObject.IsInstanceValid(
+				_runtime))
+		{
+			_runtime.PointQueries.UnregisterOwner(
+				_queryOwner);
+		}
+
+
+		_queryOwner =
+			null;
+
 		OceanUnderwaterCompositorEffect effect =
 			_effect;
 
@@ -140,5 +274,26 @@ public partial class OceanUnderwaterController : Node
 
 		_camera =
 			null;
+
+		_runtime =
+			null;
+	}
+
+
+	private void ApplyEnabledState()
+	{
+		if (_effect == null)
+		{
+			return;
+		}
+
+
+		_effect.Enabled =
+			_forceUnderwater ||
+			(
+				_automaticUnderwaterEnabled &&
+				_hasValidSurface &&
+				_automaticUnderwater
+			);
 	}
 }

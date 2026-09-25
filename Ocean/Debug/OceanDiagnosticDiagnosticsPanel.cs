@@ -66,7 +66,7 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 			OceanDiagnosticUi.Check(
 				parent,
 				"Show GPU point-query markers",
-				true);
+				false);
 
 
 		pointQueries.Toggled +=
@@ -83,6 +83,18 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 						value;
 				}
 			};
+
+
+		OceanPointQueryDiagnostic pointQueryDiagnostic =
+			_runtime.GetNodeOrNull<OceanPointQueryDiagnostic>(
+				"OceanPointQueryDiagnostic");
+
+
+		if (pointQueryDiagnostic != null)
+		{
+			pointQueryDiagnostic.Visible =
+				pointQueries.ButtonPressed;
+		}
 
 
 		VBoxContainer waves2D =

@@ -154,7 +154,7 @@ internal sealed class OceanDiagnosticCameraPanel
 			OceanDiagnosticUi.Check(
 				parent,
 				"Free camera",
-				false);
+				true);
 
 
 		_freeCamera.Toggled +=
@@ -229,7 +229,7 @@ internal sealed class OceanDiagnosticCameraPanel
 			OceanDiagnosticUi.Check(
 				parent,
 				"Ocean follows camera",
-				false);
+				true);
 
 
 		follow.Toggled +=
@@ -238,11 +238,15 @@ internal sealed class OceanDiagnosticCameraPanel
 					!value;
 
 
+		_runtime.FocusOverrideEnabled =
+			!follow.ButtonPressed;
+
+
 		var viewHeightLod =
 			OceanDiagnosticUi.Check(
 				parent,
 				"View-height LOD scaling",
-				false);
+				true);
 
 
 		viewHeightLod.Toggled +=
@@ -267,6 +271,14 @@ internal sealed class OceanDiagnosticCameraPanel
 				_framed =
 					false;
 			};
+
+
+		_runtime.LodScaleOverrideEnabled =
+			!viewHeightLod.ButtonPressed;
+
+
+		_camera?.SetFreeCameraEnabled(
+			_freeCamera.ButtonPressed);
 
 
 		VBoxContainer horizon =

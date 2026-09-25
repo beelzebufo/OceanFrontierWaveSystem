@@ -464,7 +464,7 @@ internal sealed class OceanDiagnosticOceanPanel
 			OceanDiagnosticUi.Check(
 				parent,
 				"Static reference frame",
-				true);
+				false);
 
 
 		frame.Toggled +=
@@ -476,6 +476,13 @@ internal sealed class OceanDiagnosticOceanPanel
 						value;
 				}
 			};
+
+
+		if (_reference != null)
+		{
+			_reference.Visible =
+				frame.ButtonPressed;
+		}
 
 
 		var markers =
@@ -490,6 +497,11 @@ internal sealed class OceanDiagnosticOceanPanel
 				_surface?.SetSurfaceMarkers(
 					value,
 					value);
+
+
+		_surface?.SetSurfaceMarkers(
+			markers.ButtonPressed,
+			markers.ButtonPressed);
 
 
 		_structure =
