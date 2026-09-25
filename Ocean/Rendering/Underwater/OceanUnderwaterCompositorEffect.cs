@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Godot;
 using Godot.Collections;
 
@@ -16,7 +17,7 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/underwater_simple.glsl";
 
-	private const uint PushConstantBytes = 112;
+	private const uint PushConstantBytes = 128;
 	private const float MaxOpticalPathMetres = 240.0f;
 
 	private readonly byte[] _pushBytes =
@@ -30,17 +31,28 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 	private Vector3 _extinction;
 	private Vector3 _deepScatterColor;
+	private Vector3 _primarySunRayDirectionWorld;
+	private Vector3 _primarySunRadiance;
+	private float _pendingCameraWaterDepth;
 
 
 	public OceanUnderwaterCompositorEffect(
 		Vector3 extinction,
-		Vector3 deepScatterColor)
+		Vector3 deepScatterColor,
+		Vector3 primarySunRayDirectionWorld,
+		Vector3 primarySunRadiance)
 	{
 		_extinction =
 			extinction;
 
 		_deepScatterColor =
 			deepScatterColor;
+
+		_primarySunRayDirectionWorld =
+			primarySunRayDirectionWorld;
+
+		_primarySunRadiance =
+			primarySunRadiance;
 
 
 		EffectCallbackType =
@@ -89,6 +101,37 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 		_deepScatterColor =
 			deepScatterColor;
+	}
+
+
+	/// <summary>Render thread only. Direction and radiance are coherent.</summary>
+	internal void SetPrimarySunState(
+		Vector3 rayDirectionWorld,
+		Vector3 linearRadiance)
+	{
+		_primarySunRayDirectionWorld =
+			rayDirectionWorld;
+
+		_primarySunRadiance =
+			linearRadiance;
+	}
+
+
+	/// <summary>
+	/// Main-thread publication of the canonical camera-surface query depth.
+	/// The render callback consumes this single scalar atomically.
+	/// </summary>
+	internal void SetPendingCameraWaterDepth(
+		float waterDepth)
+	{
+		Volatile.Write(
+			ref _pendingCameraWaterDepth,
+			float.IsFinite(
+				waterDepth)
+				? Mathf.Max(
+					waterDepth,
+					0.0f)
+				: 0.0f);
 	}
 
 
@@ -208,6 +251,37 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 				sceneData.GetViewCount());
 
 
+		Basis worldToView =
+			sceneData
+				.GetCamTransform()
+				.Basis
+				.Inverse();
+
+
+		Vector3 sunRayDirectionView =
+			worldToView *
+			_primarySunRayDirectionWorld;
+
+
+		float cameraWaterDepth =
+			Volatile.Read(
+				ref _pendingCameraWaterDepth);
+
+
+		float sunDownCos =
+			Mathf.Max(
+				-_primarySunRayDirectionWorld.Y,
+				0.0001f);
+
+
+		float incidentSunOpticalPath =
+			Mathf.Clamp(
+				cameraWaterDepth /
+					sunDownCos,
+				0.0f,
+				MaxOpticalPathMetres);
+
+
 		for (uint view = 0;
 			 view < viewCount;
 			 view++)
@@ -238,7 +312,9 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 			WritePushConstants(
 				size,
-				inverseProjection);
+				inverseProjection,
+				sunRayDirectionView,
+				incidentSunOpticalPath);
 
 
 			var colorUniform =
@@ -408,7 +484,9 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 	private void WritePushConstants(
 		Vector2I size,
-		Projection inverseProjection)
+		Projection inverseProjection,
+		Vector3 sunRayDirectionView,
+		float incidentSunOpticalPath)
 	{
 		Span<float> values =
 			MemoryMarshal.Cast<byte, float>(
@@ -417,8 +495,8 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 		values[0] = size.X;
 		values[1] = size.Y;
-		values[2] = 0.0f;
-		values[3] = 0.0f;
+		values[2] = _primarySunRadiance.X;
+		values[3] = _primarySunRadiance.Y;
 
 
 		WriteColumn(
@@ -451,7 +529,13 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 		values[24] = _deepScatterColor.X;
 		values[25] = _deepScatterColor.Y;
 		values[26] = _deepScatterColor.Z;
-		values[27] = 0.0f;
+		values[27] = _primarySunRadiance.Z;
+
+
+		values[28] = sunRayDirectionView.X;
+		values[29] = sunRayDirectionView.Y;
+		values[30] = sunRayDirectionView.Z;
+		values[31] = incidentSunOpticalPath;
 	}
 
 

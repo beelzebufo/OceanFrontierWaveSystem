@@ -26,6 +26,7 @@ public partial class OceanUnderwaterController : Node
 
 	private long _lastCompletedGeneration;
 	private int _appliedOpticsRevision = -1;
+	private int _appliedPrimarySunRevision = -1;
 
 	private OceanRuntime _runtime;
 	private OceanPointQueryService.OwnerHandle _queryOwner;
@@ -114,10 +115,24 @@ public partial class OceanUnderwaterController : Node
 		}
 
 
+		OceanPrimarySunState initialSun =
+			OceanPrimarySunState.Default;
+
+
+		if (_runtime != null)
+		{
+			_runtime.GetPrimarySunState(
+				out initialSun,
+				out _appliedPrimarySunRevision);
+		}
+
+
 		_effect =
 			new OceanUnderwaterCompositorEffect(
 				initialOptics.Extinction,
-				initialOptics.DeepScatterColor)
+				initialOptics.DeepScatterColor,
+				initialSun.RayDirectionWorld,
+				initialSun.LinearRadiance)
 			{
 				Enabled =
 					false,
@@ -175,6 +190,7 @@ public partial class OceanUnderwaterController : Node
 
 
 		ApplyOpticsState();
+		ApplyPrimarySunState();
 
 
 		if (_runtime.PointQueries.TryCopyLatest(
@@ -201,6 +217,13 @@ public partial class OceanUnderwaterController : Node
 				float.IsFinite(result.Y) &&
 				float.IsFinite(result.Z))
 			{
+				_effect?.SetPendingCameraWaterDepth(
+					Mathf.Max(
+						result.Y -
+							_camera.GlobalPosition.Y,
+						0.0f));
+
+
 				_automaticUnderwater =
 					_camera.GlobalPosition.Y <
 					result.Y;
@@ -356,6 +379,49 @@ public partial class OceanUnderwaterController : Node
 
 
 		_appliedOpticsRevision =
+			revision;
+	}
+
+
+	private void ApplyPrimarySunState()
+	{
+		_runtime.GetPrimarySunState(
+			out OceanPrimarySunState state,
+			out int revision);
+
+
+		if (_appliedPrimarySunRevision ==
+			revision)
+		{
+			return;
+		}
+
+
+		OceanUnderwaterCompositorEffect effect =
+			_effect;
+
+
+		if (effect == null)
+		{
+			return;
+		}
+
+
+		Vector3 rayDirectionWorld =
+			state.RayDirectionWorld;
+
+		Vector3 linearRadiance =
+			state.LinearRadiance;
+
+
+		RenderingServer.CallOnRenderThread(
+			Callable.From(() =>
+				effect.SetPrimarySunState(
+					rayDirectionWorld,
+					linearRadiance)));
+
+
+		_appliedPrimarySunRevision =
 			revision;
 	}
 }

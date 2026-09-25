@@ -347,7 +347,7 @@ internal sealed class OceanDiagnosticLightingPanel
 				0.0f);
 
 
-		_surface?.SetPrimarySunState(
+		_runtime?.SetPrimarySunState(
 			rayDirection,
 			new Vector3(
 				linearColor.R,

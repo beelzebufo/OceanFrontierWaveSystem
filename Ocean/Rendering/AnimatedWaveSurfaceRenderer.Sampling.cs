@@ -9,6 +9,7 @@ public partial class AnimatedWaveSurfaceRenderer
 		double delta)
 	{
 		ApplyOpticsParameters();
+		ApplyPrimarySunParameters();
 
 
 		//

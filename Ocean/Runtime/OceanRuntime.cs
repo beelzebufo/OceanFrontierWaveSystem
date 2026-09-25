@@ -80,6 +80,11 @@ public partial class OceanRuntime : Node
 
 	private int _opticsRevision = 1;
 
+	private OceanPrimarySunState _primarySunState =
+		OceanPrimarySunState.Default;
+
+	private int _primarySunRevision = 1;
+
 	private int _appliedH0Revision;
 
 	private bool _simulationPaused;
@@ -264,6 +269,42 @@ public partial class OceanRuntime : Node
 
 		revision =
 			_opticsRevision;
+	}
+
+
+	internal void GetPrimarySunState(
+		out OceanPrimarySunState state,
+		out int revision)
+	{
+		state =
+			_primarySunState;
+
+		revision =
+			_primarySunRevision;
+	}
+
+
+	internal void SetPrimarySunState(
+		Vector3 rayDirectionWorld,
+		Vector3 linearRadiance)
+	{
+		OceanPrimarySunState next =
+			OceanPrimarySunState.Create(
+				rayDirectionWorld,
+				linearRadiance);
+
+
+		if (_primarySunState.Equals(
+				next))
+		{
+			return;
+		}
+
+
+		_primarySunState =
+			next;
+
+		_primarySunRevision++;
 	}
 
 
@@ -1522,4 +1563,101 @@ public partial class OceanRuntime : Node
 
 		return texture.IsValid && lodCount > 0;
 	}
+}
+
+
+/// <summary>
+/// Immutable scene-lighting snapshot shared by renderer consumers. This is
+/// deliberately separate from physical OceanOpticsSettings.
+/// </summary>
+internal readonly struct OceanPrimarySunState :
+	IEquatable<OceanPrimarySunState>
+{
+	internal static readonly OceanPrimarySunState Default =
+		new(
+			new Vector3(
+				0.0f,
+				-1.0f,
+				0.0f),
+			Vector3.Zero);
+
+	internal readonly Vector3 RayDirectionWorld;
+	internal readonly Vector3 LinearRadiance;
+
+
+	private OceanPrimarySunState(
+		Vector3 rayDirectionWorld,
+		Vector3 linearRadiance)
+	{
+		RayDirectionWorld =
+			rayDirectionWorld;
+
+		LinearRadiance =
+			linearRadiance;
+	}
+
+
+	internal static OceanPrimarySunState Create(
+		Vector3 rayDirectionWorld,
+		Vector3 linearRadiance)
+	{
+		if (!rayDirectionWorld.IsFinite() ||
+			rayDirectionWorld.LengthSquared() < 1e-8f)
+		{
+			rayDirectionWorld =
+				Default.RayDirectionWorld;
+		}
+		else
+		{
+			rayDirectionWorld =
+				rayDirectionWorld.Normalized();
+		}
+
+
+		linearRadiance =
+			new Vector3(
+				SanitizeRadiance(
+					linearRadiance.X),
+				SanitizeRadiance(
+					linearRadiance.Y),
+				SanitizeRadiance(
+					linearRadiance.Z));
+
+
+		return
+			new OceanPrimarySunState(
+				rayDirectionWorld,
+				linearRadiance);
+	}
+
+
+	public bool Equals(
+		OceanPrimarySunState other) =>
+		RayDirectionWorld ==
+			other.RayDirectionWorld &&
+		LinearRadiance ==
+			other.LinearRadiance;
+
+
+	public override bool Equals(
+		object obj) =>
+		obj is OceanPrimarySunState other &&
+		Equals(
+			other);
+
+
+	public override int GetHashCode() =>
+		HashCode.Combine(
+			RayDirectionWorld,
+			LinearRadiance);
+
+
+	private static float SanitizeRadiance(
+		float value) =>
+		float.IsFinite(
+			value)
+			? Mathf.Max(
+				value,
+				0.0f)
+			: 0.0f;
 }

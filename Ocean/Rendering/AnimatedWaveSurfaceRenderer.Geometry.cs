@@ -954,7 +954,8 @@ public partial class AnimatedWaveSurfaceRenderer
 
 		// New nested materials must receive the renderer-owned primary-sun
 		// state even when the light itself has not changed.
-		ApplyPrimarySunParameters();
+		ApplyPrimarySunParameters(
+			force: true);
 
 
 		ApplyShallowWaterParameters();

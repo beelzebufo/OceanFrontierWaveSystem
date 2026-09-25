@@ -412,68 +412,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	}
 
 
-	internal void SetPrimarySunState(
-		Vector3 rayDirectionWorld,
-		Vector3 linearRadiance)
-	{
-		if (!rayDirectionWorld.IsFinite() ||
-			rayDirectionWorld.LengthSquared() < 1e-8f)
-		{
-			rayDirectionWorld =
-				new Vector3(
-					0.0f,
-					-1.0f,
-					0.0f);
-		}
-		else
-		{
-			rayDirectionWorld =
-				rayDirectionWorld.Normalized();
-		}
-
-
-		linearRadiance =
-			new Vector3(
-				float.IsFinite(linearRadiance.X)
-					? Mathf.Max(linearRadiance.X, 0.0f)
-					: 0.0f,
-
-				float.IsFinite(linearRadiance.Y)
-					? Mathf.Max(linearRadiance.Y, 0.0f)
-					: 0.0f,
-
-				float.IsFinite(linearRadiance.Z)
-					? Mathf.Max(linearRadiance.Z, 0.0f)
-					: 0.0f);
-
-
-		if (_primarySunRayDirectionWorld.IsEqualApprox(
-				rayDirectionWorld) &&
-			_primarySunRadiance.IsEqualApprox(
-				linearRadiance))
-		{
-			return;
-		}
-
-
-		_primarySunRayDirectionWorld =
-			rayDirectionWorld;
-
-		_primarySunRadiance =
-			linearRadiance;
-
-
-		SetSurfaceParameter(
-			"primary_sun_ray_direction_world",
-			_primarySunRayDirectionWorld);
-
-
-		SetSurfaceParameter(
-			"primary_sun_radiance",
-			_primarySunRadiance);
-	}
-
-
 	internal void SetWaterSunScatterStrength(
 		float strength)
 	{
