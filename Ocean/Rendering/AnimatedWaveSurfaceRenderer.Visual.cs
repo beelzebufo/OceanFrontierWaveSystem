@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using OceanFrontier.Water.Optics;
 
 namespace OceanFrontier.Water.Rendering;
 
@@ -11,6 +12,12 @@ public partial class AnimatedWaveSurfaceRenderer
 		{
 			return;
 		}
+
+
+		// Also seeds newly created nested materials with the authoritative
+		// physical medium state.
+		ApplyOpticsParameters(
+			force: true);
 
 
 		SetAllSamplingParameter(
@@ -68,6 +75,55 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
+	}
+
+
+	private int _appliedOpticsRevision = -1;
+
+
+	private void ApplyOpticsParameters(
+		bool force = false)
+	{
+		if (_material == null ||
+			_runtime == null)
+		{
+			return;
+		}
+
+
+		_runtime.GetOpticsState(
+			out OceanOpticsState state,
+			out int revision);
+
+
+		if (!force &&
+			_appliedOpticsRevision ==
+				revision)
+		{
+			return;
+		}
+
+
+		SetSurfaceParameter(
+			"water_ior",
+			state.WaterIor);
+
+
+		SetSurfaceParameter(
+			"water_extinction",
+			state.Extinction);
+
+
+		SetSurfaceParameter(
+			"water_scatter_color",
+			new Color(
+				state.DeepScatterColor.X,
+				state.DeepScatterColor.Y,
+				state.DeepScatterColor.Z));
+
+
+		_appliedOpticsRevision =
+			revision;
 	}
 
 

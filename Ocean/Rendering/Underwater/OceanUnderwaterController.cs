@@ -3,6 +3,7 @@ using Godot;
 using Godot.Collections;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Runtime;
+using OceanFrontier.Water.Optics;
 
 namespace OceanFrontier.Water.Rendering.Underwater;
 
@@ -24,6 +25,7 @@ public partial class OceanUnderwaterController : Node
 	private bool _automaticUnderwater;
 
 	private long _lastCompletedGeneration;
+	private int _appliedOpticsRevision = -1;
 
 	private OceanRuntime _runtime;
 	private OceanPointQueryService.OwnerHandle _queryOwner;
@@ -100,8 +102,22 @@ public partial class OceanUnderwaterController : Node
 		}
 
 
+		OceanOpticsState initialOptics =
+			OceanOpticsSettings.DefaultState;
+
+
+		if (_runtime != null)
+		{
+			_runtime.GetOpticsState(
+				out initialOptics,
+				out _appliedOpticsRevision);
+		}
+
+
 		_effect =
-			new OceanUnderwaterCompositorEffect
+			new OceanUnderwaterCompositorEffect(
+				initialOptics.Extinction,
+				initialOptics.DeepScatterColor)
 			{
 				Enabled =
 					false,
@@ -156,6 +172,9 @@ public partial class OceanUnderwaterController : Node
 		{
 			return;
 		}
+
+
+		ApplyOpticsState();
 
 
 		if (_runtime.PointQueries.TryCopyLatest(
@@ -295,5 +314,48 @@ public partial class OceanUnderwaterController : Node
 				_hasValidSurface &&
 				_automaticUnderwater
 			);
+	}
+
+
+	private void ApplyOpticsState()
+	{
+		_runtime.GetOpticsState(
+			out OceanOpticsState state,
+			out int revision);
+
+
+		if (_appliedOpticsRevision ==
+			revision)
+		{
+			return;
+		}
+
+
+		OceanUnderwaterCompositorEffect effect =
+			_effect;
+
+
+		if (effect == null)
+		{
+			return;
+		}
+
+
+		Vector3 extinction =
+			state.Extinction;
+
+		Vector3 deepScatterColor =
+			state.DeepScatterColor;
+
+
+		RenderingServer.CallOnRenderThread(
+			Callable.From(() =>
+				effect.SetOpticsState(
+					extinction,
+					deepScatterColor)));
+
+
+		_appliedOpticsRevision =
+			revision;
 	}
 }

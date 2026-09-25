@@ -16,7 +16,8 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/underwater_simple.glsl";
 
-	private const uint PushConstantBytes = 80;
+	private const uint PushConstantBytes = 112;
+	private const float MaxOpticalPathMetres = 240.0f;
 
 	private readonly byte[] _pushBytes =
 		new byte[PushConstantBytes];
@@ -27,9 +28,21 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 	private Rid _pipeline;
 	private Rid _nearestSampler;
 
+	private Vector3 _extinction;
+	private Vector3 _deepScatterColor;
 
-	public OceanUnderwaterCompositorEffect()
+
+	public OceanUnderwaterCompositorEffect(
+		Vector3 extinction,
+		Vector3 deepScatterColor)
 	{
+		_extinction =
+			extinction;
+
+		_deepScatterColor =
+			deepScatterColor;
+
+
 		EffectCallbackType =
 			EffectCallbackTypeEnum.PostTransparent;
 
@@ -60,6 +73,22 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 		_spirV =
 			shaderFile.GetSpirV();
+	}
+
+
+	/// <summary>
+	/// Render thread only. Extinction and scatter are replaced together so a
+	/// callback can never observe a partially updated medium state.
+	/// </summary>
+	internal void SetOpticsState(
+		Vector3 extinction,
+		Vector3 deepScatterColor)
+	{
+		_extinction =
+			extinction;
+
+		_deepScatterColor =
+			deepScatterColor;
 	}
 
 
@@ -411,6 +440,18 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 			values,
 			16,
 			inverseProjection.W);
+
+
+		values[20] = _extinction.X;
+		values[21] = _extinction.Y;
+		values[22] = _extinction.Z;
+		values[23] = MaxOpticalPathMetres;
+
+
+		values[24] = _deepScatterColor.X;
+		values[25] = _deepScatterColor.Y;
+		values[26] = _deepScatterColor.Z;
+		values[27] = 0.0f;
 	}
 
 

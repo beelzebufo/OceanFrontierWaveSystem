@@ -8,6 +8,9 @@ public partial class AnimatedWaveSurfaceRenderer
 	public override void _Process(
 		double delta)
 	{
+		ApplyOpticsParameters();
+
+
 		//
 		// Copy ONE coherent committed AnimatedWaveField spatial state.
 		//

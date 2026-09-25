@@ -12,23 +12,10 @@ layout(push_constant, std430) uniform Params
     vec2 raster_size;
     vec2 reserved;
     mat4 inverse_projection;
+    vec4 extinction_and_max_path;
+    vec4 scatter_and_padding;
 }
 params;
-
-const vec3 WATER_EXTINCTION =
-    vec3(
-        0.18,
-        0.07,
-        0.025);
-
-const vec3 WATER_SCATTER =
-    vec3(
-        0.015,
-        0.12,
-        0.18);
-
-const float MAX_OPTICAL_PATH_METRES =
-    240.0;
 
 
 void main()
@@ -66,7 +53,7 @@ void main()
 
 
     float optical_path =
-        MAX_OPTICAL_PATH_METRES;
+        params.extinction_and_max_path.w;
 
 
     if (depth > 0.000001)
@@ -110,7 +97,7 @@ void main()
                         length(
                             view_position),
                         0.0,
-                        MAX_OPTICAL_PATH_METRES);
+                        params.extinction_and_max_path.w);
             }
         }
     }
@@ -118,14 +105,14 @@ void main()
 
     vec3 transmittance =
         exp(
-            -WATER_EXTINCTION *
+            -params.extinction_and_max_path.xyz *
             optical_path);
 
 
     vec3 result =
         scene_color.rgb *
             transmittance +
-        WATER_SCATTER *
+        params.scatter_and_padding.xyz *
             (
                 vec3(1.0) -
                 transmittance

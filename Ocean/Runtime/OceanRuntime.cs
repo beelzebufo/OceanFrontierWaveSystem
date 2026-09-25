@@ -6,6 +6,7 @@ using OceanFrontier.Water.Waves.FFT;
 using OceanFrontier.Water.Waves.AnimatedWaves;
 using OceanFrontier.Water.Waves.SeaFloorDepth;
 using OceanFrontier.Water.Queries;
+using OceanFrontier.Water.Optics;
 
 namespace OceanFrontier.Water.Runtime;
 
@@ -17,6 +18,9 @@ public partial class OceanRuntime : Node
 
 	[Export]
 	public SpectrumDefinition Spectrum { get; set; } = new();
+
+	[Export]
+	public OceanOpticsSettings Optics { get; set; } = new();
 
 	[Export(PropertyHint.Range, "16,512,1")]
 	public int FftResolution { get; set; } = 128;
@@ -70,6 +74,11 @@ public partial class OceanRuntime : Node
 	private RuntimeWaveSettings _startupWaveSettings;
 	private RuntimeWaveSettings _requestedWaveSettings;
 	private RuntimeWaveSettings _frameWaveSettings;
+
+	private OceanOpticsState _opticsState =
+		OceanOpticsSettings.DefaultState;
+
+	private int _opticsRevision = 1;
 
 	private int _appliedH0Revision;
 
@@ -246,6 +255,18 @@ public partial class OceanRuntime : Node
 		_startupWaveSettings?.Copy();
 
 
+	internal void GetOpticsState(
+		out OceanOpticsState state,
+		out int revision)
+	{
+		state =
+			_opticsState;
+
+		revision =
+			_opticsRevision;
+	}
+
+
 	internal void RequestWaveSettings(
 		RuntimeWaveSettings requested)
 	{
@@ -293,6 +314,8 @@ public partial class OceanRuntime : Node
 		_renderUpdateCallable =
 			Callable.From(
 				RenderThreadUpdateSpectrum);
+
+		CaptureOpticsSettings();
 
 		QueueGpuInitialization();
 	}
@@ -817,6 +840,9 @@ public partial class OceanRuntime : Node
 	public override void _Process(
 		double delta)
 	{
+		CaptureOpticsSettings();
+
+
 		if (!_simulationPaused)
 		{
 			_simulationTime +=
@@ -881,6 +907,31 @@ public partial class OceanRuntime : Node
 
 		RenderingServer.CallOnRenderThread(
 			_renderUpdateCallable);
+	}
+
+
+	/// <summary>
+	/// Main-thread Resource read. Consumers observe only this coherent value
+	/// snapshot and revision; the render thread never touches the Resource.
+	/// </summary>
+	private void CaptureOpticsSettings()
+	{
+		OceanOpticsState next =
+			Optics?.Snapshot() ??
+			OceanOpticsSettings.DefaultState;
+
+
+		if (_opticsState.Equals(
+				next))
+		{
+			return;
+		}
+
+
+		_opticsState =
+			next;
+
+		_opticsRevision++;
 	}
 
 
