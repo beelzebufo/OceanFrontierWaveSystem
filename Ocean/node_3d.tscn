@@ -12,6 +12,7 @@
 [ext_resource type="Script" uid="uid://b6gwaay7q6jtl" path="res://Ocean/Debug/OceanPointQueryDiagnostic.cs" id="8_point_queries"]
 [ext_resource type="Script" uid="uid://babws5gk4e73c" path="res://Ocean/Waves/AnimatedWaves/AnimatedWaveRectDirectionInput.cs" id="10_ixw6g"]
 [ext_resource type="Script" uid="uid://vhpnweemwyoy" path="res://Ocean/Waves/SeaFloorDepth/SeaFloorDepthRectInput.cs" id="11_brc6h"]
+[ext_resource type="Script" uid="uid://b3rpa8s0aiagb" path="res://Ocean/Rendering/Underwater/OceanUnderwaterController.cs" id="12_underwater"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_diagnostic"]
 sky_top_color = Color(0.2, 0.43, 0.72, 1)
@@ -65,6 +66,9 @@ script = ExtResource("1_ocean_runtime")
 transform = Transform3D(1, 0, 0, 0, 0.5, 0.8660254, 0, -0.8660254, 0.5, 0, 45, 25)
 current = true
 script = ExtResource("4_camera")
+
+[node name="OceanUnderwaterController" type="Node" parent="."]
+script = ExtResource("12_underwater")
 
 [node name="DiagnosticEnvironment" type="WorldEnvironment" parent="." unique_id=1659707573]
 environment = SubResource("Environment_diagnostic_sky")
