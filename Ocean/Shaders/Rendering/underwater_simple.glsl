@@ -28,7 +28,7 @@ const vec3 WATER_SCATTER =
         0.18);
 
 const float MAX_OPTICAL_PATH_METRES =
-    100.0;
+    240.0;
 
 
 void main()
