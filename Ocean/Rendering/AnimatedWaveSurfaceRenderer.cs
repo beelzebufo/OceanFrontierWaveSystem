@@ -26,6 +26,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	internal const float DefaultWaterSunScatterStrength = 0.5f;
 	internal const float DefaultWaterShallowColorStrength = 1.0f;
 	internal const float DefaultWaterCausticsStrength = 1.0f;
+	internal const float DefaultWaterCausticsDistortionStrength = 0.15f;
 
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
@@ -120,6 +121,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	[Export(PropertyHint.Range, "0.01,100,0.01")]
 	public float CausticsDepthOfField { get; set; } = 0.33f;
+
+
+	[Export]
+	public Texture2D CausticsDistortionTexture { get; set; }
+
+
+	[Export(PropertyHint.Range, "0.1,50,0.1")]
+	public float CausticsDistortionScale { get; set; } = 10.0f;
 
 
 	private OceanRuntime _runtime;
@@ -217,6 +226,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _waterCausticsStrength =
 		DefaultWaterCausticsStrength;
 
+	private float _waterCausticsDistortionStrength =
+		DefaultWaterCausticsDistortionStrength;
+
 	private bool _hasSeaFloorDepth;
 
 
@@ -271,6 +283,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _appliedCausticsTextureAverage = float.NaN;
 	private float _appliedCausticsFocalDepth = float.NaN;
 	private float _appliedCausticsDepthOfField = float.NaN;
+	private bool _appliedCausticsDistortionEnabled;
+	private Texture2D _appliedCausticsDistortionTexture;
+	private float _appliedCausticsDistortionScale = float.NaN;
 
 
 	internal int SelectedLodIndex =>
@@ -291,6 +306,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	internal float WaterCausticsStrength =>
 		_waterCausticsStrength;
+
+
+	internal float WaterCausticsDistortionStrength =>
+		_waterCausticsDistortionStrength;
 
 
 	internal void SetSpatialLod(
@@ -522,6 +541,36 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"water_caustics_strength",
 			_waterCausticsStrength);
+	}
+
+
+	internal void SetWaterCausticsDistortionStrength(
+		float strength)
+	{
+		strength =
+			Mathf.Clamp(
+				float.IsFinite(strength)
+					? strength
+					: DefaultWaterCausticsDistortionStrength,
+				0.0f,
+				2.0f);
+
+
+		if (Mathf.IsEqualApprox(
+				_waterCausticsDistortionStrength,
+				strength))
+		{
+			return;
+		}
+
+
+		_waterCausticsDistortionStrength =
+			strength;
+
+
+		SetSurfaceParameter(
+			"water_caustics_distortion_strength",
+			_waterCausticsDistortionStrength);
 	}
 
 

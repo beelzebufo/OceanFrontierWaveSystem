@@ -127,8 +127,17 @@ public partial class AnimatedWaveSurfaceRenderer
 			CausticsTexture != null;
 
 
+		bool distortionEnabled =
+			CausticsDistortionTexture != null;
+
+
 		Texture2D textureToBind =
 			CausticsTexture ??
+			_causticsFallback;
+
+
+		Texture2D distortionTextureToBind =
+			CausticsDistortionTexture ??
 			_causticsFallback;
 
 
@@ -168,10 +177,25 @@ public partial class AnimatedWaveSurfaceRenderer
 				100.0f);
 
 
+		float distortionScale =
+			Mathf.Clamp(
+				float.IsFinite(CausticsDistortionScale)
+					? CausticsDistortionScale
+					: 10.0f,
+				0.1f,
+				50.0f);
+
+
 		bool textureChanged =
 			!ReferenceEquals(
 				_appliedCausticsTexture,
 				CausticsTexture);
+
+
+		bool distortionTextureChanged =
+			!ReferenceEquals(
+				_appliedCausticsDistortionTexture,
+				CausticsDistortionTexture);
 
 
 		if (force ||
@@ -196,11 +220,37 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 		if (force ||
+			!_causticsStateInitialized ||
+			_appliedCausticsDistortionEnabled != distortionEnabled)
+		{
+			SetSurfaceParameter(
+				"water_caustics_distortion_enabled",
+				distortionEnabled);
+		}
+
+
+		if (distortionTextureToBind != null &&
+			(force ||
+			 !_causticsStateInitialized ||
+			 distortionTextureChanged))
+		{
+			SetSurfaceParameter(
+				"water_caustics_distortion_texture",
+				distortionTextureToBind);
+		}
+
+
+		if (force ||
 			!_causticsStateInitialized)
 		{
 			SetSurfaceParameter(
 				"water_caustics_strength",
 				_waterCausticsStrength);
+
+
+			SetSurfaceParameter(
+				"water_caustics_distortion_strength",
+				_waterCausticsDistortionStrength);
 		}
 
 
@@ -252,6 +302,18 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
+		if (force ||
+			!_causticsStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedCausticsDistortionScale,
+				distortionScale))
+		{
+			SetSurfaceParameter(
+				"water_caustics_distortion_scale",
+				distortionScale);
+		}
+
+
 		_appliedCausticsEnabled =
 			enabled;
 
@@ -269,6 +331,15 @@ public partial class AnimatedWaveSurfaceRenderer
 
 		_appliedCausticsDepthOfField =
 			depthOfField;
+
+		_appliedCausticsDistortionEnabled =
+			distortionEnabled;
+
+		_appliedCausticsDistortionTexture =
+			CausticsDistortionTexture;
+
+		_appliedCausticsDistortionScale =
+			distortionScale;
 
 		_causticsStateInitialized =
 			true;

@@ -83,6 +83,18 @@ uniform float water_caustics_focal_depth :
 uniform float water_caustics_depth_of_field :
     hint_range(0.01, 100.0, 0.01) = 0.33;
 
+uniform bool water_caustics_distortion_enabled = false;
+
+uniform sampler2D water_caustics_distortion_texture :
+    repeat_enable,
+    filter_linear_mipmap_anisotropic;
+
+uniform float water_caustics_distortion_strength :
+    hint_range(0.0, 2.0, 0.01) = 0.15;
+
+uniform float water_caustics_distortion_scale :
+    hint_range(0.1, 50.0, 0.1) = 10.0;
+
 uniform sampler2D screen_texture :
     hint_screen_texture,
     repeat_disable,
@@ -1108,6 +1120,44 @@ void fragment()
                     vec2(
                         0.248 * visual_time,
                         0.117 * visual_time);
+
+
+                if (water_caustics_distortion_enabled &&
+                    water_caustics_distortion_strength > 0.0)
+                {
+                    vec2 distortion_uv =
+                        caustics_surface_xz /
+                            max(
+                                water_caustics_distortion_scale,
+                                0.0001) +
+                        vec2(
+                            0.031 * visual_time,
+                            -0.027 * visual_time);
+
+
+                    vec2 distortion_sample =
+                        textureLod(
+                            water_caustics_distortion_texture,
+                            distortion_uv,
+                            0.0).rg;
+
+
+                    vec2 distortion_offset =
+                        (
+                            distortion_sample *
+                                2.0 -
+                            1.0
+                        ) *
+                        water_caustics_distortion_strength;
+
+
+                    caustics_uv_1 +=
+                        distortion_offset;
+
+
+                    caustics_uv_2 +=
+                        distortion_offset;
+                }
 
 
                 float scene_z =
