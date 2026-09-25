@@ -2,6 +2,8 @@
 extends Node3D
 class_name LowPolyTerrainManager
 
+const LOWPOLY_TERRAIN_STITCH_SEAM_SCRIPT := preload("res://addons/lowpolyterrain/LowPolyTerrainStitchSeam.gd")
+
 ## Master controller script that handles seamless height coordinates, multi-chunk modification,
 ## multi-pass smoothing operations, and automated static collision baking.
 
@@ -13,6 +15,15 @@ signal signal_export_requested
 ## first. Carries how many chunks would be lost. Nothing happens until the answer comes back
 ## through apply_dimension_changes_confirmed().
 signal signal_shrink_confirmation_requested(lost_chunks: int)
+
+## Emitted when the authoritative stored seam itself changes (capture/dimension migration).
+## Macro shells and future neighbouring detail zones bind to this rather than sampling each
+## other's render meshes.
+signal signal_stitch_seam_changed(revision: int)
+
+## Emitted after terrain geometry changes while the seam itself remains fixed. MacroShell uses
+## this to refresh its first-ring normals for SMOOTH shading once per completed edit.
+signal signal_terrain_geometry_changed
 
 # Centralized structural constants for advanced Inspector paths
 const GROUP_DIMENSIONS := "World Dimensions (Requires Apply)"
@@ -291,12 +302,16 @@ func _generate_noise_terrain() -> void:
 				added_height = noise_val * amp
 				
 			var current_index: int = z * total_x + x
+			added_height *= get_outer_stitch_weight(x, z)
 			global_height_data[current_index] += added_height
+
+	_apply_stitch_seam_to_heightfield(false)
 
 	for coord in _get_chunk_coords():
 		_update_single_chunk(coord)
 
 	queue_particles_collision_refresh()
+	signal_terrain_geometry_changed.emit()
 
 	# [GLOBAL UNDO] Securely fetch manager and commit history entry inside editor workspace
 	if Engine.is_editor_hint():
@@ -389,6 +404,32 @@ enum ShadingMode {
 		_queue_setup()
 
 
+
+
+# LOWPOLY_STITCH_SEAM_PATCH_V1
+@export_group("Macro Terrain Stitch")
+
+## Keeps the outer heightfield ring pinned to the stored Stitch Seam.
+## Disable only temporarily when intentionally redefining the detail-zone border, then press
+## Capture Current Border As Stitch Seam and re-enable this.
+@export var lock_outer_stitch: bool = true
+
+## Sculpt strength fades from 0 on the exact seam to full strength this many cells inward.
+## This prevents a tall/vertical triangle directly behind an immovable border vertex.
+@export_range(0, 16, 1)
+var stitch_blend_cells: int = 4
+
+## Separate saved Resource. It is the one authoritative border object shared by this LowPoly
+## heightfield, MacroShell and future neighbouring detail/transition zones.
+@export_storage var stitch_seam: Resource = null
+
+@export_tool_button("Capture Current Border As Stitch Seam", "Mesh")
+var capture_stitch_seam_button: Callable = func() -> void:
+	capture_current_border_as_stitch_seam()
+
+@export_tool_button("Reapply Stored Stitch Seam", "Reload")
+var reapply_stitch_seam_button: Callable = func() -> void:
+	_apply_stitch_seam_to_heightfield(true, true)
 
 
 @export_group("Brush Settings")
@@ -907,6 +948,9 @@ func _ready() -> void:
 		chunk_activity_data.resize(world_chunks.x * world_chunks.y)
 		chunk_activity_data.fill(1)
 
+	# Stored Stitch Seam wins over any stale/out-of-band boundary edits before first mesh build.
+	_ensure_stitch_seam()
+
 	_apply_derived_cull_radius()
 
 	# NOTIFICATION_ENTER_WORLD already fired before this point, at which time the backend did
@@ -938,10 +982,188 @@ func get_height_at(x: int, z: int) -> float:
 
 
 ## Highly optimized O(1) mutation method tailored for zero-latency brush sculpting.
+## Exact seam vertices are protected here as a final safety net for external callers too.
 func set_height_at(x: int, z: int, value: float) -> void:
-	if x >= 0 and x < _total_vertices_x and z >= 0 and z < _total_vertices_z:
-		global_height_data[z * _total_vertices_x + x] = value
+	if x < 0 or x >= _total_vertices_x or z < 0 or z >= _total_vertices_z:
+		return
+	if lock_outer_stitch and is_outer_stitch_vertex(x, z):
+		return
+	global_height_data[z * _total_vertices_x + x] = value
 
+
+## True only for the single outermost heightfield ring shared with MacroShell.
+func is_outer_stitch_vertex(gx: int, gz: int) -> bool:
+	if _total_vertices_x <= 0 or _total_vertices_z <= 0:
+		return false
+	return (
+		gx == 0
+		or gz == 0
+		or gx == _total_vertices_x - 1
+		or gz == _total_vertices_z - 1
+	)
+
+
+## 0 on the exact seam, smoothly increasing to 1 over stitch_blend_cells inward.
+func get_outer_stitch_weight(gx: int, gz: int) -> float:
+	if not lock_outer_stitch:
+		return 1.0
+	if _total_vertices_x <= 0 or _total_vertices_z <= 0:
+		return 1.0
+
+	var distance_to_edge: int = mini(
+		mini(gx, (_total_vertices_x - 1) - gx),
+		mini(gz, (_total_vertices_z - 1) - gz)
+	)
+
+	if distance_to_edge <= 0:
+		return 0.0
+	if stitch_blend_cells <= 0:
+		return 1.0
+
+	var t: float = clampf(
+		float(distance_to_edge) / float(stitch_blend_cells),
+		0.0,
+		1.0
+	)
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _expected_stitch_seam_count() -> int:
+	if _total_vertices_x < 2 or _total_vertices_z < 2:
+		return 0
+	return 2 * _total_vertices_x + 2 * _total_vertices_z - 4
+
+
+## Canonical clockwise perimeter mapping. Every seam consumer uses this exact ordering.
+func get_stitch_seam_grid_coord(index: int) -> Vector2i:
+	var expected: int = _expected_stitch_seam_count()
+	if index < 0 or index >= expected:
+		return Vector2i(-1, -1)
+
+	# Top: left -> right.
+	if index < _total_vertices_x:
+		return Vector2i(index, 0)
+
+	var cursor: int = index - _total_vertices_x
+
+	# Right: top+1 -> bottom.
+	var right_count: int = _total_vertices_z - 1
+	if cursor < right_count:
+		return Vector2i(_total_vertices_x - 1, cursor + 1)
+	cursor -= right_count
+
+	# Bottom: right-1 -> left.
+	var bottom_count: int = _total_vertices_x - 1
+	if cursor < bottom_count:
+		return Vector2i((_total_vertices_x - 2) - cursor, _total_vertices_z - 1)
+	cursor -= bottom_count
+
+	# Left: bottom-1 -> top+1.
+	return Vector2i(0, (_total_vertices_z - 2) - cursor)
+
+
+func _ensure_stitch_seam_resource() -> Resource:
+	if stitch_seam == null:
+		stitch_seam = LOWPOLY_TERRAIN_STITCH_SEAM_SCRIPT.new()
+		# Reusable island scenes get independent seam state per scene instance.
+		stitch_seam.resource_local_to_scene = true
+	return stitch_seam
+
+
+func _stitch_seam_metadata_matches() -> bool:
+	var seam := _ensure_stitch_seam_resource()
+	return (
+		seam.grid_size == Vector2i(_total_vertices_x, _total_vertices_z)
+		and is_equal_approx(seam.cell_size, cell_size)
+		and seam.local_positions.size() == _expected_stitch_seam_count()
+	)
+
+
+## Intentionally redefines the authoritative seam from the CURRENT heightfield boundary.
+## Normal sculpting never calls this; dimension/grid changes do.
+func capture_current_border_as_stitch_seam() -> void:
+	if global_height_data.is_empty():
+		return
+	if _total_vertices_x < 2 or _total_vertices_z < 2:
+		return
+
+	var expected: int = _expected_stitch_seam_count()
+	var captured := PackedVector3Array()
+	captured.resize(expected)
+
+	for i in range(expected):
+		var coord: Vector2i = get_stitch_seam_grid_coord(i)
+		captured[i] = Vector3(
+			float(coord.x) * cell_size,
+			get_height_at(coord.x, coord.y),
+			-float(coord.y) * cell_size
+		)
+
+	var seam := _ensure_stitch_seam_resource()
+	seam.local_positions = captured
+	seam.grid_size = Vector2i(_total_vertices_x, _total_vertices_z)
+	seam.cell_size = cell_size
+	seam.revision += 1
+	signal_stitch_seam_changed.emit(seam.revision)
+
+
+## Guarantees that a valid seam exists. With protection enabled its Y values are authoritative
+## over the heightfield boundary. With protection temporarily disabled the border may be edited
+## until Capture Current Border As Stitch Seam is pressed.
+func _ensure_stitch_seam() -> void:
+	if global_height_data.is_empty():
+		return
+	if not _stitch_seam_metadata_matches():
+		capture_current_border_as_stitch_seam()
+		return
+	if lock_outer_stitch:
+		_apply_stitch_seam_to_heightfield(false)
+
+
+## Restores the exact shared border from saved seam data.
+## force=true is reserved for the explicit Reapply button.
+func _apply_stitch_seam_to_heightfield(
+	rebuild_chunks: bool = false,
+	force: bool = false
+) -> void:
+	if not force and not lock_outer_stitch:
+		return
+	if not _stitch_seam_metadata_matches():
+		return
+
+	var seam := _ensure_stitch_seam_resource()
+	var touched: Array[Vector2i] = []
+
+	for i in range(seam.local_positions.size()):
+		var coord: Vector2i = get_stitch_seam_grid_coord(i)
+		if coord.x < 0:
+			continue
+
+		var index: int = coord.y * _total_vertices_x + coord.x
+		var seam_height: float = seam.local_positions[i].y
+		if is_equal_approx(global_height_data[index], seam_height):
+			continue
+
+		global_height_data[index] = seam_height
+		_add_affected_chunks_to_update(coord.x, coord.y, touched)
+
+	if rebuild_chunks:
+		for coord in touched:
+			if _has_chunk(coord):
+				_update_single_chunk(coord)
+		queue_particles_collision_refresh()
+		signal_terrain_geometry_changed.emit()
+
+
+## Public source-of-truth access for MacroShell and future detail/transition consumers.
+func get_stitch_seam_local_positions() -> PackedVector3Array:
+	_ensure_stitch_seam()
+	return _ensure_stitch_seam_resource().local_positions
+
+
+func get_stitch_seam_resource() -> Resource:
+	_ensure_stitch_seam()
+	return _ensure_stitch_seam_resource()
 
 
 ## Returns the terrain height at a world-space XZ position, in WORLD space.
@@ -1470,6 +1692,9 @@ func _apply_dimension_snapshot(
 	chunk_activity_data = activity.duplicate()
 	global_paint_data = paint.duplicate()
 
+	# A restored structural grid owns its own border geometry.
+	capture_current_border_as_stitch_seam()
+
 	_apply_derived_cull_radius()
 	rebuild_chunks_structure()
 	notify_property_list_changed()
@@ -1537,6 +1762,9 @@ func _migrate_grid_data() -> void:
 	global_height_data = new_height_data
 	_migrate_paint_data(old_vertices_x, old_vertices_z)
 
+	# Structural bounds changed, so the migrated border becomes the new authoritative seam.
+	capture_current_border_as_stitch_seam()
+
 	# The culling radius is expressed in metres, so it has to follow the new chunk dimensions.
 	_apply_derived_cull_radius()
 
@@ -1560,6 +1788,7 @@ func rebuild_chunks_structure() -> void:
 		chunk_activity_data.fill(1)
 		
 	_recalculate_matrix_bounds()
+	_ensure_stitch_seam()
 
 	# Dimensions are final at this point, so one call here keeps the grid overlay correct for
 	# both backends without duplicating it into the branch below.
@@ -1658,13 +1887,21 @@ func _smooth_entire_terrain() -> void:
 				var current_height: float = temporary_data[current_index]
 				
 				var average_height: float = _calculate_average_neighbor_height(gx, gz, temporary_data)
-				global_height_data[current_index] = lerpf(current_height, average_height, smooth_factor)
+				var stitch_weight: float = get_outer_stitch_weight(gx, gz)
+				global_height_data[current_index] = lerpf(
+					current_height,
+					average_height,
+					smooth_factor * stitch_weight
+				)
+
+	_apply_stitch_seam_to_heightfield(false)
 
 	# Synchronize and push fresh data blocks directly into the active chunks
 	for coord in _get_chunk_coords():
 		_update_single_chunk(coord)
 
 	queue_particles_collision_refresh()
+	signal_terrain_geometry_changed.emit()
 
 	# [GLOBAL UNDO] Securely fetch manager and commit history entry inside editor workspace
 	if Engine.is_editor_hint():
@@ -1755,6 +1992,7 @@ func _ramp_height_at(
 		1.0 - (radius_factor * radius_factor * (3.0 - 2.0 * radius_factor)), 0.0, 1.0
 	)
 	var falloff: float = lerpf(1.0, smooth_curve, brush_falloff_strength)
+	falloff *= get_outer_stitch_weight(roundi(point.x), roundi(point.y))
 
 	return lerpf(current, lerpf(height_a, height_b, t), falloff)
 
@@ -1815,7 +2053,9 @@ func apply_ramp(from_world: Vector3, to_world: Vector3) -> void:
 		if _has_chunk(coord):
 			_update_single_chunk(coord)
 
+	_apply_stitch_seam_to_heightfield(false)
 	queue_particles_collision_refresh()
+	signal_terrain_geometry_changed.emit()
 
 	_register_ramp_undo(old_state)
 
@@ -2374,6 +2614,9 @@ func interact_at_world_position(
 				# makes strength_scale act uniformly instead of per-mode.
 				final_falloff *= strength_scale
 
+				# Exact seam is immovable; neighbouring rings smoothly regain sculpt strength.
+				final_falloff *= get_outer_stitch_weight(gx, gz)
+
 				match mode:
 					BrushMode.RAISE:
 						new_h += current_increment * final_falloff
@@ -2618,6 +2861,9 @@ func stroke_finished() -> void:
 	# Once per stroke, not per brush event - a held brush would re-render the depth map per frame.
 	queue_particles_collision_refresh()
 
+	# Shell positions stay fixed, but SMOOTH boundary normals can change in the protected band.
+	signal_terrain_geometry_changed.emit()
+
 	if not Engine.is_editor_hint() or _active_undo_redo_manager == null:
 		return
 
@@ -2753,12 +2999,16 @@ func _apply_sparse_delta(indices: PackedInt32Array, heights: PackedFloat32Array)
 		if not chunk_coord_vec in unique_chunks_to_rebuild:
 			unique_chunks_to_rebuild.append(chunk_coord_vec)
 			
+	# Old history entries may contain border values from before Stitch Seam existed.
+	_apply_stitch_seam_to_heightfield(false)
+
 	# Visually update only the specific chunk nodes that were actually modified by this delta
 	for coord in unique_chunks_to_rebuild:
 		_update_single_chunk(coord)
 
 	# Undoing a mountain shrinks the field again, exactly like building it grew it.
 	queue_particles_collision_refresh()
+	signal_terrain_geometry_changed.emit()
 
 	notify_property_list_changed()
 
@@ -2768,12 +3018,15 @@ func _apply_sparse_delta(indices: PackedInt32Array, heights: PackedFloat32Array)
 func _apply_historical_snapshot(target_matrix: PackedFloat32Array) -> void:
 	if target_matrix.is_empty(): return
 	global_height_data = target_matrix.duplicate()
+	_ensure_stitch_seam()
+	_apply_stitch_seam_to_heightfield(false)
 
 	# Full matrix structural re-triangulation synchronizations
 	for coord in _get_chunk_coords():
 		_update_single_chunk(coord)
 
 	queue_particles_collision_refresh()
+	signal_terrain_geometry_changed.emit()
 
 	notify_property_list_changed()
 

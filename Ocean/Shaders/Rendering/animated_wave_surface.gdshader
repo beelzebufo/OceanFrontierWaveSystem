@@ -1452,22 +1452,56 @@ void fragment()
             interface_fresnel;
 
 
-        // Godot PBR owns reflected energy. This emission term supplies only
-        // the complementary transmitted/scattered energy.
-        EMISSION =
-            water_volume_colour *
-            transmission_weight;
+        if (viewing_from_underwater)
+        {
+            // Crest ApplyReflectionUnderwater uses the water-medium scatter
+            // colour for internally reflected energy. Compose the complete
+            // interface explicitly so exact water-to-air Fresnel/TIR cannot
+            // collapse to a dark native environment reflection.
+            ALBEDO =
+                vec3(0.0);
 
 
-        SPECULAR =
-            clamp(
-                sqrt(
-                    max(
-                        water_f0,
-                        0.0) /
-                    0.16),
-                0.0,
-                1.0);
+            EMISSION =
+                water_volume_colour *
+                    transmission_weight +
+                effective_scatter_colour *
+                    interface_fresnel;
+
+
+            // The reflected Fresnel share is already present in EMISSION.
+            // Disable Godot's native PBR reflection and replace environment
+            // radiance to prevent a second, independent Fresnel contribution.
+            SPECULAR =
+                0.0;
+
+
+            RADIANCE =
+                vec4(
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0);
+        }
+        else
+        {
+            // Above water, Godot PBR continues to own reflected energy. This
+            // emission term supplies only complementary transmission/scatter.
+            EMISSION =
+                water_volume_colour *
+                transmission_weight;
+
+
+            SPECULAR =
+                clamp(
+                    sqrt(
+                        max(
+                            water_f0,
+                            0.0) /
+                        0.16),
+                    0.0,
+                    1.0);
+        }
 
 
         if (debug_underwater_transmission &&
