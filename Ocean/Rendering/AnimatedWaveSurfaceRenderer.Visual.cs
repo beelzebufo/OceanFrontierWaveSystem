@@ -129,6 +129,7 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 	private int _appliedPrimarySunRevision = -1;
+	private int _appliedCausticsRevision = -1;
 
 
 	private void ApplyPrimarySunParameters(
@@ -208,101 +209,52 @@ public partial class AnimatedWaveSurfaceRenderer
 	private void ApplyCausticsParameters(
 		bool force = false)
 	{
-		if (_material == null)
+		if (_material == null ||
+			_runtime == null)
+		{
+			return;
+		}
+
+
+		_runtime.GetCausticsState(
+			out OceanCausticsState state,
+			out int revision);
+
+
+		if (!force &&
+			_appliedCausticsRevision ==
+				revision)
 		{
 			return;
 		}
 
 
 		bool enabled =
-			CausticsTexture != null;
+			state.Texture != null &&
+			state.Strength > 0.0f;
 
 
 		bool distortionEnabled =
-			CausticsDistortionTexture != null;
+			state.DistortionTexture != null &&
+			state.DistortionStrength > 0.0f;
 
 
 		Texture2D textureToBind =
-			CausticsTexture ??
+			state.Texture ??
 			_causticsFallback;
 
 
 		Texture2D distortionTextureToBind =
-			CausticsDistortionTexture ??
+			state.DistortionTexture ??
 			_causticsFallback;
 
 
-		float scale =
-			Mathf.Clamp(
-				float.IsFinite(CausticsScale)
-					? CausticsScale
-					: 5.0f,
-				0.1f,
-				50.0f);
+		SetSurfaceParameter(
+			"water_caustics_enabled",
+			enabled);
 
 
-		float textureAverage =
-			Mathf.Clamp(
-				float.IsFinite(CausticsTextureAverage)
-					? CausticsTextureAverage
-					: 0.5f,
-				0.0f,
-				1.0f);
-
-
-		float focalDepth =
-			Mathf.Clamp(
-				float.IsFinite(CausticsFocalDepth)
-					? CausticsFocalDepth
-					: 2.0f,
-				0.0f,
-				100.0f);
-
-
-		float depthOfField =
-			Mathf.Clamp(
-				float.IsFinite(CausticsDepthOfField)
-					? CausticsDepthOfField
-					: 0.33f,
-				0.01f,
-				100.0f);
-
-
-		float distortionScale =
-			Mathf.Clamp(
-				float.IsFinite(CausticsDistortionScale)
-					? CausticsDistortionScale
-					: 10.0f,
-				0.1f,
-				50.0f);
-
-
-		bool textureChanged =
-			!ReferenceEquals(
-				_appliedCausticsTexture,
-				CausticsTexture);
-
-
-		bool distortionTextureChanged =
-			!ReferenceEquals(
-				_appliedCausticsDistortionTexture,
-				CausticsDistortionTexture);
-
-
-		if (force ||
-			!_causticsStateInitialized ||
-			_appliedCausticsEnabled != enabled)
-		{
-			SetSurfaceParameter(
-				"water_caustics_enabled",
-				enabled);
-		}
-
-
-		if (textureToBind != null &&
-			(force ||
-			 !_causticsStateInitialized ||
-			 textureChanged))
+		if (textureToBind != null)
 		{
 			SetSurfaceParameter(
 				"water_caustics_texture",
@@ -310,20 +262,12 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			_appliedCausticsDistortionEnabled != distortionEnabled)
-		{
-			SetSurfaceParameter(
-				"water_caustics_distortion_enabled",
-				distortionEnabled);
-		}
+		SetSurfaceParameter(
+			"water_caustics_distortion_enabled",
+			distortionEnabled);
 
 
-		if (distortionTextureToBind != null &&
-			(force ||
-			 !_causticsStateInitialized ||
-			 distortionTextureChanged))
+		if (distortionTextureToBind != null)
 		{
 			SetSurfaceParameter(
 				"water_caustics_distortion_texture",
@@ -331,109 +275,43 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
-		if (force ||
-			!_causticsStateInitialized)
-		{
-			SetSurfaceParameter(
-				"water_caustics_strength",
-				_waterCausticsStrength);
+		SetSurfaceParameter(
+			"water_caustics_strength",
+			state.Strength);
 
 
-			SetSurfaceParameter(
-				"water_caustics_distortion_strength",
-				_waterCausticsDistortionStrength);
-		}
+		SetSurfaceParameter(
+			"water_caustics_distortion_strength",
+			state.DistortionStrength);
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			!Mathf.IsEqualApprox(
-				_appliedCausticsScale,
-				scale))
-		{
-			SetSurfaceParameter(
-				"water_caustics_scale",
-				scale);
-		}
+		SetSurfaceParameter(
+			"water_caustics_scale",
+			state.Scale);
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			!Mathf.IsEqualApprox(
-				_appliedCausticsTextureAverage,
-				textureAverage))
-		{
-			SetSurfaceParameter(
-				"water_caustics_texture_average",
-				textureAverage);
-		}
+		SetSurfaceParameter(
+			"water_caustics_texture_average",
+			state.TextureAverage);
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			!Mathf.IsEqualApprox(
-				_appliedCausticsFocalDepth,
-				focalDepth))
-		{
-			SetSurfaceParameter(
-				"water_caustics_focal_depth",
-				focalDepth);
-		}
+		SetSurfaceParameter(
+			"water_caustics_focal_depth",
+			state.FocalDepth);
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			!Mathf.IsEqualApprox(
-				_appliedCausticsDepthOfField,
-				depthOfField))
-		{
-			SetSurfaceParameter(
-				"water_caustics_depth_of_field",
-				depthOfField);
-		}
+		SetSurfaceParameter(
+			"water_caustics_depth_of_field",
+			state.DepthOfField);
 
 
-		if (force ||
-			!_causticsStateInitialized ||
-			!Mathf.IsEqualApprox(
-				_appliedCausticsDistortionScale,
-				distortionScale))
-		{
-			SetSurfaceParameter(
-				"water_caustics_distortion_scale",
-				distortionScale);
-		}
+		SetSurfaceParameter(
+			"water_caustics_distortion_scale",
+			state.DistortionScale);
 
 
-		_appliedCausticsEnabled =
-			enabled;
-
-		_appliedCausticsTexture =
-			CausticsTexture;
-
-		_appliedCausticsScale =
-			scale;
-
-		_appliedCausticsTextureAverage =
-			textureAverage;
-
-		_appliedCausticsFocalDepth =
-			focalDepth;
-
-		_appliedCausticsDepthOfField =
-			depthOfField;
-
-		_appliedCausticsDistortionEnabled =
-			distortionEnabled;
-
-		_appliedCausticsDistortionTexture =
-			CausticsDistortionTexture;
-
-		_appliedCausticsDistortionScale =
-			distortionScale;
-
-		_causticsStateInitialized =
-			true;
+		_appliedCausticsRevision =
+			revision;
 	}
 
 

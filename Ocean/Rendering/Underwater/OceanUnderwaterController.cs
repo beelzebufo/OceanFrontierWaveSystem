@@ -4,6 +4,8 @@ using Godot.Collections;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Optics;
+using OceanFrontier.Water.Rendering;
+using OceanFrontier.Water.Waves.AnimatedWaves;
 
 namespace OceanFrontier.Water.Rendering.Underwater;
 
@@ -27,6 +29,7 @@ public partial class OceanUnderwaterController : Node
 	private long _lastCompletedGeneration;
 	private int _appliedOpticsRevision = -1;
 	private int _appliedPrimarySunRevision = -1;
+	private int _appliedCausticsRevision = -1;
 
 	private OceanRuntime _runtime;
 	private OceanPointQueryService.OwnerHandle _queryOwner;
@@ -118,12 +121,20 @@ public partial class OceanUnderwaterController : Node
 		OceanPrimarySunState initialSun =
 			OceanPrimarySunState.Default;
 
+		OceanCausticsState initialCaustics =
+			OceanCausticsSettings.DefaultState;
+
 
 		if (_runtime != null)
 		{
 			_runtime.GetPrimarySunState(
 				out initialSun,
 				out _appliedPrimarySunRevision);
+
+
+			_runtime.GetCausticsState(
+				out initialCaustics,
+				out _appliedCausticsRevision);
 		}
 
 
@@ -132,11 +143,16 @@ public partial class OceanUnderwaterController : Node
 				initialOptics.Extinction,
 				initialOptics.DeepScatterColor,
 				initialSun.RayDirectionWorld,
-				initialSun.LinearRadiance)
+				initialSun.LinearRadiance,
+				initialCaustics.ToGpuState())
 			{
 				Enabled =
 					false,
 			};
+
+
+		_runtime?.RegisterAnimatedWaveFieldGpuConsumer(
+			_effect);
 
 
 		_previousCompositor =
@@ -191,6 +207,11 @@ public partial class OceanUnderwaterController : Node
 
 		ApplyOpticsState();
 		ApplyPrimarySunState();
+		ApplyCausticsState();
+
+
+		_effect?.SetPendingVisualTime(
+			_runtime.SimulationTime);
 
 
 		if (_runtime.PointQueries.TryCopyLatest(
@@ -278,6 +299,16 @@ public partial class OceanUnderwaterController : Node
 
 		OceanUnderwaterCompositorEffect effect =
 			_effect;
+
+
+		if (effect != null &&
+			_runtime != null &&
+			GodotObject.IsInstanceValid(
+				_runtime))
+		{
+			_runtime.UnregisterAnimatedWaveFieldGpuConsumer(
+				effect);
+		}
 
 
 		if (effect != null)
@@ -422,6 +453,45 @@ public partial class OceanUnderwaterController : Node
 
 
 		_appliedPrimarySunRevision =
+			revision;
+	}
+
+
+	private void ApplyCausticsState()
+	{
+		_runtime.GetCausticsState(
+			out OceanCausticsState state,
+			out int revision);
+
+
+		if (_appliedCausticsRevision ==
+			revision)
+		{
+			return;
+		}
+
+
+		OceanUnderwaterCompositorEffect effect =
+			_effect;
+
+
+		if (effect == null)
+		{
+			return;
+		}
+
+
+		OceanCausticsGpuState gpuState =
+			state.ToGpuState();
+
+
+		RenderingServer.CallOnRenderThread(
+			Callable.From(() =>
+				effect.SetCausticsState(
+					gpuState)));
+
+
+		_appliedCausticsRevision =
 			revision;
 	}
 }

@@ -116,11 +116,33 @@ internal sealed class OceanDiagnosticLightingPanel
 			(float)shallowColorStrength.Value);
 
 
+		float initialCausticsStrength =
+			0.70f;
+
+		float initialCausticsDistortionStrength =
+			0.25f;
+
+
+		if (_runtime != null)
+		{
+			_runtime.GetCausticsState(
+				out OceanCausticsState causticsState,
+				out _);
+
+
+			initialCausticsStrength =
+				causticsState.Strength;
+
+			initialCausticsDistortionStrength =
+				causticsState.DistortionStrength;
+		}
+
+
 		var causticsStrength =
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Caustics strength",
-				0.70,
+				initialCausticsStrength,
 				0.0,
 				4.0,
 				0.01);
@@ -128,19 +150,15 @@ internal sealed class OceanDiagnosticLightingPanel
 
 		causticsStrength.ValueChanged +=
 			value =>
-				_surface?.SetWaterCausticsStrength(
+				_runtime?.SetCausticsStrength(
 					(float)value);
-
-
-		_surface?.SetWaterCausticsStrength(
-			(float)causticsStrength.Value);
 
 
 		var causticsDistortionStrength =
 			OceanDiagnosticUi.Spin(
 				parent,
 				"Caustics distortion strength",
-				0.25,
+				initialCausticsDistortionStrength,
 				0.0,
 				2.0,
 				0.01);
@@ -148,12 +166,8 @@ internal sealed class OceanDiagnosticLightingPanel
 
 		causticsDistortionStrength.ValueChanged +=
 			value =>
-				_surface?.SetWaterCausticsDistortionStrength(
+				_runtime?.SetCausticsDistortionStrength(
 					(float)value);
-
-
-		_surface?.SetWaterCausticsDistortionStrength(
-			(float)causticsDistortionStrength.Value);
 
 
 		var surfaceLighting =

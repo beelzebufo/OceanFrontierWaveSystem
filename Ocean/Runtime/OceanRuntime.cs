@@ -7,6 +7,7 @@ using OceanFrontier.Water.Waves.AnimatedWaves;
 using OceanFrontier.Water.Waves.SeaFloorDepth;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Optics;
+using OceanFrontier.Water.Rendering;
 
 namespace OceanFrontier.Water.Runtime;
 
@@ -21,6 +22,9 @@ public partial class OceanRuntime : Node
 
 	[Export]
 	public OceanOpticsSettings Optics { get; set; } = new();
+
+	[Export]
+	public OceanCausticsSettings Caustics { get; set; } = new();
 
 	[Export(PropertyHint.Range, "16,512,1")]
 	public int FftResolution { get; set; } = 128;
@@ -70,6 +74,9 @@ public partial class OceanRuntime : Node
 
 	private Callable _renderUpdateCallable;
 
+	private IAnimatedWaveFieldGpuConsumer _animatedWaveGpuConsumer;
+	private long _animatedWaveGpuResourceGeneration;
+
 
 	private RuntimeWaveSettings _startupWaveSettings;
 	private RuntimeWaveSettings _requestedWaveSettings;
@@ -79,6 +86,11 @@ public partial class OceanRuntime : Node
 		OceanOpticsSettings.DefaultState;
 
 	private int _opticsRevision = 1;
+
+	private OceanCausticsState _causticsState =
+		OceanCausticsSettings.DefaultState;
+
+	private int _causticsRevision = 1;
 
 	private OceanPrimarySunState _primarySunState =
 		OceanPrimarySunState.Default;
@@ -272,6 +284,95 @@ public partial class OceanRuntime : Node
 	}
 
 
+	internal void GetCausticsState(
+		out OceanCausticsState state,
+		out int revision)
+	{
+		state =
+			_causticsState;
+
+		revision =
+			_causticsRevision;
+	}
+
+
+	internal void SetCausticsStrength(
+		float strength)
+	{
+		Caustics ??=
+			new OceanCausticsSettings();
+
+
+		Caustics.Strength =
+			strength;
+
+
+		CaptureCausticsSettings();
+	}
+
+
+	internal void SetCausticsDistortionStrength(
+		float strength)
+	{
+		Caustics ??=
+			new OceanCausticsSettings();
+
+
+		Caustics.DistortionStrength =
+			strength;
+
+
+		CaptureCausticsSettings();
+	}
+
+
+	internal void RegisterAnimatedWaveFieldGpuConsumer(
+		IAnimatedWaveFieldGpuConsumer consumer)
+	{
+		if (consumer == null)
+		{
+			throw new ArgumentNullException(
+				nameof(consumer));
+		}
+
+
+		Volatile.Write(
+			ref _animatedWaveGpuConsumer,
+			consumer);
+
+
+		if (_gpuReady)
+		{
+			RenderingServer.CallOnRenderThread(
+				Callable.From(
+					PublishAnimatedWaveFieldGpuSnapshot));
+		}
+	}
+
+
+	internal void UnregisterAnimatedWaveFieldGpuConsumer(
+		IAnimatedWaveFieldGpuConsumer consumer)
+	{
+		if (!ReferenceEquals(
+				Volatile.Read(
+					ref _animatedWaveGpuConsumer),
+				consumer))
+		{
+			return;
+		}
+
+
+		Volatile.Write(
+			ref _animatedWaveGpuConsumer,
+			null);
+
+
+		RenderingServer.CallOnRenderThread(
+			Callable.From(
+				consumer.ClearAnimatedWaveFieldGpuSnapshot));
+	}
+
+
 	internal void GetPrimarySunState(
 		out OceanPrimarySunState state,
 		out int revision)
@@ -357,6 +458,7 @@ public partial class OceanRuntime : Node
 				RenderThreadUpdateSpectrum);
 
 		CaptureOpticsSettings();
+		CaptureCausticsSettings();
 
 		QueueGpuInitialization();
 	}
@@ -676,6 +778,8 @@ public partial class OceanRuntime : Node
 					// Canonical Animated Waves resources.
 					//
 
+					ClearAnimatedWaveFieldGpuSnapshot();
+
 					composer.Initialize(
 						rd,
 						animatedWaveResolution,
@@ -791,6 +895,11 @@ public partial class OceanRuntime : Node
 						initialSettings.ShallowWaterMaximumDepth);
 
 
+					_animatedWaveGpuResourceGeneration++;
+
+					PublishAnimatedWaveFieldGpuSnapshot();
+
+
 					var lod0 =
 						composer.LodLayout[0];
 
@@ -865,6 +974,8 @@ public partial class OceanRuntime : Node
 				// borrowed from composer/FFT.
 				//
 
+				ClearAnimatedWaveFieldGpuSnapshot();
+
 				queries.Release();
 
 				composer.Release();
@@ -878,10 +989,59 @@ public partial class OceanRuntime : Node
 	}
 
 
+	/// <summary>Render thread only.</summary>
+	private void PublishAnimatedWaveFieldGpuSnapshot()
+	{
+		IAnimatedWaveFieldGpuConsumer consumer =
+			Volatile.Read(
+				ref _animatedWaveGpuConsumer);
+
+
+		AnimatedWaveField field =
+			_animatedWaveComposer.Field;
+
+		AnimatedWaveLodGpuBuffer lodBuffer =
+			_animatedWaveComposer.LodGpuBuffer;
+
+
+		if (consumer == null ||
+			field == null ||
+			lodBuffer == null ||
+			!field.Displacement.IsValid ||
+			!lodBuffer.Buffer.IsValid ||
+			_animatedWaveGpuResourceGeneration <= 0)
+		{
+			return;
+		}
+
+
+		consumer.SetAnimatedWaveFieldGpuSnapshot(
+			new AnimatedWaveFieldGpuSnapshot(
+				field.Displacement,
+				lodBuffer.Buffer,
+				field.Resolution,
+				field.LodCount,
+				_animatedWaveGpuResourceGeneration));
+	}
+
+
+	/// <summary>Render thread only.</summary>
+	private void ClearAnimatedWaveFieldGpuSnapshot()
+	{
+		IAnimatedWaveFieldGpuConsumer consumer =
+			Volatile.Read(
+				ref _animatedWaveGpuConsumer);
+
+
+		consumer?.ClearAnimatedWaveFieldGpuSnapshot();
+	}
+
+
 	public override void _Process(
 		double delta)
 	{
 		CaptureOpticsSettings();
+		CaptureCausticsSettings();
 
 
 		if (!_simulationPaused)
@@ -973,6 +1133,31 @@ public partial class OceanRuntime : Node
 			next;
 
 		_opticsRevision++;
+	}
+
+
+	/// <summary>
+	/// Main-thread Resource read. Rendering consumers receive either this
+	/// immutable value snapshot or its Resource-free GPU form.
+	/// </summary>
+	private void CaptureCausticsSettings()
+	{
+		OceanCausticsState next =
+			Caustics?.Snapshot() ??
+			OceanCausticsSettings.DefaultState;
+
+
+		if (_causticsState.Equals(
+			next))
+		{
+			return;
+		}
+
+
+		_causticsState =
+			next;
+
+		_causticsRevision++;
 	}
 
 

@@ -25,8 +25,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const float NormalVectorScale = 0.35f;
 	internal const float DefaultWaterSunScatterStrength = 0.5f;
 	internal const float DefaultWaterShallowColorStrength = 1.0f;
-	internal const float DefaultWaterCausticsStrength = 1.0f;
-	internal const float DefaultWaterCausticsDistortionStrength = 0.15f;
 
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/animated_wave_surface.gdshader";
@@ -99,36 +97,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	[Export(PropertyHint.Range, "0,2,0.01")]
 	public float VisualNormalStrength { get; set; } = 0.08f;
-
-
-	// Optional renderer-only projected caustics source. This is an ordinary
-	// Godot visual texture, not an ocean-data or RenderingDevice resource.
-	[Export]
-	public Texture2D CausticsTexture { get; set; }
-
-
-	[Export(PropertyHint.Range, "0.1,50,0.1")]
-	public float CausticsScale { get; set; } = 5.0f;
-
-
-	[Export(PropertyHint.Range, "0,1,0.01")]
-	public float CausticsTextureAverage { get; set; } = 0.5f;
-
-
-	[Export(PropertyHint.Range, "0,100,0.1")]
-	public float CausticsFocalDepth { get; set; } = 2.0f;
-
-
-	[Export(PropertyHint.Range, "0.01,100,0.01")]
-	public float CausticsDepthOfField { get; set; } = 0.33f;
-
-
-	[Export]
-	public Texture2D CausticsDistortionTexture { get; set; }
-
-
-	[Export(PropertyHint.Range, "0.1,50,0.1")]
-	public float CausticsDistortionScale { get; set; } = 10.0f;
 
 
 	[Export]
@@ -243,12 +211,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _waterShallowColorStrength =
 		DefaultWaterShallowColorStrength;
 
-	private float _waterCausticsStrength =
-		DefaultWaterCausticsStrength;
-
-	private float _waterCausticsDistortionStrength =
-		DefaultWaterCausticsDistortionStrength;
-
 	private bool _hasSeaFloorDepth;
 
 
@@ -296,18 +258,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		float.NaN;
 
 
-	private bool _causticsStateInitialized;
-	private bool _appliedCausticsEnabled;
-	private Texture2D _appliedCausticsTexture;
-	private float _appliedCausticsScale = float.NaN;
-	private float _appliedCausticsTextureAverage = float.NaN;
-	private float _appliedCausticsFocalDepth = float.NaN;
-	private float _appliedCausticsDepthOfField = float.NaN;
-	private bool _appliedCausticsDistortionEnabled;
-	private Texture2D _appliedCausticsDistortionTexture;
-	private float _appliedCausticsDistortionScale = float.NaN;
-
-
 	internal int SelectedLodIndex =>
 		_selectedLodIndex;
 
@@ -322,14 +272,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	internal float WaterShallowColorStrength =>
 		_waterShallowColorStrength;
-
-
-	internal float WaterCausticsStrength =>
-		_waterCausticsStrength;
-
-
-	internal float WaterCausticsDistortionStrength =>
-		_waterCausticsDistortionStrength;
 
 
 	internal void SetSpatialLod(
@@ -469,66 +411,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"water_shallow_color_strength",
 			_waterShallowColorStrength);
-	}
-
-
-	internal void SetWaterCausticsStrength(
-		float strength)
-	{
-		strength =
-			Mathf.Clamp(
-				float.IsFinite(strength)
-					? strength
-					: DefaultWaterCausticsStrength,
-				0.0f,
-				4.0f);
-
-
-		if (Mathf.IsEqualApprox(
-				_waterCausticsStrength,
-				strength))
-		{
-			return;
-		}
-
-
-		_waterCausticsStrength =
-			strength;
-
-
-		SetSurfaceParameter(
-			"water_caustics_strength",
-			_waterCausticsStrength);
-	}
-
-
-	internal void SetWaterCausticsDistortionStrength(
-		float strength)
-	{
-		strength =
-			Mathf.Clamp(
-				float.IsFinite(strength)
-					? strength
-					: DefaultWaterCausticsDistortionStrength,
-				0.0f,
-				2.0f);
-
-
-		if (Mathf.IsEqualApprox(
-				_waterCausticsDistortionStrength,
-				strength))
-		{
-			return;
-		}
-
-
-		_waterCausticsDistortionStrength =
-			strength;
-
-
-		SetSurfaceParameter(
-			"water_caustics_distortion_strength",
-			_waterCausticsDistortionStrength);
 	}
 
 

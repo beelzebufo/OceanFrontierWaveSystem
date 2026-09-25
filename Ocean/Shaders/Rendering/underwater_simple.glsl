@@ -4,8 +4,41 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(rgba16f, set = 0, binding = 0) uniform image2D color_image;
-
 layout(set = 0, binding = 1) uniform sampler2D depth_texture;
+layout(set = 0, binding = 2) uniform sampler2DArray animated_wave_field;
+
+struct AnimatedWaveLodParams
+{
+    vec2 center_xz;
+    float scale;
+    float texture_resolution;
+    float one_over_texture_resolution;
+    float texel_width;
+    float weight;
+    float max_wavelength;
+};
+
+layout(std430, set = 0, binding = 3) readonly buffer LodBuffer
+{
+    AnimatedWaveLodParams lods[];
+}
+animated_wave_lod_data;
+
+layout(set = 0, binding = 4) uniform sampler2D caustics_texture;
+layout(set = 0, binding = 5) uniform sampler2D caustics_distortion_texture;
+
+layout(std140, set = 0, binding = 6) uniform UnderwaterFrameData
+{
+    mat4 camera_to_world;
+    // x=time, y=caustics enabled, z=distortion enabled, w=max caustics mip.
+    vec4 caustics_frame;
+    // x=scale, y=texture average, z=strength, w=focal depth.
+    vec4 caustics_config_0;
+    // x=depth of field, y=distortion scale, z=distortion strength,
+    // w=canonical AWF LOD count.
+    vec4 caustics_config_1;
+}
+frame;
 
 layout(push_constant, std430) uniform Params
 {
@@ -14,52 +47,92 @@ layout(push_constant, std430) uniform Params
     mat4 inverse_projection;
     vec4 extinction_and_max_path;
     vec4 scatter_and_sun_radiance_b;
-    vec4 sun_ray_direction_view_and_incident_path;
+    vec4 sun_ray_direction_world_and_incident_path;
 }
 params;
 
-const float APPROXIMATE_DIRECT_SUN_FRACTION =
-    0.25;
+const float APPROXIMATE_DIRECT_SUN_FRACTION = 0.25;
+const float DIRECTIONAL_SCATTER_STRENGTH = 0.35;
+const float DIRECTIONAL_SCATTER_FALLOFF = 5.0;
 
-const float DIRECTIONAL_SCATTER_STRENGTH =
-    0.35;
 
-const float DIRECTIONAL_SCATTER_FALLOFF =
-    5.0;
+bool select_finest_covering_lod(
+    vec2 world_xz,
+    out int selected_lod,
+    out vec2 selected_uv)
+{
+    int lod_count =
+        max(
+            int(frame.caustics_config_1.w + 0.5),
+            0);
+
+
+    for (int lod = 0; lod < lod_count; lod++)
+    {
+        AnimatedWaveLodParams slice =
+            animated_wave_lod_data.lods[lod];
+
+
+        float world_size =
+            4.0 *
+            slice.scale;
+
+
+        vec2 uv =
+            (world_xz - slice.center_xz) /
+                world_size +
+            vec2(0.5);
+
+
+        float border =
+            0.5 *
+            slice.one_over_texture_resolution;
+
+
+        if (all(greaterThanEqual(uv, vec2(border))) &&
+            all(lessThanEqual(uv, vec2(1.0 - border))))
+        {
+            selected_lod = lod;
+            selected_uv = uv;
+
+
+            return true;
+        }
+    }
+
+
+    selected_lod = 0;
+    selected_uv = vec2(0.5);
+
+
+    return false;
+}
 
 
 void main()
 {
     ivec2 pixel =
-        ivec2(
-            gl_GlobalInvocationID.xy);
+        ivec2(gl_GlobalInvocationID.xy);
 
 
     ivec2 size =
-        ivec2(
-            params.raster_size);
+        ivec2(params.raster_size);
 
 
-    if (pixel.x >= size.x ||
-        pixel.y >= size.y)
+    if (pixel.x >= size.x || pixel.y >= size.y)
     {
         return;
     }
 
 
     vec4 scene_color =
-        imageLoad(
-            color_image,
-            pixel);
+        imageLoad(color_image, pixel);
 
 
-    // Forward+/Mobile reverse-Z clear depth is zero. Far/invalid pixels use
-    // the same maximum optical path as valid reconstructed geometry.
+    // Forward+/Mobile reverse-Z clear depth is zero. Background pixels keep
+    // the established camera-path approximation and never read receiver AWF.
     float depth =
-        texelFetch(
-            depth_texture,
-            pixel,
-            0).r;
+        texelFetch(depth_texture, pixel, 0).r;
 
 
     bool has_scene_geometry =
@@ -67,38 +140,24 @@ void main()
 
 
     vec2 screen_uv =
-        (
-            vec2(
-                pixel) +
-            vec2(0.5)
-        ) /
+        (vec2(pixel) + vec2(0.5)) /
         params.raster_size;
 
 
-    // A near-far epsilon gives clear-depth pixels a stable view direction
-    // without treating that reconstructed point as opaque geometry.
     vec4 view_h =
         params.inverse_projection *
         vec4(
-            screen_uv *
-                2.0 -
-                1.0,
-            max(
-                depth,
-                0.000001),
+            screen_uv * 2.0 - 1.0,
+            max(depth, 0.000001),
             1.0);
 
 
     vec3 view_position =
-        vec3(
-            0.0,
-            0.0,
-            -1.0);
+        vec3(0.0, 0.0, -1.0);
 
 
     bool has_finite_view_position =
-        abs(
-            view_h.w) > 0.000001;
+        abs(view_h.w) > 0.000001;
 
 
     if (has_finite_view_position)
@@ -109,12 +168,8 @@ void main()
 
 
         has_finite_view_position =
-            !any(
-                isnan(
-                    view_position)) &&
-            !any(
-                isinf(
-                    view_position));
+            !any(isnan(view_position)) &&
+            !any(isinf(view_position));
     }
 
 
@@ -122,22 +177,24 @@ void main()
         params.extinction_and_max_path.w;
 
 
-    if (has_scene_geometry &&
-        has_finite_view_position)
+    if (has_scene_geometry && has_finite_view_position)
     {
         optical_path =
             clamp(
-                length(
-                    view_position),
+                length(view_position),
                 0.0,
                 params.extinction_and_max_path.w);
     }
 
 
+    vec3 extinction =
+        max(
+            params.extinction_and_max_path.xyz,
+            vec3(0.0));
+
+
     vec3 transmittance =
-        exp(
-            -params.extinction_and_max_path.xyz *
-            optical_path);
+        exp(-extinction * optical_path);
 
 
     vec3 primary_sun_radiance =
@@ -148,52 +205,246 @@ void main()
 
     float primary_sun_energy =
         max(
-            max(
-                primary_sun_radiance.r,
-                primary_sun_radiance.g),
+            max(primary_sun_radiance.r, primary_sun_radiance.g),
             primary_sun_radiance.b);
 
 
-    vec3 sun_transmittance =
+    vec3 camera_sun_transmittance =
         exp(
-            -params.extinction_and_max_path.xyz *
-            params.sun_ray_direction_view_and_incident_path.w);
+            -extinction *
+            params.sun_ray_direction_world_and_incident_path.w);
+
+
+    vec3 direction_toward_sun_world =
+        normalize(
+            -params.sun_ray_direction_world_and_incident_path.xyz);
 
 
     vec3 attenuated_scene_color =
         scene_color.rgb;
 
 
-    // The depth query is the canonical surface height at the camera, not
-    // camera-to-scene depth. Until UW-4A2 samples AWF at every receiver, it
-    // is a bounded whole-frame approximation for incident sunlight only.
+    bool used_receiver_sun_path =
+        false;
+
+
     if (has_scene_geometry &&
+        has_finite_view_position &&
         primary_sun_energy > 0.000001)
     {
-        attenuated_scene_color *=
-            mix(
-                vec3(1.0),
-                sun_transmittance,
-                APPROXIMATE_DIRECT_SUN_FRACTION);
+        vec3 scene_world_position =
+            (frame.camera_to_world *
+             vec4(view_position, 1.0)).xyz;
+
+
+        int selected_lod;
+        vec2 selected_uv;
+
+
+        bool has_animated_wave_coverage =
+            select_finest_covering_lod(
+                scene_world_position.xz,
+                selected_lod,
+                selected_uv);
+
+
+        if (has_animated_wave_coverage)
+        {
+            // One canonical displacement sample classifies the receiver and
+            // supplies both sunlight depth and projected-caustics depth.
+            vec3 receiver_surface_displacement =
+                textureLod(
+                    animated_wave_field,
+                    vec3(selected_uv, float(selected_lod)),
+                    0.0).xyz;
+
+
+            float receiver_water_depth =
+                receiver_surface_displacement.y -
+                scene_world_position.y;
+
+
+            float receiver_tolerance =
+                clamp(
+                    0.5 * animated_wave_lod_data.lods[selected_lod].texel_width,
+                    0.05,
+                    0.75);
+
+
+            if (receiver_water_depth > receiver_tolerance &&
+                direction_toward_sun_world.y > 0.0001)
+            {
+                float receiver_sun_path =
+                    clamp(
+                        receiver_water_depth /
+                        direction_toward_sun_world.y,
+                        0.0,
+                        params.extinction_and_max_path.w);
+
+
+                vec3 receiver_sun_transmittance =
+                    exp(-extinction * receiver_sun_path);
+
+
+                if (frame.caustics_frame.y > 0.5 &&
+                    frame.caustics_config_0.z > 0.0)
+                {
+                    // Crest-style one-step projected receiver lookup. Factor
+                    // four bounds grazing-angle stretching; this is not a raymarch.
+                    vec2 light_projection =
+                        direction_toward_sun_world.xz *
+                        receiver_water_depth /
+                        (4.0 * direction_toward_sun_world.y);
+
+
+                    vec2 caustics_surface_xz =
+                        scene_world_position.xz +
+                        light_projection;
+
+
+                    float caustics_scale =
+                        max(frame.caustics_config_0.x, 0.1);
+
+
+                    float visual_time =
+                        frame.caustics_frame.x;
+
+
+                    vec2 caustics_uv_1 =
+                        caustics_surface_xz / caustics_scale +
+                        vec2(
+                            0.044 * visual_time + 17.16,
+                            -0.169 * visual_time);
+
+
+                    vec2 caustics_uv_2 =
+                        1.37 * caustics_surface_xz / caustics_scale +
+                        vec2(
+                            0.248 * visual_time,
+                            0.117 * visual_time);
+
+
+                    if (frame.caustics_frame.z > 0.5)
+                    {
+                        vec2 distortion_uv =
+                            caustics_surface_xz /
+                                max(frame.caustics_config_1.y, 0.0001) +
+                            vec2(
+                                0.031 * visual_time,
+                                -0.027 * visual_time);
+
+
+                        vec2 distortion_offset =
+                            (textureLod(
+                                caustics_distortion_texture,
+                                distortion_uv,
+                                0.0).rg * 2.0 - 1.0) *
+                            frame.caustics_config_1.z;
+
+
+                        caustics_uv_1 += distortion_offset;
+                        caustics_uv_2 += distortion_offset;
+                    }
+
+
+                    float caustics_mip_lod =
+                        log2(max(length(view_position), 1.0)) +
+                        abs(
+                            receiver_water_depth -
+                            frame.caustics_config_0.w) /
+                        max(frame.caustics_config_1.x, 0.01);
+
+
+                    caustics_mip_lod =
+                        clamp(
+                            caustics_mip_lod,
+                            0.0,
+                            max(frame.caustics_frame.w, 0.0));
+
+
+                    vec3 luminance_weights =
+                        vec3(0.2126, 0.7152, 0.0722);
+
+
+                    float caustics_1 =
+                        dot(
+                            textureLod(
+                                caustics_texture,
+                                caustics_uv_1,
+                                caustics_mip_lod).rgb,
+                            luminance_weights);
+
+
+                    float caustics_2 =
+                        dot(
+                            textureLod(
+                                caustics_texture,
+                                caustics_uv_2,
+                                caustics_mip_lod).rgb,
+                            luminance_weights);
+
+
+                    float caustics_signal =
+                        0.5 * (caustics_1 + caustics_2) -
+                        frame.caustics_config_0.y;
+
+
+                    float incident_sun =
+                        dot(
+                            receiver_sun_transmittance,
+                            luminance_weights) *
+                        smoothstep(
+                            0.02,
+                            0.25,
+                            direction_toward_sun_world.y);
+
+
+                    attenuated_scene_color *=
+                        max(
+                            0.0,
+                            1.0 +
+                            frame.caustics_config_0.z *
+                            caustics_signal *
+                            incident_sun);
+                }
+
+
+                // Exact order: caustics, direct sunlight attenuation, then
+                // camera-to-receiver Beer-Lambert extinction below.
+                attenuated_scene_color *=
+                    mix(
+                        vec3(1.0),
+                        receiver_sun_transmittance,
+                        APPROXIMATE_DIRECT_SUN_FRACTION);
+
+
+                used_receiver_sun_path = true;
+            }
+        }
+
+
+        // Preserve a bounded sunlight fallback outside canonical AWF coverage.
+        if (!used_receiver_sun_path)
+        {
+            attenuated_scene_color *=
+                mix(
+                    vec3(1.0),
+                    camera_sun_transmittance,
+                    APPROXIMATE_DIRECT_SUN_FRACTION);
+        }
     }
 
 
-    vec3 view_ray =
+    vec3 view_ray_world =
         normalize(
-            view_position);
-
-
-    vec3 direction_toward_sun =
-        normalize(
-            -params.sun_ray_direction_view_and_incident_path.xyz);
+            (frame.camera_to_world *
+             vec4(view_position, 0.0)).xyz);
 
 
     float forward_scatter =
         pow(
             max(
-                dot(
-                    view_ray,
-                    direction_toward_sun),
+                dot(view_ray_world, direction_toward_sun_world),
                 0.0),
             DIRECTIONAL_SCATTER_FALLOFF);
 
@@ -201,7 +452,7 @@ void main()
     vec3 directional_scatter =
         params.scatter_and_sun_radiance_b.xyz *
         primary_sun_radiance *
-        sun_transmittance *
+        camera_sun_transmittance *
         DIRECTIONAL_SCATTER_STRENGTH *
         forward_scatter;
 
@@ -212,19 +463,12 @@ void main()
 
 
     vec3 result =
-        attenuated_scene_color *
-            transmittance +
-        effective_scatter *
-            (
-                vec3(1.0) -
-                transmittance
-            );
+        attenuated_scene_color * transmittance +
+        effective_scatter * (vec3(1.0) - transmittance);
 
 
     imageStore(
         color_image,
         pixel,
-        vec4(
-            result,
-            scene_color.a));
+        vec4(result, scene_color.a));
 }

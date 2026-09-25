@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Godot;
 using Godot.Collections;
+using OceanFrontier.Water.Rendering;
+using OceanFrontier.Water.Waves.AnimatedWaves;
 
 namespace OceanFrontier.Water.Rendering.Underwater;
 
@@ -12,35 +14,56 @@ namespace OceanFrontier.Water.Rendering.Underwater;
 /// The callback runs on the render thread and consumes only frame-local
 /// RenderData plus persistent RenderingDevice resources owned here.
 /// </summary>
-public partial class OceanUnderwaterCompositorEffect : CompositorEffect
+public partial class OceanUnderwaterCompositorEffect :
+	CompositorEffect,
+	IAnimatedWaveFieldGpuConsumer
 {
 	private const string ShaderPath =
 		"res://Ocean/Shaders/Rendering/underwater_simple.glsl";
 
 	private const uint PushConstantBytes = 128;
+	private const uint FrameUniformBytes = 112;
 	private const float MaxOpticalPathMetres = 240.0f;
 
 	private readonly byte[] _pushBytes =
 		new byte[PushConstantBytes];
+
+	private readonly byte[] _frameUniformBytes =
+		new byte[FrameUniformBytes];
 
 	private RenderingDevice _rd;
 	private RDShaderSpirV _spirV;
 	private Rid _shader;
 	private Rid _pipeline;
 	private Rid _nearestSampler;
+	private Rid _linearClampSampler;
+	private Rid _linearRepeatMipSampler;
+	private Rid _frameUniformBuffer;
+	private Rid _neutralTexture;
+
+	private AnimatedWaveFieldGpuSnapshot _animatedWaveSnapshot;
+
+	private OceanCausticsGpuState _causticsState;
+	private Rid _causticsTexture;
+	private Rid _causticsDistortionTexture;
+	private int _causticsMipCount = 1;
+	private bool _hasCausticsTexture;
+	private bool _hasCausticsDistortionTexture;
 
 	private Vector3 _extinction;
 	private Vector3 _deepScatterColor;
 	private Vector3 _primarySunRayDirectionWorld;
 	private Vector3 _primarySunRadiance;
 	private float _pendingCameraWaterDepth;
+	private float _pendingVisualTime;
 
 
-	public OceanUnderwaterCompositorEffect(
+	internal OceanUnderwaterCompositorEffect(
 		Vector3 extinction,
 		Vector3 deepScatterColor,
 		Vector3 primarySunRayDirectionWorld,
-		Vector3 primarySunRadiance)
+		Vector3 primarySunRadiance,
+		OceanCausticsGpuState causticsState)
 	{
 		_extinction =
 			extinction;
@@ -53,6 +76,9 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 
 		_primarySunRadiance =
 			primarySunRadiance;
+
+		_causticsState =
+			causticsState;
 
 
 		EffectCallbackType =
@@ -117,6 +143,36 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 	}
 
 
+	void IAnimatedWaveFieldGpuConsumer.SetAnimatedWaveFieldGpuSnapshot(
+		AnimatedWaveFieldGpuSnapshot snapshot)
+	{
+		_animatedWaveSnapshot =
+			snapshot;
+	}
+
+
+	void IAnimatedWaveFieldGpuConsumer.ClearAnimatedWaveFieldGpuSnapshot()
+	{
+		_animatedWaveSnapshot =
+			default;
+	}
+
+
+	/// <summary>
+	/// Render thread only. RenderingServer texture handles are resolved here
+	/// to borrowed global-RD texture handles.
+	/// </summary>
+	internal void SetCausticsState(
+		OceanCausticsGpuState state)
+	{
+		_causticsState =
+			state;
+
+
+		ResolveCausticsTextures();
+	}
+
+
 	/// <summary>
 	/// Main-thread publication of the canonical camera-surface query depth.
 	/// The render callback consumes this single scalar atomically.
@@ -131,6 +187,17 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 				? Mathf.Max(
 					waterDepth,
 					0.0f)
+				: 0.0f);
+	}
+
+
+	internal void SetPendingVisualTime(
+		float visualTime)
+	{
+		Volatile.Write(
+			ref _pendingVisualTime,
+			float.IsFinite(visualTime)
+				? visualTime
 				: 0.0f);
 	}
 
@@ -154,6 +221,62 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 		if (_rd == null)
 		{
 			return;
+		}
+
+
+		_animatedWaveSnapshot =
+			default;
+
+		_causticsTexture =
+			default;
+
+		_causticsDistortionTexture =
+			default;
+
+		_hasCausticsTexture =
+			false;
+
+		_hasCausticsDistortionTexture =
+			false;
+
+
+		if (_neutralTexture.IsValid)
+		{
+			_rd.FreeRid(
+				_neutralTexture);
+
+			_neutralTexture =
+				default;
+		}
+
+
+		if (_frameUniformBuffer.IsValid)
+		{
+			_rd.FreeRid(
+				_frameUniformBuffer);
+
+			_frameUniformBuffer =
+				default;
+		}
+
+
+		if (_linearRepeatMipSampler.IsValid)
+		{
+			_rd.FreeRid(
+				_linearRepeatMipSampler);
+
+			_linearRepeatMipSampler =
+				default;
+		}
+
+
+		if (_linearClampSampler.IsValid)
+		{
+			_rd.FreeRid(
+				_linearClampSampler);
+
+			_linearClampSampler =
+				default;
 		}
 
 
@@ -204,6 +327,7 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 	{
 		if (effectCallbackType !=
 				(int)EffectCallbackTypeEnum.PostTransparent ||
+			!_animatedWaveSnapshot.IsValid ||
 			!EnsureResources())
 		{
 			return;
@@ -249,18 +373,6 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 			Math.Min(
 				buffers.GetViewCount(),
 				sceneData.GetViewCount());
-
-
-		Basis worldToView =
-			sceneData
-				.GetCamTransform()
-				.Basis
-				.Inverse();
-
-
-		Vector3 sunRayDirectionView =
-			worldToView *
-			_primarySunRayDirectionWorld;
 
 
 		float cameraWaterDepth =
@@ -310,10 +422,29 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 					.Inverse();
 
 
+			Transform3D cameraToWorld =
+				sceneData.GetCamTransform();
+
+
+			cameraToWorld.Origin +=
+				cameraToWorld.Basis *
+				sceneData.GetViewEyeOffset(
+					view);
+
+
+			if (!WriteFrameUniforms(
+					cameraToWorld,
+					Volatile.Read(
+						ref _pendingVisualTime)))
+			{
+				continue;
+			}
+
+
 			WritePushConstants(
 				size,
 				inverseProjection,
-				sunRayDirectionView,
+				_primarySunRayDirectionWorld,
 				incidentSunOpticalPath);
 
 
@@ -350,6 +481,90 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 				depth);
 
 
+			var animatedWaveUniform =
+				new RDUniform
+				{
+					UniformType =
+						RenderingDevice.UniformType.SamplerWithTexture,
+
+					Binding =
+						2,
+				};
+
+
+			animatedWaveUniform.AddId(
+				_linearClampSampler);
+
+			animatedWaveUniform.AddId(
+				_animatedWaveSnapshot.AnimatedWaveField);
+
+
+			var lodMetadataUniform =
+				new RDUniform
+				{
+					UniformType =
+						RenderingDevice.UniformType.StorageBuffer,
+
+					Binding =
+						3,
+				};
+
+
+			lodMetadataUniform.AddId(
+				_animatedWaveSnapshot.LodMetadataBuffer);
+
+
+			var causticsUniform =
+				new RDUniform
+				{
+					UniformType =
+						RenderingDevice.UniformType.SamplerWithTexture,
+
+					Binding =
+						4,
+				};
+
+
+			causticsUniform.AddId(
+				_linearRepeatMipSampler);
+
+			causticsUniform.AddId(
+				_causticsTexture);
+
+
+			var distortionUniform =
+				new RDUniform
+				{
+					UniformType =
+						RenderingDevice.UniformType.SamplerWithTexture,
+
+					Binding =
+						5,
+				};
+
+
+			distortionUniform.AddId(
+				_linearRepeatMipSampler);
+
+			distortionUniform.AddId(
+				_causticsDistortionTexture);
+
+
+			var frameUniform =
+				new RDUniform
+				{
+					UniformType =
+						RenderingDevice.UniformType.UniformBuffer,
+
+					Binding =
+						6,
+				};
+
+
+			frameUniform.AddId(
+				_frameUniformBuffer);
+
+
 			Rid uniformSet =
 				UniformSetCacheRD.GetCache(
 					_shader,
@@ -358,6 +573,11 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 					{
 						colorUniform,
 						depthUniform,
+						animatedWaveUniform,
+						lodMetadataUniform,
+						causticsUniform,
+						distortionUniform,
+						frameUniform,
 					});
 
 
@@ -477,15 +697,238 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 		}
 
 
+		if (!_linearClampSampler.IsValid)
+		{
+			_linearClampSampler =
+				_rd.SamplerCreate(
+					new RDSamplerState
+					{
+						MinFilter = RenderingDevice.SamplerFilter.Linear,
+						MagFilter = RenderingDevice.SamplerFilter.Linear,
+						MipFilter = RenderingDevice.SamplerFilter.Nearest,
+						RepeatU = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+						RepeatV = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+						RepeatW = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+					});
+		}
+
+
+		if (!_linearRepeatMipSampler.IsValid)
+		{
+			_linearRepeatMipSampler =
+				_rd.SamplerCreate(
+					new RDSamplerState
+					{
+						MinFilter = RenderingDevice.SamplerFilter.Linear,
+						MagFilter = RenderingDevice.SamplerFilter.Linear,
+						MipFilter = RenderingDevice.SamplerFilter.Linear,
+						RepeatU = RenderingDevice.SamplerRepeatMode.Repeat,
+						RepeatV = RenderingDevice.SamplerRepeatMode.Repeat,
+						RepeatW = RenderingDevice.SamplerRepeatMode.Repeat,
+					});
+		}
+
+
+		if (!_frameUniformBuffer.IsValid)
+		{
+			_frameUniformBuffer =
+				_rd.UniformBufferCreate(
+					FrameUniformBytes,
+					_frameUniformBytes);
+		}
+
+
+		if (!_neutralTexture.IsValid)
+		{
+			var textureFormat =
+				new RDTextureFormat
+				{
+					Format = RenderingDevice.DataFormat.R8G8B8A8Unorm,
+					Width = 1,
+					Height = 1,
+					Depth = 1,
+					ArrayLayers = 1,
+					Mipmaps = 1,
+					TextureType = RenderingDevice.TextureType.Type2D,
+					UsageBits = RenderingDevice.TextureUsageBits.SamplingBit,
+				};
+
+
+			_neutralTexture =
+				_rd.TextureCreate(
+					textureFormat,
+					new RDTextureView(),
+					new Array<byte[]>
+					{
+						new byte[]
+						{
+							128,
+							128,
+							128,
+							255,
+						},
+					});
+		}
+
+
+		if (!_causticsTexture.IsValid ||
+			!_causticsDistortionTexture.IsValid)
+		{
+			ResolveCausticsTextures();
+		}
+
+
 		return
-			_nearestSampler.IsValid;
+			_nearestSampler.IsValid &&
+			_linearClampSampler.IsValid &&
+			_linearRepeatMipSampler.IsValid &&
+			_frameUniformBuffer.IsValid &&
+			_neutralTexture.IsValid &&
+			_causticsTexture.IsValid &&
+			_causticsDistortionTexture.IsValid;
+	}
+
+
+	private void ResolveCausticsTextures()
+	{
+		if (_rd == null ||
+			!_neutralTexture.IsValid)
+		{
+			return;
+		}
+
+
+		Rid caustics =
+			_causticsState.Texture.IsValid
+				? RenderingServer.TextureGetRdTexture(
+					_causticsState.Texture,
+					false)
+				: default;
+
+
+		_hasCausticsTexture =
+			caustics.IsValid;
+
+
+		_causticsTexture =
+			_hasCausticsTexture
+				? caustics
+				: _neutralTexture;
+
+
+		_causticsMipCount =
+			_hasCausticsTexture
+				? Math.Max(
+					(int)_rd.TextureGetFormat(
+						caustics).Mipmaps,
+					1)
+				: 1;
+
+
+		Rid distortion =
+			_causticsState.DistortionTexture.IsValid
+				? RenderingServer.TextureGetRdTexture(
+					_causticsState.DistortionTexture,
+					false)
+				: default;
+
+
+		_hasCausticsDistortionTexture =
+			distortion.IsValid;
+
+
+		_causticsDistortionTexture =
+			_hasCausticsDistortionTexture
+				? distortion
+				: _neutralTexture;
+	}
+
+
+	private bool WriteFrameUniforms(
+		Transform3D cameraToWorld,
+		float visualTime)
+	{
+		Span<float> values =
+			MemoryMarshal.Cast<byte, float>(
+				_frameUniformBytes.AsSpan());
+
+
+		WriteColumn(
+			values,
+			0,
+			new Vector4(
+				cameraToWorld.Basis.X.X,
+				cameraToWorld.Basis.X.Y,
+				cameraToWorld.Basis.X.Z,
+				0.0f));
+
+		WriteColumn(
+			values,
+			4,
+			new Vector4(
+				cameraToWorld.Basis.Y.X,
+				cameraToWorld.Basis.Y.Y,
+				cameraToWorld.Basis.Y.Z,
+				0.0f));
+
+		WriteColumn(
+			values,
+			8,
+			new Vector4(
+				cameraToWorld.Basis.Z.X,
+				cameraToWorld.Basis.Z.Y,
+				cameraToWorld.Basis.Z.Z,
+				0.0f));
+
+		WriteColumn(
+			values,
+			12,
+			new Vector4(
+				cameraToWorld.Origin.X,
+				cameraToWorld.Origin.Y,
+				cameraToWorld.Origin.Z,
+				1.0f));
+
+
+		values[16] = visualTime;
+		values[17] =
+			_hasCausticsTexture &&
+			_causticsState.Strength > 0.0f
+				? 1.0f
+				: 0.0f;
+
+		values[18] =
+			_hasCausticsDistortionTexture &&
+			_causticsState.DistortionStrength > 0.0f
+				? 1.0f
+				: 0.0f;
+		values[19] = Math.Max(_causticsMipCount - 1, 0);
+
+		values[20] = _causticsState.Scale;
+		values[21] = _causticsState.TextureAverage;
+		values[22] = _causticsState.Strength;
+		values[23] = _causticsState.FocalDepth;
+
+		values[24] = _causticsState.DepthOfField;
+		values[25] = _causticsState.DistortionScale;
+		values[26] = _causticsState.DistortionStrength;
+		values[27] = _animatedWaveSnapshot.LodCount;
+
+
+		return
+			_rd.BufferUpdate(
+				_frameUniformBuffer,
+				0,
+				FrameUniformBytes,
+				_frameUniformBytes) ==
+			Error.Ok;
 	}
 
 
 	private void WritePushConstants(
 		Vector2I size,
 		Projection inverseProjection,
-		Vector3 sunRayDirectionView,
+		Vector3 sunRayDirectionWorld,
 		float incidentSunOpticalPath)
 	{
 		Span<float> values =
@@ -532,9 +975,9 @@ public partial class OceanUnderwaterCompositorEffect : CompositorEffect
 		values[27] = _primarySunRadiance.Z;
 
 
-		values[28] = sunRayDirectionView.X;
-		values[29] = sunRayDirectionView.Y;
-		values[30] = sunRayDirectionView.Z;
+		values[28] = sunRayDirectionWorld.X;
+		values[29] = sunRayDirectionWorld.Y;
+		values[30] = sunRayDirectionWorld.Z;
 		values[31] = incidentSunOpticalPath;
 	}
 
