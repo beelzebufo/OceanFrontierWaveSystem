@@ -61,6 +61,11 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 		SetSurfaceParameter(
+			"debug_underwater_transmission",
+			_debugUnderwaterTransmission);
+
+
+		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
 	}

@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://gagv28gs1idd"
-path.s3tc="res://.godot/imported/WaveNormals.png-605a977cc9996a8f1cbf276f12d3e147.s3tc.ctex"
+uid="uid://b3t3tmnsrs04g"
+path.s3tc="res://.godot/imported/caustics.png-01e0c280802c80c7b243f3be4a43a809.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://Ocean/Textures/Water/WaveNormals.png"
-dest_files=["res://.godot/imported/WaveNormals.png-605a977cc9996a8f1cbf276f12d3e147.s3tc.ctex"]
+source_file="res://Ocean/Textures/Water/caustics.png"
+dest_files=["res://.godot/imported/caustics.png-01e0c280802c80c7b243f3be4a43a809.s3tc.ctex"]
 
 [params]
 
@@ -34,7 +34,7 @@ process/channel_remap/blue=2
 process/channel_remap/alpha=3
 process/fix_alpha_border=true
 process/premult_alpha=false
-process/normal_map_invert_y=true
+process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0

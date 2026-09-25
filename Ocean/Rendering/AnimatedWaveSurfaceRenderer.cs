@@ -131,6 +131,25 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	public float CausticsDistortionScale { get; set; } = 10.0f;
 
 
+	[Export]
+	public bool DebugUnderwaterTransmission
+	{
+		get =>
+			_debugUnderwaterTransmission;
+
+		set
+		{
+			_debugUnderwaterTransmission =
+				value;
+
+
+			SetSurfaceParameter(
+				"debug_underwater_transmission",
+				value);
+		}
+	}
+
+
 	private OceanRuntime _runtime;
 
 	private Shader _surfaceShader;
@@ -207,6 +226,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private bool _showGrid;
 	private bool _showMarkers;
 	private bool _lightingEnabled = true;
+	private bool _debugUnderwaterTransmission;
 	private bool _showNormalVectors;
 
 	private float _diagnosticRoughness = 0.65f;

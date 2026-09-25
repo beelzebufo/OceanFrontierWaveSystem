@@ -2,11 +2,13 @@ shader_type spatial;
 render_mode world_vertex_coords, cull_disabled, depth_draw_always;
 
 #include "res://Ocean/Shaders/Rendering/animated_wave_surface_contract.gdshaderinc"
+#include "res://Ocean/Shaders/Rendering/animated_wave_surface_optics.gdshaderinc"
 
 
 uniform bool show_surface_grid = true;
 uniform bool show_surface_markers = true;
 uniform bool lighting_enabled = true;
+uniform bool debug_underwater_transmission = false;
 
 uniform float diagnostic_roughness :
     hint_range(0.0, 1.0) = 0.65;
@@ -204,34 +206,6 @@ vec2 clamp_screen_uv(
         vec2(1.0) -
             half_texel);
 }
-
-
-float water_f0_from_ior(
-    float ior)
-{
-    float ratio =
-        (1.0 - ior) /
-        (1.0 + ior);
-
-
-    return
-        ratio *
-        ratio;
-}
-
-
-float water_fresnel_schlick(
-    float f0,
-    float ndotv)
-{
-    return
-        f0 +
-        (1.0 - f0) *
-        pow(
-            1.0 - ndotv,
-            5.0);
-}
-
 
 
 //
@@ -462,7 +436,8 @@ vec3 apply_visual_micro_normal(
     vec3 view_normal,
     vec2 world_xz,
     float lod_alpha,
-    mat4 view_matrix)
+    mat4 view_matrix,
+    float face_sign)
 {
     if (!visual_micro_normals_enabled ||
         visual_normal_strength <= 0.0)
@@ -474,7 +449,8 @@ vec3 apply_visual_micro_normal(
     vec2 micro_normal =
         sample_visual_micro_normal(
             world_xz,
-            lod_alpha);
+            lod_alpha) *
+        face_sign;
 
 
     vec3 micro_view =
@@ -686,12 +662,31 @@ void fragment()
     // - geometric normal diagnostics
     //
 
+    bool viewing_from_underwater =
+        !FRONT_FACING;
+
+
+    //
+    // Godot Forward+ face-orients NORMAL before user fragment code when
+    // cull_disabled is active (DO_SIDE_CHECK). Do not flip NORMAL again here.
+    //
+    // The renderer-only micro-normal perturbation is authored in the
+    // canonical top-surface XZ frame, so only that perturbation needs the
+    // matching face sign on the underside.
+    //
+    float normal_face_sign =
+        viewing_from_underwater
+            ? -1.0
+            : 1.0;
+
+
     NORMAL =
         apply_visual_micro_normal(
             NORMAL,
             undisplaced_world_xz,
             visual_normal_lod_alpha,
-            VIEW_MATRIX);
+            VIEW_MATRIX,
+            normal_face_sign);
 
 
     float signed_height =
@@ -887,7 +882,8 @@ void fragment()
         // Then detect only the below-world-horizon portion and replace that
         // environment radiance with the configured horizon radiance. Godot
         // still applies its native IBL BRDF/Fresnel afterwards.
-        if (!planet_curvature_enabled)
+        if (!planet_curvature_enabled &&
+            !viewing_from_underwater)
         {
             vec3 reflection_view =
                 reflect(
@@ -988,13 +984,18 @@ void fragment()
         // This deliberately uses geometric path length rather than Crest's
         // linear eye-Z difference. Visible opaque depth, not bathymetry data,
         // defines the optical consumer path.
+        // Above water, the surface-to-receiver segment is inside water.
+        // Below water, that segment is already in air; camera-to-surface
+        // extinction will be applied later by the underwater compositor.
         float optical_path =
-            clamp(
-                length(
-                    scene_view_position -
-                    VERTEX),
-                0.0,
-                MAX_OPTICAL_PATH_METRES);
+            viewing_from_underwater
+                ? 0.0
+                : clamp(
+                    length(
+                        scene_view_position -
+                        VERTEX),
+                    0.0,
+                    MAX_OPTICAL_PATH_METRES);
 
 
         vec3 transmittance =
@@ -1031,6 +1032,7 @@ void fragment()
 
         if (water_caustics_enabled &&
             water_caustics_strength > 0.0 &&
+            !viewing_from_underwater &&
             !planet_curvature_enabled &&
             scene_depth > 0.000001 &&
             to_sun_world.y > 0.0001 &&
@@ -1438,11 +1440,16 @@ void fragment()
                 1.0);
 
 
+        float interface_fresnel =
+            water_interface_fresnel(
+                water_ior,
+                ndotv,
+                viewing_from_underwater);
+
+
         float transmission_weight =
             1.0 -
-            water_fresnel_schlick(
-                water_f0,
-                ndotv);
+            interface_fresnel;
 
 
         // Godot PBR owns reflected energy. This emission term supplies only
@@ -1461,6 +1468,33 @@ void fragment()
                     0.16),
                 0.0,
                 1.0);
+
+
+        if (debug_underwater_transmission &&
+            viewing_from_underwater)
+        {
+            ALBEDO =
+                vec3(0.0);
+
+
+            EMISSION =
+                vec3(
+                    transmission_weight);
+
+
+            SPECULAR =
+                0.0;
+
+
+            // RADIANCE alpha 1 replaces environment radiance instead of
+            // preserving Godot's native IBL contribution.
+            RADIANCE =
+                vec4(
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0);
+        }
     }
     else
     {
