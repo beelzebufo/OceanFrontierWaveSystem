@@ -19,6 +19,11 @@
 // them there costs exactly what it cost before they existed. The switch is a uniform, so every
 // pixel takes the same branch and the skip is genuinely free rather than nearly free.
 //
+// Layer 1 additionally supports an optional smooth world-space density noise for the DETAIL
+// texture. It does not alter the paint weight itself: Paint Layer 1 remains the authoritative
+// biome/surface mask used by scatter and other systems. The noise only varies how strongly the
+// horizontal detail texture (and its optional normal) is visible inside that painted area.
+//
 // Two ways to use this file:
 //
 //   1. Nothing to do. The manager hangs terrain_paint_overlay.gdshader on the chunks as a
@@ -62,6 +67,16 @@ uniform float paint_layer_1_detail_amount : hint_range(0.0, 1.0) = 0.0;
 uniform sampler2D paint_layer_1_detail_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform float paint_layer_1_detail_normal_strength : hint_range(0.0, 4.0) = 0.0;
 uniform float paint_layer_1_detail_size : hint_range(0.05, 64.0) = 2.0;
+
+// Optional smooth breakup of Layer 1 DETAIL only.
+// Strength 0 preserves the old shader exactly and performs no noise sample.
+uniform sampler2D paint_layer_1_detail_noise :
+	filter_linear_mipmap,
+	repeat_enable;
+uniform float paint_layer_1_detail_noise_strength : hint_range(0.0, 1.0) = 0.0;
+uniform float paint_layer_1_detail_noise_size : hint_range(0.05, 128.0) = 12.0;
+uniform float paint_layer_1_detail_noise_low : hint_range(0.0, 1.0) = 0.30;
+uniform float paint_layer_1_detail_noise_high : hint_range(0.0, 1.0) = 0.70;
 group_uniforms;
 
 group_uniforms Layer_2;
@@ -132,7 +147,7 @@ bool lpt_paint_uses_normal_detail() {
 // A detail texture is composited ONTO the layer colour through its own alpha, not multiplied
 // with it. Multiplying would mean every pixel of the image tints the ground, and for the kind
 // of image this is actually for - scattered stones or leaves over empty space, the same asset a
-// decal would use - the empty space is not white, it is TRANSPARENT. Its RGB is whatever the
+// Decal would use - the empty space is not white, it is TRANSPARENT. Its RGB is whatever the
 // importer left there, which with the usual 'Fix Alpha Border' is a bleed of the nearest opaque
 // pixel. Multiplied, that smears the motif's colour across the entire layer and drags a green
 // ground to grey. Composited, it is simply not drawn.
@@ -140,6 +155,60 @@ bool lpt_paint_uses_normal_detail() {
 // So the alpha is the shape and the RGB is the look inside it, exactly as the same image
 // behaves on a Decal. A fully opaque texture - an ordinary tiling ground photo - still works:
 // alpha is 1 everywhere, and the detail amount then fades the whole image in over the colour.
+
+
+// Smooth world-space density mask for Layer 1 DETAIL only.
+//
+// This intentionally does NOT change the paint weight itself. Paint Layer 1 remains the
+// authoritative biome/surface mask used by gameplay/scatter; the noise only varies how strongly
+// its horizontal detail texture is drawn inside that painted area.
+//
+// Strength == 0 is the legacy path: returns 1 and performs no texture sample.
+float lpt_paint_layer_1_detail_noise_mask(
+	vec3 world_pos,
+	vec2 world_dx,
+	vec2 world_dy
+) {
+	if (paint_layer_1_detail_noise_strength <= 0.0) {
+		return 1.0;
+	}
+
+	float size = max(paint_layer_1_detail_noise_size, 0.001);
+	vec2 uv = world_pos.xz / size;
+	vec2 duv_dx = world_dx / size;
+	vec2 duv_dy = world_dy / size;
+
+	float noise_value = textureGrad(
+		paint_layer_1_detail_noise,
+		uv,
+		duv_dx,
+		duv_dy
+	).r;
+
+	float low_edge = min(
+		paint_layer_1_detail_noise_low,
+		paint_layer_1_detail_noise_high
+	);
+
+	float high_edge = max(
+		paint_layer_1_detail_noise_low,
+		paint_layer_1_detail_noise_high
+	);
+
+	high_edge = max(high_edge, low_edge + 0.001);
+
+	float smooth_noise = smoothstep(
+		low_edge,
+		high_edge,
+		noise_value
+	);
+
+	return mix(
+		1.0,
+		smooth_noise,
+		paint_layer_1_detail_noise_strength
+	);
+}
 
 
 // The layers' own colour, before it is blended onto anything. Divided by the total so the
@@ -159,7 +228,16 @@ vec3 lpt_paint_layer_color_at(vec4 weights, vec3 world_pos) {
 		vec4 detail = textureGrad(
 			paint_layer_1_detail, world_pos.xz / size, world_dx / size, world_dy / size
 		);
-		c1 = mix(c1, detail.rgb, detail.a * paint_layer_1_detail_amount);
+		float density = lpt_paint_layer_1_detail_noise_mask(
+			world_pos,
+			world_dx,
+			world_dy
+		);
+		c1 = mix(
+			c1,
+			detail.rgb,
+			detail.a * paint_layer_1_detail_amount * density
+		);
 	}
 
 	vec3 c2 = paint_layer_2_color.rgb;
@@ -262,6 +340,11 @@ vec3 lpt_paint_normal_at(vec3 base_normal, vec4 weights, vec3 world_pos) {
 		vec2 duv_dy = world_dy / size;
 		vec2 encoded = textureGrad(paint_layer_1_detail_normal, uv, duv_dx, duv_dy).xy * 2.0 - 1.0;
 		float cover = textureGrad(paint_layer_1_detail, uv, duv_dx, duv_dy).a;
+		cover *= lpt_paint_layer_1_detail_noise_mask(
+			world_pos,
+			world_dx,
+			world_dy
+		);
 		tilt += encoded * cover * paint_layer_1_detail_normal_strength * weights.r;
 	}
 
@@ -321,7 +404,7 @@ vec3 lpt_paint_albedo_at(vec3 base, vec4 weights, vec3 world_pos) {
 }
 
 
-// The same without detail textures, for an inline shader written before they existed.
+// The same without detail textures, for an inline shader written before the textures existed.
 vec3 lpt_paint_albedo(vec3 base, vec4 weights) {
 	return mix(base, lpt_paint_layer_color(weights), lpt_paint_total(weights));
 }
