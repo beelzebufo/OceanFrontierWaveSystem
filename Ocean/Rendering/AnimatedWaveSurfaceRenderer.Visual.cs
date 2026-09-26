@@ -133,7 +133,7 @@ public partial class AnimatedWaveSurfaceRenderer
 	private int _appliedCausticsRevision = -1;
 
 
-	private void ApplyPrimarySunParameters(
+	private void ApplyLightingParameters(
 		bool force = false)
 	{
 		if (_material == null ||
@@ -171,6 +171,11 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"primary_sun_radiance",
 			_primarySunRadiance);
+
+
+		SetSurfaceParameter(
+			"ocean_ambient_light",
+			state.OceanAmbientLightProxy);
 
 
 		SetSurfaceParameter(

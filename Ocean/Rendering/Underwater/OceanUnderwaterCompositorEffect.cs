@@ -22,7 +22,7 @@ public partial class OceanUnderwaterCompositorEffect :
 		"res://Ocean/Shaders/Rendering/underwater_simple.glsl";
 
 	private const uint PushConstantBytes = 128;
-	private const uint FrameUniformBytes = 112;
+	private const uint FrameUniformBytes = 128;
 	private const float MaxOpticalPathMetres = 240.0f;
 
 	private readonly byte[] _pushBytes =
@@ -54,6 +54,7 @@ public partial class OceanUnderwaterCompositorEffect :
 	private Vector3 _deepScatterColor;
 	private Vector3 _primarySunRayDirectionWorld;
 	private Vector3 _primarySunRadiance;
+	private Vector3 _oceanAmbientLight;
 	private float _pendingCameraWaterDepth;
 	private float _pendingVisualTime;
 
@@ -63,6 +64,7 @@ public partial class OceanUnderwaterCompositorEffect :
 		Vector3 deepScatterColor,
 		Vector3 primarySunRayDirectionWorld,
 		Vector3 primarySunRadiance,
+		Vector3 oceanAmbientLight,
 		OceanCausticsGpuState causticsState)
 	{
 		_extinction =
@@ -76,6 +78,9 @@ public partial class OceanUnderwaterCompositorEffect :
 
 		_primarySunRadiance =
 			primarySunRadiance;
+
+		_oceanAmbientLight =
+			oceanAmbientLight;
 
 		_causticsState =
 			causticsState;
@@ -130,16 +135,23 @@ public partial class OceanUnderwaterCompositorEffect :
 	}
 
 
-	/// <summary>Render thread only. Direction and radiance are coherent.</summary>
-	internal void SetPrimarySunState(
+	/// <summary>
+	/// Render thread only. Sun and ambient values come from one lighting
+	/// revision and are replaced coherently.
+	/// </summary>
+	internal void SetLightingState(
 		Vector3 rayDirectionWorld,
-		Vector3 linearRadiance)
+		Vector3 linearRadiance,
+		Vector3 ambientLinear)
 	{
 		_primarySunRayDirectionWorld =
 			rayDirectionWorld;
 
 		_primarySunRadiance =
 			linearRadiance;
+
+		_oceanAmbientLight =
+			ambientLinear;
 	}
 
 
@@ -913,6 +925,11 @@ public partial class OceanUnderwaterCompositorEffect :
 		values[25] = _causticsState.DistortionScale;
 		values[26] = _causticsState.DistortionStrength;
 		values[27] = _animatedWaveSnapshot.LodCount;
+
+		values[28] = _oceanAmbientLight.X;
+		values[29] = _oceanAmbientLight.Y;
+		values[30] = _oceanAmbientLight.Z;
+		values[31] = 0.0f;
 
 
 		return

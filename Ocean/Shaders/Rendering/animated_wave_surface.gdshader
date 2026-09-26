@@ -30,6 +30,10 @@ uniform vec3 water_scatter_color :
 uniform vec3 water_shallow_scatter_color :
     source_color = vec3(0.03, 0.22, 0.18);
 
+// Value-only low-frequency environment ambient supplied by the shared ocean
+// lighting revision. Godot's native IBL remains responsible for reflection.
+uniform vec3 ocean_ambient_light = vec3(1.0);
+
 uniform float water_shallow_color_strength :
     hint_range(0.0, 1.0, 0.01) = 1.0;
 
@@ -1528,8 +1532,13 @@ void fragment()
                 shallowness);
 
 
+        vec3 ambient_scatter_colour =
+            base_scatter_colour *
+            ocean_ambient_light;
+
+
         vec3 effective_scatter_colour =
-            base_scatter_colour +
+            ambient_scatter_colour +
             directional_scatter;
 
 

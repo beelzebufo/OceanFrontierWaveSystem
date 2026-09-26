@@ -618,7 +618,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 
 		ApplyDisplayParameters();
-		ApplyPrimarySunParameters();
+		ApplyLightingParameters();
 		ApplyShallowWaterParameters();
 		ApplyCausticsParameters(
 			force: true);

@@ -16,8 +16,8 @@ internal enum OceanEnvironmentSource
 /// <summary>
 /// Immutable value-only snapshot of the Godot scene lighting observed on the
 /// main thread. It deliberately contains no Node, Resource or RID references.
-/// Environment fields are raw controls, not an approximation of integrated
-/// sky irradiance.
+/// OceanAmbientLightProxy is a bounded-source approximation of Godot's
+/// low-frequency environment ambient; it is not sky radiance or SH data.
 /// </summary>
 internal readonly struct OceanLightingState :
 	IEquatable<OceanLightingState>
@@ -37,7 +37,9 @@ internal readonly struct OceanLightingState :
 			ambientSkyContribution: 0.0f,
 			reflectionSource: Godot.Environment.ReflectionSource.Disabled,
 			backgroundMode: Godot.Environment.BGMode.ClearColor,
-			backgroundEnergyMultiplier: 0.0f);
+			backgroundEnergyMultiplier: 0.0f,
+			backgroundColorLinear: Vector3.Zero,
+			hasSky: false);
 
 	internal readonly bool HasPrimarySun;
 	internal readonly Vector3 PrimarySunRayDirectionWorld;
@@ -54,6 +56,7 @@ internal readonly struct OceanLightingState :
 	internal readonly Godot.Environment.ReflectionSource ReflectionSource;
 	internal readonly Godot.Environment.BGMode BackgroundMode;
 	internal readonly float BackgroundEnergyMultiplier;
+	internal readonly Vector3 OceanAmbientLightProxy;
 
 
 	private OceanLightingState(
@@ -70,7 +73,8 @@ internal readonly struct OceanLightingState :
 		float ambientSkyContribution,
 		Godot.Environment.ReflectionSource reflectionSource,
 		Godot.Environment.BGMode backgroundMode,
-		float backgroundEnergyMultiplier)
+		float backgroundEnergyMultiplier,
+		Vector3 oceanAmbientLightProxy)
 	{
 		HasPrimarySun = hasPrimarySun;
 		PrimarySunRayDirectionWorld = primarySunRayDirectionWorld;
@@ -86,6 +90,7 @@ internal readonly struct OceanLightingState :
 		ReflectionSource = reflectionSource;
 		BackgroundMode = backgroundMode;
 		BackgroundEnergyMultiplier = backgroundEnergyMultiplier;
+		OceanAmbientLightProxy = oceanAmbientLightProxy;
 	}
 
 
@@ -103,7 +108,9 @@ internal readonly struct OceanLightingState :
 		float ambientSkyContribution,
 		Godot.Environment.ReflectionSource reflectionSource,
 		Godot.Environment.BGMode backgroundMode,
-		float backgroundEnergyMultiplier)
+		float backgroundEnergyMultiplier,
+		Vector3 backgroundColorLinear,
+		bool hasSky)
 	{
 		if (!primarySunRayDirectionWorld.IsFinite() ||
 			primarySunRayDirectionWorld.LengthSquared() < 1e-8f)
@@ -117,6 +124,39 @@ internal readonly struct OceanLightingState :
 		}
 
 
+		ambientColorLinear =
+			SanitizeVector(
+				ambientColorLinear);
+
+		ambientEnergy =
+			SanitizeScalar(
+				ambientEnergy);
+
+		ambientSkyContribution =
+			Mathf.Clamp(
+				SanitizeScalar(
+					ambientSkyContribution),
+				0.0f,
+				1.0f);
+
+		backgroundEnergyMultiplier =
+			SanitizeScalar(
+				backgroundEnergyMultiplier);
+
+
+		Vector3 oceanAmbientLightProxy =
+			DeriveOceanAmbientLightProxy(
+				ambientSource,
+				ambientColorLinear,
+				ambientEnergy,
+				ambientSkyContribution,
+				backgroundMode,
+				backgroundEnergyMultiplier,
+				SanitizeVector(
+					backgroundColorLinear),
+				hasSky);
+
+
 		return
 			new OceanLightingState(
 				hasPrimarySun,
@@ -127,15 +167,13 @@ internal readonly struct OceanLightingState :
 				SanitizeScalar(primarySunTemperatureKelvin),
 				environmentSource,
 				ambientSource,
-				SanitizeVector(ambientColorLinear),
-				SanitizeScalar(ambientEnergy),
-				Mathf.Clamp(
-					SanitizeScalar(ambientSkyContribution),
-					0.0f,
-					1.0f),
+				ambientColorLinear,
+				ambientEnergy,
+				ambientSkyContribution,
 				reflectionSource,
 				backgroundMode,
-				SanitizeScalar(backgroundEnergyMultiplier));
+				backgroundEnergyMultiplier,
+				oceanAmbientLightProxy);
 	}
 
 
@@ -154,7 +192,8 @@ internal readonly struct OceanLightingState :
 		AmbientSkyContribution == other.AmbientSkyContribution &&
 		ReflectionSource == other.ReflectionSource &&
 		BackgroundMode == other.BackgroundMode &&
-		BackgroundEnergyMultiplier == other.BackgroundEnergyMultiplier;
+		BackgroundEnergyMultiplier == other.BackgroundEnergyMultiplier &&
+		OceanAmbientLightProxy == other.OceanAmbientLightProxy;
 
 
 	public override bool Equals(
@@ -179,7 +218,65 @@ internal readonly struct OceanLightingState :
 				AmbientSkyContribution,
 				ReflectionSource,
 				BackgroundMode,
-				BackgroundEnergyMultiplier));
+				BackgroundEnergyMultiplier,
+				OceanAmbientLightProxy));
+
+
+	private static Vector3 DeriveOceanAmbientLightProxy(
+		Godot.Environment.AmbientSource ambientSource,
+		Vector3 ambientColorLinear,
+		float ambientEnergy,
+		float ambientSkyContribution,
+		Godot.Environment.BGMode backgroundMode,
+		float backgroundEnergyMultiplier,
+		Vector3 backgroundColorLinear,
+		bool hasSky)
+	{
+		Vector3 explicitAmbient =
+			ambientColorLinear *
+			ambientEnergy;
+
+		Vector3 neutralSkyAmbient =
+			hasSky
+				? Vector3.One * backgroundEnergyMultiplier
+				: Vector3.Zero;
+
+
+		switch (ambientSource)
+		{
+			case Godot.Environment.AmbientSource.Disabled:
+				return Vector3.Zero;
+
+			case Godot.Environment.AmbientSource.Color:
+				return explicitAmbient;
+
+			case Godot.Environment.AmbientSource.Sky:
+				return explicitAmbient.Lerp(
+					neutralSkyAmbient,
+					ambientSkyContribution);
+
+			case Godot.Environment.AmbientSource.Bg:
+				switch (backgroundMode)
+				{
+					case Godot.Environment.BGMode.ClearColor:
+					case Godot.Environment.BGMode.Color:
+						return
+							backgroundColorLinear *
+							backgroundEnergyMultiplier;
+
+					case Godot.Environment.BGMode.Sky:
+						return explicitAmbient.Lerp(
+							neutralSkyAmbient,
+							ambientSkyContribution);
+
+					default:
+						return Vector3.Zero;
+				}
+
+			default:
+				return Vector3.Zero;
+		}
+	}
 
 
 	private static Vector3 SanitizeVector(
@@ -299,6 +396,8 @@ public partial class OceanSceneLightingBridge : Node
 			Godot.Environment.BGMode.ClearColor;
 
 		float backgroundEnergyMultiplier = 0.0f;
+		Vector3 backgroundColorLinear = Vector3.Zero;
+		bool hasSky = false;
 
 
 		if (environment != null)
@@ -319,6 +418,22 @@ public partial class OceanSceneLightingBridge : Node
 			reflectionSource = environment.ReflectedLightSource;
 			backgroundMode = environment.BackgroundMode;
 			backgroundEnergyMultiplier = environment.BackgroundEnergyMultiplier;
+
+
+			Color backgroundLinear =
+				(
+					backgroundMode == Godot.Environment.BGMode.ClearColor
+						? RenderingServer.GetDefaultClearColor()
+						: environment.BackgroundColor
+				).SrgbToLinear();
+
+			backgroundColorLinear =
+				new Vector3(
+					backgroundLinear.R,
+					backgroundLinear.G,
+					backgroundLinear.B);
+
+			hasSky = environment.Sky != null;
 		}
 
 
@@ -337,7 +452,9 @@ public partial class OceanSceneLightingBridge : Node
 				ambientSkyContribution,
 				reflectionSource,
 				backgroundMode,
-				backgroundEnergyMultiplier));
+				backgroundEnergyMultiplier,
+				backgroundColorLinear,
+				hasSky));
 	}
 
 

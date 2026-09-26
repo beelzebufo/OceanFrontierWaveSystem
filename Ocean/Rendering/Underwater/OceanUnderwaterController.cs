@@ -145,6 +145,7 @@ public partial class OceanUnderwaterController : Node
 				initialOptics.DeepScatterColor,
 				initialLighting.PrimarySunRayDirectionWorld,
 				initialLighting.PrimarySunLinearRadiance,
+				initialLighting.OceanAmbientLightProxy,
 				initialCaustics.ToGpuState())
 			{
 				Enabled =
@@ -207,7 +208,7 @@ public partial class OceanUnderwaterController : Node
 
 
 		ApplyOpticsState();
-		ApplyPrimarySunState();
+		ApplyLightingState();
 		ApplyCausticsState();
 
 
@@ -415,7 +416,7 @@ public partial class OceanUnderwaterController : Node
 	}
 
 
-	private void ApplyPrimarySunState()
+	private void ApplyLightingState()
 	{
 		_runtime.GetLightingState(
 			out OceanLightingState state,
@@ -445,12 +446,16 @@ public partial class OceanUnderwaterController : Node
 		Vector3 linearRadiance =
 			state.PrimarySunLinearRadiance;
 
+		Vector3 ambientLinear =
+			state.OceanAmbientLightProxy;
+
 
 		RenderingServer.CallOnRenderThread(
 			Callable.From(() =>
-				effect.SetPrimarySunState(
+				effect.SetLightingState(
 					rayDirectionWorld,
-					linearRadiance)));
+					linearRadiance,
+					ambientLinear)));
 
 
 		_appliedLightingRevision =

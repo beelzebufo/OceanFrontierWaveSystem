@@ -37,6 +37,8 @@ layout(std140, set = 0, binding = 6) uniform UnderwaterFrameData
     // x=depth of field, y=distortion scale, z=distortion strength,
     // w=canonical AWF LOD count.
     vec4 caustics_config_1;
+    // xyz=value-only low-frequency environment ambient, w=reserved.
+    vec4 ambient_lighting;
 }
 frame;
 
@@ -808,6 +810,7 @@ void main()
 
     vec3 effective_scatter =
         params.scatter_and_sun_radiance_b.xyz *
+            frame.ambient_lighting.xyz *
             ambient_scatter_retention +
         directional_scatter +
         shaft_scatter;
