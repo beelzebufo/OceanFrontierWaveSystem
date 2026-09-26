@@ -167,6 +167,7 @@ varying float visual_normal_lod_alpha;
 
 
 const float MAX_OPTICAL_PATH_METRES = 100.0;
+const float UNDERWATER_REFLECTED_SCATTER_GAIN = 2.40;
 
 
 vec3 reconstruct_view_position(
@@ -1466,7 +1467,8 @@ void fragment()
                 water_volume_colour *
                     transmission_weight +
                 effective_scatter_colour *
-                    interface_fresnel;
+                    interface_fresnel *
+                    UNDERWATER_REFLECTED_SCATTER_GAIN;
 
 
             // The reflected Fresnel share is already present in EMISSION.

@@ -52,8 +52,9 @@ layout(push_constant, std430) uniform Params
 params;
 
 const float APPROXIMATE_DIRECT_SUN_FRACTION = 0.25;
-const float DIRECTIONAL_SCATTER_STRENGTH = 0.35;
-const float DIRECTIONAL_SCATTER_FALLOFF = 5.0;
+const float DIRECTIONAL_SCATTER_STRENGTH = 1.00;
+const float DIRECTIONAL_SCATTER_FALLOFF = 4.0;
+const float DEEP_SCATTER_AMBIENT_FLOOR = 0.45;
 
 
 bool select_finest_covering_lod(
@@ -526,8 +527,29 @@ void main()
         forward_scatter;
 
 
+    // Reuse the incident sunlight path already derived from camera depth.
+    // This keeps shallow water open while lowering the asymptotic ambient
+    // scatter at depth; the angular lobe below prevents a flat blue limit.
+    float incident_sun_luminance =
+        dot(
+            camera_sun_transmittance,
+            vec3(0.2126, 0.7152, 0.0722));
+
+
+    float ambient_scatter_retention =
+        mix(
+            DEEP_SCATTER_AMBIENT_FLOOR,
+            1.0,
+            sqrt(
+                clamp(
+                    incident_sun_luminance,
+                    0.0,
+                    1.0)));
+
+
     vec3 effective_scatter =
-        params.scatter_and_sun_radiance_b.xyz +
+        params.scatter_and_sun_radiance_b.xyz *
+            ambient_scatter_retention +
         directional_scatter;
 
 
