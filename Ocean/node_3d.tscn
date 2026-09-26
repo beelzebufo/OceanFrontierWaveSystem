@@ -71,6 +71,17 @@ roughness = 0.7
 material = SubResource("StandardMaterial3D_optical_reference")
 size = Vector3(6, 0.8, 6)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_reflection_target"]
+albedo_color = Color(1, 0.015, 0.045, 1)
+roughness = 0.35
+emission_enabled = true
+emission = Color(1, 0.002, 0.008, 1)
+emission_energy_multiplier = 2.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_reflection_target"]
+material = SubResource("StandardMaterial3D_reflection_target")
+size = Vector3(4, 20, 4)
+
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
 Caustics = SubResource("Resource_caustics")
@@ -85,6 +96,21 @@ script = ExtResource("12_underwater")
 
 [node name="DiagnosticEnvironment" type="WorldEnvironment" parent="." unique_id=1659707573]
 environment = SubResource("Environment_diagnostic_sky")
+
+[node name="DiagnosticReflectionProbe" type="ReflectionProbe" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
+update_mode = 0
+max_distance = 100.0
+size = Vector3(96, 48, 96)
+origin_offset = Vector3(0, 4, 0)
+enable_shadows = false
+cull_mask = 524287
+reflection_mask = 1048575
+
+[node name="ReflectionProbeTestTarget" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 10, -8)
+layers = 262144
+mesh = SubResource("BoxMesh_reflection_target")
 
 [node name="DiagnosticSun" type="DirectionalLight3D" parent="." unique_id=580536801]
 

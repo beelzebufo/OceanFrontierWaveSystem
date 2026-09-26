@@ -634,6 +634,9 @@ public partial class AnimatedWaveSurfaceRenderer
 					MaterialOverride =
 						material,
 
+					Layers =
+						OceanSurfaceRenderLayerMask,
+
 					Position =
 						new Vector3(
 							position.X,

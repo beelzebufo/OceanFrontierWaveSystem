@@ -23,6 +23,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private const int TilesPerSide = 4;
 	private const int NormalGridResolution = 17;
 	private const float NormalVectorScale = 0.35f;
+	private const uint OceanSurfaceRenderLayerMask = 1u << 19;
 	internal const float DefaultWaterSunScatterStrength = 0.5f;
 	internal const float DefaultWaterShallowColorStrength = 1.0f;
 
@@ -692,6 +693,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				MaterialOverride =
 					_material,
 
+				Layers =
+					OceanSurfaceRenderLayerMask,
+
 				ExtraCullMargin =
 					128.0f,
 
@@ -747,6 +751,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 				MaterialOverride =
 					_normalMaterial,
+
+				Layers =
+					OceanSurfaceRenderLayerMask,
 
 				ExtraCullMargin =
 					128.0f,
