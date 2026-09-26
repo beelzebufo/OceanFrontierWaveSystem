@@ -109,6 +109,32 @@ bool select_finest_covering_lod(
 }
 
 
+vec3 sample_animated_wave_lod(
+    vec2 world_xz,
+    int lod)
+{
+    AnimatedWaveLodParams slice =
+        animated_wave_lod_data.lods[lod];
+
+
+    float world_size =
+        4.0 *
+        slice.scale;
+
+
+    vec2 uv =
+        (world_xz - slice.center_xz) /
+            world_size +
+        vec2(0.5);
+
+
+    return textureLod(
+        animated_wave_field,
+        vec3(uv, float(lod)),
+        0.0).xyz;
+}
+
+
 void main()
 {
     ivec2 pixel =
@@ -250,8 +276,9 @@ void main()
 
         if (has_animated_wave_coverage)
         {
-            // One canonical displacement sample classifies the receiver and
-            // supplies both sunlight depth and projected-caustics depth.
+            // Start with the cheap direct lookup. For an animated surface
+            // pixel, scene XZ is displaced XZ rather than the undisplaced
+            // coordinate at which canonical AWF displacement was authored.
             vec3 receiver_surface_displacement =
                 textureLod(
                     animated_wave_field,
@@ -269,6 +296,48 @@ void main()
                     0.5 * animated_wave_lod_data.lods[selected_lod].texel_width,
                     0.05,
                     0.75);
+
+
+            float ambiguity_limit =
+                receiver_tolerance +
+                length(receiver_surface_displacement.xz) +
+                animated_wave_lod_data.lods[selected_lod].texel_width;
+
+
+            if (receiver_water_depth > receiver_tolerance &&
+                receiver_water_depth <= ambiguity_limit)
+            {
+                // Approximate q + D.xz(q) = visible XZ with two fixed-point
+                // steps. Keep the selected canonical LOD fixed so refinement
+                // cannot introduce a second LOD-selection discontinuity. The
+                // existing clamp sampler remains defined if an intermediate
+                // estimate crosses the half-texel coverage border.
+                vec2 undisplaced_xz =
+                    scene_world_position.xz -
+                    receiver_surface_displacement.xz;
+
+
+                receiver_surface_displacement =
+                    sample_animated_wave_lod(
+                        undisplaced_xz,
+                        selected_lod);
+
+
+                undisplaced_xz =
+                    scene_world_position.xz -
+                    receiver_surface_displacement.xz;
+
+
+                receiver_surface_displacement =
+                    sample_animated_wave_lod(
+                        undisplaced_xz,
+                        selected_lod);
+
+
+                receiver_water_depth =
+                    receiver_surface_displacement.y -
+                    scene_world_position.y;
+            }
 
 
             if (receiver_water_depth > receiver_tolerance &&
