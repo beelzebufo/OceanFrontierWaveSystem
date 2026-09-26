@@ -55,6 +55,13 @@ const float APPROXIMATE_DIRECT_SUN_FRACTION = 0.25;
 const float DIRECTIONAL_SCATTER_STRENGTH = 1.00;
 const float DIRECTIONAL_SCATTER_FALLOFF = 4.0;
 const float DEEP_SCATTER_AMBIENT_FLOOR = 0.45;
+const float SUN_SHAFT_STRENGTH = 2.75;
+const float SUN_SHAFT_WORLD_SCALE = 0.22;
+const float SUN_SHAFT_CONTRAST_LOW = 0.30;
+const float SUN_SHAFT_CONTRAST_HIGH = 0.68;
+const float SUN_SHAFT_SPEED = 0.10;
+const float SUN_SHAFT_SAMPLE_FRACTION = 0.70;
+const float SUN_SHAFT_MAX_SAMPLE_DISTANCE = 72.0;
 
 
 bool select_finest_covering_lod(
@@ -527,6 +534,126 @@ void main()
         forward_scatter;
 
 
+    // Project one bounded world-space point into the plane perpendicular to
+    // the direction in which sunlight travels. Translation along the light
+    // ray leaves both coordinates unchanged, so the pattern forms columns
+    // instead of following screen UVs. The alternate reference axis keeps a
+    // nearly vertical sun well-conditioned.
+    vec3 sun_ray_world =
+        params.sun_ray_direction_world_and_incident_path.xyz;
+
+
+    float sun_ray_length_squared =
+        dot(
+            sun_ray_world,
+            sun_ray_world);
+
+
+    vec3 shaft_ray_direction =
+        sun_ray_length_squared > 0.000001
+            ? sun_ray_world *
+                inversesqrt(sun_ray_length_squared)
+            : vec3(0.0, -1.0, 0.0);
+
+
+    vec3 shaft_reference_axis =
+        abs(shaft_ray_direction.y) < 0.999
+            ? vec3(0.0, 1.0, 0.0)
+            : vec3(1.0, 0.0, 0.0);
+
+
+    vec3 shaft_axis_u =
+        normalize(
+            cross(
+                shaft_reference_axis,
+                shaft_ray_direction));
+
+
+    vec3 shaft_axis_v =
+        cross(
+            shaft_ray_direction,
+            shaft_axis_u);
+
+
+    float shaft_sample_distance =
+        min(
+            optical_path *
+                SUN_SHAFT_SAMPLE_FRACTION,
+            SUN_SHAFT_MAX_SAMPLE_DISTANCE);
+
+
+    vec3 camera_world_position =
+        frame.camera_to_world[3].xyz;
+
+
+    vec3 shaft_sample_world =
+        camera_world_position +
+        view_ray_world *
+            shaft_sample_distance;
+
+
+    vec2 shaft_coordinates =
+        vec2(
+            dot(
+                shaft_sample_world,
+                shaft_axis_u),
+            dot(
+                shaft_sample_world,
+                shaft_axis_v)) *
+        SUN_SHAFT_WORLD_SCALE;
+
+
+    float shaft_time =
+        frame.caustics_frame.x *
+        SUN_SHAFT_SPEED;
+
+
+    float shaft_band_a =
+        0.5 +
+        0.5 *
+        sin(
+            shaft_coordinates.x +
+            0.38 * shaft_coordinates.y +
+            shaft_time);
+
+
+    float shaft_band_b =
+        0.5 +
+        0.5 *
+        sin(
+            -0.42 * shaft_coordinates.x +
+            shaft_coordinates.y -
+            0.73 * shaft_time +
+            1.70);
+
+
+    float shaft_mask =
+        smoothstep(
+            SUN_SHAFT_CONTRAST_LOW,
+            SUN_SHAFT_CONTRAST_HIGH,
+            shaft_band_a *
+                shaft_band_b);
+
+
+    float shaft_angular_visibility =
+        pow(
+            max(
+                dot(
+                    view_ray_world,
+                    direction_toward_sun_world),
+                0.0),
+            1.5);
+
+
+    vec3 shaft_scatter =
+        params.scatter_and_sun_radiance_b.xyz *
+        primary_sun_radiance *
+        camera_sun_transmittance *
+        SUN_SHAFT_STRENGTH *
+        shaft_mask *
+        shaft_angular_visibility;
+
+
     // Reuse the incident sunlight path already derived from camera depth.
     // This keeps shallow water open while lowering the asymptotic ambient
     // scatter at depth; the angular lobe below prevents a flat blue limit.
@@ -550,7 +677,8 @@ void main()
     vec3 effective_scatter =
         params.scatter_and_sun_radiance_b.xyz *
             ambient_scatter_retention +
-        directional_scatter;
+        directional_scatter +
+        shaft_scatter;
 
 
     vec3 result =
