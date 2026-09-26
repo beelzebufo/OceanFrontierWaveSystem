@@ -55,13 +55,149 @@ const float APPROXIMATE_DIRECT_SUN_FRACTION = 0.25;
 const float DIRECTIONAL_SCATTER_STRENGTH = 1.00;
 const float DIRECTIONAL_SCATTER_FALLOFF = 4.0;
 const float DEEP_SCATTER_AMBIENT_FLOOR = 0.45;
-const float SUN_SHAFT_STRENGTH = 2.75;
-const float SUN_SHAFT_WORLD_SCALE = 0.22;
-const float SUN_SHAFT_CONTRAST_LOW = 0.30;
-const float SUN_SHAFT_CONTRAST_HIGH = 0.68;
-const float SUN_SHAFT_SPEED = 0.10;
-const float SUN_SHAFT_SAMPLE_FRACTION = 0.70;
-const float SUN_SHAFT_MAX_SAMPLE_DISTANCE = 72.0;
+const float SUN_SHAFT_STRENGTH = 0.90;
+const float SUN_FIELD_BASE = 0.62;
+const vec2 SUN_FIELD_K0 = vec2(0.018, 0.006);
+const vec2 SUN_FIELD_K1 = vec2(-0.013, 0.031);
+const vec2 SUN_FIELD_K2 = vec2(0.043, -0.020);
+const float SUN_FIELD_AMPLITUDE_0 = 0.27;
+const float SUN_FIELD_AMPLITUDE_1 = 0.19;
+const float SUN_FIELD_AMPLITUDE_2 = 0.14;
+const float SUN_FIELD_SPEED_0 = 0.037;
+const float SUN_FIELD_SPEED_1 = -0.023;
+const float SUN_FIELD_SPEED_2 = 0.014;
+const float SUN_FIELD_PHASE_0 = 0.40;
+const float SUN_FIELD_PHASE_1 = 2.10;
+const float SUN_FIELD_PHASE_2 = -1.30;
+const float SUN_PROJECTION_FADE_START = 0.04;
+const float SUN_PROJECTION_FADE_END = 0.16;
+
+
+float stable_beer_integral_channel(
+    float extinction,
+    float transmittance,
+    float optical_path)
+{
+    float optical_depth =
+        extinction *
+        optical_path;
+
+
+    if (optical_depth < 0.001)
+    {
+        return
+            optical_path *
+            (
+                1.0 -
+                0.5 * optical_depth +
+                optical_depth * optical_depth / 6.0
+            );
+    }
+
+
+    return
+        (1.0 - transmittance) /
+        extinction;
+}
+
+
+vec3 stable_beer_integral(
+    vec3 extinction,
+    vec3 transmittance,
+    float optical_path)
+{
+    return
+        vec3(
+            stable_beer_integral_channel(
+                extinction.r,
+                transmittance.r,
+                optical_path),
+            stable_beer_integral_channel(
+                extinction.g,
+                transmittance.g,
+                optical_path),
+            stable_beer_integral_channel(
+                extinction.b,
+                transmittance.b,
+                optical_path));
+}
+
+
+vec3 integrate_attenuated_harmonic(
+    vec2 wave_vector,
+    float speed,
+    float phase_offset,
+    vec2 surface_a,
+    vec2 surface_b,
+    vec3 extinction,
+    vec3 transmittance,
+    float optical_path,
+    float visual_time)
+{
+    float alpha =
+        dot(
+            wave_vector,
+            surface_a) +
+        speed * visual_time +
+        phase_offset;
+
+
+    float beta =
+        dot(
+            wave_vector,
+            surface_b);
+
+
+    float phase_span =
+        beta *
+        optical_path;
+
+
+    vec3 beer_integral =
+        stable_beer_integral(
+            extinction,
+            transmittance,
+            optical_path);
+
+
+    // For beta -> 0 the harmonic is constant along the segment. This exact
+    // limit avoids cancellation in the general endpoint expression.
+    if (abs(phase_span) < 0.001)
+    {
+        return
+            sin(alpha) *
+            beer_integral;
+    }
+
+
+    float end_phase =
+        alpha +
+        phase_span;
+
+
+    float beta_squared =
+        beta * beta;
+
+
+    vec3 denominator =
+        extinction * extinction +
+        vec3(beta_squared);
+
+
+    // Exact integral of exp(-extinction*t) * sin(alpha + beta*t), evaluated
+    // at both segment endpoints independently for each extinction channel.
+    return
+        (
+            extinction * sin(alpha) +
+            vec3(beta * cos(alpha)) -
+            transmittance *
+                (
+                    extinction * sin(end_phase) +
+                    vec3(beta * cos(end_phase))
+                )
+        ) /
+        denominator;
+}
 
 
 bool select_finest_covering_lod(
@@ -534,105 +670,100 @@ void main()
         forward_scatter;
 
 
-    // Project one bounded world-space point into the plane perpendicular to
-    // the direction in which sunlight travels. Translation along the light
-    // ray leaves both coordinates unchanged, so the pattern forms columns
-    // instead of following screen UVs. The alternate reference axis keeps a
-    // nearly vertical sun well-conditioned.
-    vec3 sun_ray_world =
-        params.sun_ray_direction_world_and_incident_path.xyz;
-
-
-    float sun_ray_length_squared =
-        dot(
-            sun_ray_world,
-            sun_ray_world);
-
-
+    // For P(t) = camera + viewRay*t, projecting back to mean ocean level
+    // along sunlight gives surfaceXZ(t) = surfaceA + surfaceB*t. Integrate
+    // the smooth harmonic light field over that complete affine segment so
+    // no discrete depth samples can appear as separate layers.
     vec3 shaft_ray_direction =
-        sun_ray_length_squared > 0.000001
-            ? sun_ray_world *
-                inversesqrt(sun_ray_length_squared)
-            : vec3(0.0, -1.0, 0.0);
-
-
-    vec3 shaft_reference_axis =
-        abs(shaft_ray_direction.y) < 0.999
-            ? vec3(0.0, 1.0, 0.0)
-            : vec3(1.0, 0.0, 0.0);
-
-
-    vec3 shaft_axis_u =
-        normalize(
-            cross(
-                shaft_reference_axis,
-                shaft_ray_direction));
-
-
-    vec3 shaft_axis_v =
-        cross(
-            shaft_ray_direction,
-            shaft_axis_u);
-
-
-    float shaft_sample_distance =
-        min(
-            optical_path *
-                SUN_SHAFT_SAMPLE_FRACTION,
-            SUN_SHAFT_MAX_SAMPLE_DISTANCE);
+        -direction_toward_sun_world;
 
 
     vec3 camera_world_position =
         frame.camera_to_world[3].xyz;
 
 
-    vec3 shaft_sample_world =
-        camera_world_position +
-        view_ray_world *
-            shaft_sample_distance;
+    float safe_sun_y =
+        min(
+            shaft_ray_direction.y,
+            -SUN_PROJECTION_FADE_START);
 
 
-    vec2 shaft_coordinates =
-        vec2(
-            dot(
-                shaft_sample_world,
-                shaft_axis_u),
-            dot(
-                shaft_sample_world,
-                shaft_axis_v)) *
-        SUN_SHAFT_WORLD_SCALE;
+    vec2 surface_a =
+        camera_world_position.xz -
+        shaft_ray_direction.xz *
+            (camera_world_position.y / safe_sun_y);
 
 
-    float shaft_time =
-        frame.caustics_frame.x *
-        SUN_SHAFT_SPEED;
+    vec2 surface_b =
+        view_ray_world.xz -
+        shaft_ray_direction.xz *
+            (view_ray_world.y / safe_sun_y);
 
 
-    float shaft_band_a =
-        0.5 +
-        0.5 *
-        sin(
-            shaft_coordinates.x +
-            0.38 * shaft_coordinates.y +
-            shaft_time);
+    float visual_time =
+        frame.caustics_frame.x;
 
 
-    float shaft_band_b =
-        0.5 +
-        0.5 *
-        sin(
-            -0.42 * shaft_coordinates.x +
-            shaft_coordinates.y -
-            0.73 * shaft_time +
-            1.70);
+    vec3 shaft_beer_integral =
+        stable_beer_integral(
+            extinction,
+            transmittance,
+            optical_path);
 
 
-    float shaft_mask =
+    vec3 shaft_field_integral =
+        SUN_FIELD_BASE *
+            shaft_beer_integral +
+        SUN_FIELD_AMPLITUDE_0 *
+        integrate_attenuated_harmonic(
+            SUN_FIELD_K0,
+            SUN_FIELD_SPEED_0,
+            SUN_FIELD_PHASE_0,
+            surface_a,
+            surface_b,
+            extinction,
+            transmittance,
+            optical_path,
+            visual_time) +
+        SUN_FIELD_AMPLITUDE_1 *
+        integrate_attenuated_harmonic(
+            SUN_FIELD_K1,
+            SUN_FIELD_SPEED_1,
+            SUN_FIELD_PHASE_1,
+            surface_a,
+            surface_b,
+            extinction,
+            transmittance,
+            optical_path,
+            visual_time) +
+        SUN_FIELD_AMPLITUDE_2 *
+        integrate_attenuated_harmonic(
+            SUN_FIELD_K2,
+            SUN_FIELD_SPEED_2,
+            SUN_FIELD_PHASE_2,
+            surface_a,
+            surface_b,
+            extinction,
+            transmittance,
+            optical_path,
+            visual_time);
+
+
+    // Keep the existing UW-4B final (1-T) composition by converting the
+    // attenuated integral into an effective scatter colour. Constant fields
+    // remain constant; spatial harmonics receive exact Beer weighting.
+    vec3 shaft_field_average =
+        shaft_field_integral /
+        max(
+            shaft_beer_integral,
+            vec3(0.0001));
+
+
+    float sun_projection_visibility =
         smoothstep(
-            SUN_SHAFT_CONTRAST_LOW,
-            SUN_SHAFT_CONTRAST_HIGH,
-            shaft_band_a *
-                shaft_band_b);
+            SUN_PROJECTION_FADE_START,
+            SUN_PROJECTION_FADE_END,
+            -shaft_ray_direction.y);
 
 
     float shaft_angular_visibility =
@@ -650,7 +781,8 @@ void main()
         primary_sun_radiance *
         camera_sun_transmittance *
         SUN_SHAFT_STRENGTH *
-        shaft_mask *
+        shaft_field_average *
+        sun_projection_visibility *
         shaft_angular_visibility;
 
 

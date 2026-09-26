@@ -168,6 +168,75 @@ varying float visual_normal_lod_alpha;
 
 const float MAX_OPTICAL_PATH_METRES = 100.0;
 const float UNDERWATER_REFLECTED_SCATTER_GAIN = 2.40;
+const float SUN_FIELD_BASE = 0.62;
+const vec2 SUN_FIELD_K0 = vec2(0.018, 0.006);
+const vec2 SUN_FIELD_K1 = vec2(-0.013, 0.031);
+const vec2 SUN_FIELD_K2 = vec2(0.043, -0.020);
+const float SUN_FIELD_AMPLITUDE_0 = 0.27;
+const float SUN_FIELD_AMPLITUDE_1 = 0.19;
+const float SUN_FIELD_AMPLITUDE_2 = 0.14;
+const float SUN_FIELD_SPEED_0 = 0.037;
+const float SUN_FIELD_SPEED_1 = -0.023;
+const float SUN_FIELD_SPEED_2 = 0.014;
+const float SUN_FIELD_PHASE_0 = 0.40;
+const float SUN_FIELD_PHASE_1 = 2.10;
+const float SUN_FIELD_PHASE_2 = -1.30;
+const float SUN_FIELD_AMPLITUDE_SUM = 0.60;
+const float SUN_FIELD_SURFACE_MODULATION = 0.08;
+const float SUN_PROJECTION_FADE_START = 0.04;
+const float SUN_PROJECTION_FADE_END = 0.16;
+
+
+vec2 project_sun_field_to_surface(
+    vec3 world_position,
+    vec3 sun_ray_direction)
+{
+    float safe_sun_y =
+        min(
+            sun_ray_direction.y,
+            -SUN_PROJECTION_FADE_START);
+
+
+    float surface_t =
+        world_position.y /
+        safe_sun_y;
+
+
+    return
+        world_position.xz -
+        sun_ray_direction.xz *
+            surface_t;
+}
+
+
+float evaluate_sun_field(
+    vec2 surface_xz,
+    float sample_time)
+{
+    return
+        SUN_FIELD_BASE +
+        SUN_FIELD_AMPLITUDE_0 *
+        sin(
+            dot(
+                SUN_FIELD_K0,
+                surface_xz) +
+            SUN_FIELD_SPEED_0 * sample_time +
+            SUN_FIELD_PHASE_0) +
+        SUN_FIELD_AMPLITUDE_1 *
+        sin(
+            dot(
+                SUN_FIELD_K1,
+                surface_xz) +
+            SUN_FIELD_SPEED_1 * sample_time +
+            SUN_FIELD_PHASE_1) +
+        SUN_FIELD_AMPLITUDE_2 *
+        sin(
+            dot(
+                SUN_FIELD_K2,
+                surface_xz) +
+            SUN_FIELD_SPEED_2 * sample_time +
+            SUN_FIELD_PHASE_2);
+}
 
 
 vec3 reconstruct_view_position(
@@ -1324,6 +1393,54 @@ void fragment()
                 grazing *
                 crest_sss *
                 sun_transmittance;
+
+
+            if (viewing_from_underwater)
+            {
+                vec3 sun_ray_direction =
+                    -to_sun_world;
+
+
+                float sun_projection_visibility =
+                    smoothstep(
+                        SUN_PROJECTION_FADE_START,
+                        SUN_PROJECTION_FADE_END,
+                        -sun_ray_direction.y);
+
+
+                // The vertex stage emits the actual displaced world-space
+                // surface, but fragment VERTEX is view-space. Transform that
+                // interpolated visible position back to world space before
+                // using the same Y=0 entry plane as the volume pass.
+                vec3 surface_world_position =
+                    (
+                        INV_VIEW_MATRIX *
+                        vec4(
+                            VERTEX,
+                            1.0)
+                    ).xyz;
+
+
+                float surface_sun_field =
+                    evaluate_sun_field(
+                        project_sun_field_to_surface(
+                            surface_world_position,
+                            sun_ray_direction),
+                        visual_time);
+
+
+                float centered_surface_field =
+                    (surface_sun_field -
+                        SUN_FIELD_BASE) /
+                    SUN_FIELD_AMPLITUDE_SUM;
+
+
+                directional_scatter *=
+                    1.0 +
+                    SUN_FIELD_SURFACE_MODULATION *
+                        sun_projection_visibility *
+                        centered_surface_field;
+            }
         }
 
 
