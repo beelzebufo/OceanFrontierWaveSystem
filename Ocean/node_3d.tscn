@@ -14,6 +14,7 @@
 [ext_resource type="Script" uid="uid://vhpnweemwyoy" path="res://Ocean/Waves/SeaFloorDepth/SeaFloorDepthRectInput.cs" id="11_brc6h"]
 [ext_resource type="Script" uid="uid://b3rpa8s0aiagb" path="res://Ocean/Rendering/Underwater/OceanUnderwaterController.cs" id="12_underwater"]
 [ext_resource type="Script" uid="uid://dl4jqx10hld4r" path="res://Ocean/Rendering/OceanCausticsSettings.cs" id="13_caustics_settings"]
+[ext_resource type="Script" uid="uid://bwyoy820f1p5p" path="res://Ocean/Lighting/OceanSceneLightingBridge.cs" id="14_lighting_bridge"]
 
 [sub_resource type="Resource" id="Resource_caustics"]
 script = ExtResource("13_caustics_settings")
@@ -86,6 +87,10 @@ script = ExtResource("12_underwater")
 environment = SubResource("Environment_diagnostic_sky")
 
 [node name="DiagnosticSun" type="DirectionalLight3D" parent="." unique_id=580536801]
+
+[node name="OceanSceneLightingBridge" type="Node" parent="."]
+script = ExtResource("14_lighting_bridge")
+PrimarySunPath = NodePath("../DiagnosticSun")
 
 [node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
 script = ExtResource("3_surface")

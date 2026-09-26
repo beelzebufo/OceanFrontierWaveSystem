@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using OceanFrontier.Water.Lighting;
 using OceanFrontier.Water.Optics;
 using OceanFrontier.Water.Runtime;
 
@@ -128,7 +129,7 @@ public partial class AnimatedWaveSurfaceRenderer
 	}
 
 
-	private int _appliedPrimarySunRevision = -1;
+	private int _appliedLightingRevision = -1;
 	private int _appliedCausticsRevision = -1;
 
 
@@ -142,13 +143,13 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
-		_runtime.GetPrimarySunState(
-			out OceanPrimarySunState state,
+		_runtime.GetLightingState(
+			out OceanLightingState state,
 			out int revision);
 
 
 		if (!force &&
-			_appliedPrimarySunRevision ==
+			_appliedLightingRevision ==
 				revision)
 		{
 			return;
@@ -156,10 +157,10 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 		_primarySunRayDirectionWorld =
-			state.RayDirectionWorld;
+			state.PrimarySunRayDirectionWorld;
 
 		_primarySunRadiance =
-			state.LinearRadiance;
+			state.PrimarySunLinearRadiance;
 
 
 		SetSurfaceParameter(
@@ -177,7 +178,7 @@ public partial class AnimatedWaveSurfaceRenderer
 			_waterSunScatterStrength);
 
 
-		_appliedPrimarySunRevision =
+		_appliedLightingRevision =
 			revision;
 	}
 

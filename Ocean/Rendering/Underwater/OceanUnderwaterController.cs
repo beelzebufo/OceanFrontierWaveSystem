@@ -3,6 +3,7 @@ using Godot;
 using Godot.Collections;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Runtime;
+using OceanFrontier.Water.Lighting;
 using OceanFrontier.Water.Optics;
 using OceanFrontier.Water.Rendering;
 using OceanFrontier.Water.Waves.AnimatedWaves;
@@ -28,7 +29,7 @@ public partial class OceanUnderwaterController : Node
 
 	private long _lastCompletedGeneration;
 	private int _appliedOpticsRevision = -1;
-	private int _appliedPrimarySunRevision = -1;
+	private int _appliedLightingRevision = -1;
 	private int _appliedCausticsRevision = -1;
 
 	private OceanRuntime _runtime;
@@ -118,8 +119,8 @@ public partial class OceanUnderwaterController : Node
 		}
 
 
-		OceanPrimarySunState initialSun =
-			OceanPrimarySunState.Default;
+		OceanLightingState initialLighting =
+			OceanLightingState.Default;
 
 		OceanCausticsState initialCaustics =
 			OceanCausticsSettings.DefaultState;
@@ -127,9 +128,9 @@ public partial class OceanUnderwaterController : Node
 
 		if (_runtime != null)
 		{
-			_runtime.GetPrimarySunState(
-				out initialSun,
-				out _appliedPrimarySunRevision);
+			_runtime.GetLightingState(
+				out initialLighting,
+				out _appliedLightingRevision);
 
 
 			_runtime.GetCausticsState(
@@ -142,8 +143,8 @@ public partial class OceanUnderwaterController : Node
 			new OceanUnderwaterCompositorEffect(
 				initialOptics.Extinction,
 				initialOptics.DeepScatterColor,
-				initialSun.RayDirectionWorld,
-				initialSun.LinearRadiance,
+				initialLighting.PrimarySunRayDirectionWorld,
+				initialLighting.PrimarySunLinearRadiance,
 				initialCaustics.ToGpuState())
 			{
 				Enabled =
@@ -416,12 +417,12 @@ public partial class OceanUnderwaterController : Node
 
 	private void ApplyPrimarySunState()
 	{
-		_runtime.GetPrimarySunState(
-			out OceanPrimarySunState state,
+		_runtime.GetLightingState(
+			out OceanLightingState state,
 			out int revision);
 
 
-		if (_appliedPrimarySunRevision ==
+		if (_appliedLightingRevision ==
 			revision)
 		{
 			return;
@@ -439,10 +440,10 @@ public partial class OceanUnderwaterController : Node
 
 
 		Vector3 rayDirectionWorld =
-			state.RayDirectionWorld;
+			state.PrimarySunRayDirectionWorld;
 
 		Vector3 linearRadiance =
-			state.LinearRadiance;
+			state.PrimarySunLinearRadiance;
 
 
 		RenderingServer.CallOnRenderThread(
@@ -452,7 +453,7 @@ public partial class OceanUnderwaterController : Node
 					linearRadiance)));
 
 
-		_appliedPrimarySunRevision =
+		_appliedLightingRevision =
 			revision;
 	}
 
