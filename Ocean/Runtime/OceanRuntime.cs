@@ -932,12 +932,15 @@ public partial class OceanRuntime : Node
 							_oceanFoamField,
 							composer.LodGpuBuffer.Buffer,
 							composer.DerivativeField.NormalJacobian,
+							composer.Field.Displacement,
+							composer.SeaFloorDepthField.Height,
 							composer.LodLayout);
 
 					_oceanFoamSimulation.Update(
 						0.0f,
 						composer.LodLayout,
-						initialFoamState);
+						initialFoamState,
+						initialDepthInputCount > 0);
 
 
 					PublishOceanFoamRenderState(
@@ -1404,7 +1407,8 @@ public partial class OceanRuntime : Node
 		_oceanFoamSimulation?.Update(
 			simulationTime,
 			_animatedWaveComposer.LodLayout,
-			foamState);
+			foamState,
+			seaFloorDepthInputCount > 0);
 
 
 		PublishOceanFoamRenderState(

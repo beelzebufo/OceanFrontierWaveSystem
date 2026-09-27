@@ -15,6 +15,8 @@ public partial class OceanFoamSettings : Resource
 	public const float DefaultFadeRate = 0.8f;
 	public const float DefaultWaveFoamStrength = 1.0f;
 	public const float DefaultWaveFoamCoverage = 0.55f;
+	public const float DefaultShorelineFoamStrength = 2.0f;
+	public const float DefaultShorelineFoamMaxDepth = 0.65f;
 
 	[Export]
 	public bool Enabled { get; set; } = true;
@@ -35,6 +37,15 @@ public partial class OceanFoamSettings : Resource
 	[Export(PropertyHint.Range, "0,1,0.01")]
 	public float WaveFoamCoverage { get; set; } =
 		DefaultWaveFoamCoverage;
+
+	[ExportGroup("Shoreline")]
+	[Export(PropertyHint.Range, "0,10,0.01,or_greater")]
+	public float ShorelineFoamStrength { get; set; } =
+		DefaultShorelineFoamStrength;
+
+	[Export(PropertyHint.Range, "0.01,20,0.01,or_greater")]
+	public float ShorelineFoamMaxDepth { get; set; } =
+		DefaultShorelineFoamMaxDepth;
 
 	[ExportGroup("Foam-1A Diagnostic")]
 	[Export]
@@ -69,6 +80,12 @@ public partial class OceanFoamSettings : Resource
 				0.0f,
 				1.0f,
 				DefaultWaveFoamCoverage),
+			SanitizeNonNegative(
+				ShorelineFoamStrength,
+				DefaultShorelineFoamStrength),
+			SanitizePositive(
+				ShorelineFoamMaxDepth,
+				DefaultShorelineFoamMaxDepth),
 			InjectWorldSpaceSpot,
 			DiagnosticSpotWorldXZ,
 			SanitizePositive(
@@ -88,6 +105,8 @@ public partial class OceanFoamSettings : Resource
 			DefaultFadeRate,
 			DefaultWaveFoamStrength,
 			DefaultWaveFoamCoverage,
+			DefaultShorelineFoamStrength,
+			DefaultShorelineFoamMaxDepth,
 			false,
 			Vector2.Zero,
 			2.0f,
@@ -129,6 +148,8 @@ internal readonly struct OceanFoamState
 	internal readonly float FadeRate;
 	internal readonly float WaveFoamStrength;
 	internal readonly float WaveFoamCoverage;
+	internal readonly float ShorelineFoamStrength;
+	internal readonly float ShorelineFoamMaxDepth;
 	internal readonly bool InjectWorldSpaceSpot;
 	internal readonly Vector2 DiagnosticSpotWorldXZ;
 	internal readonly float DiagnosticSpotRadius;
@@ -140,6 +161,8 @@ internal readonly struct OceanFoamState
 		float fadeRate,
 		float waveFoamStrength,
 		float waveFoamCoverage,
+		float shorelineFoamStrength,
+		float shorelineFoamMaxDepth,
 		bool injectWorldSpaceSpot,
 		Vector2 diagnosticSpotWorldXZ,
 		float diagnosticSpotRadius,
@@ -150,6 +173,8 @@ internal readonly struct OceanFoamState
 		FadeRate = fadeRate;
 		WaveFoamStrength = waveFoamStrength;
 		WaveFoamCoverage = waveFoamCoverage;
+		ShorelineFoamStrength = shorelineFoamStrength;
+		ShorelineFoamMaxDepth = shorelineFoamMaxDepth;
 		InjectWorldSpaceSpot = injectWorldSpaceSpot;
 		DiagnosticSpotWorldXZ = diagnosticSpotWorldXZ;
 		DiagnosticSpotRadius = diagnosticSpotRadius;

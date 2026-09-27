@@ -44,6 +44,13 @@ u_previous_lod_data;
 layout(rgba16f, set = 0, binding = 4)
 uniform readonly image2DArray u_animated_wave_derivatives;
 
+// Borrowed canonical final displacement and coherent SeaFloorDepth field.
+layout(rgba16f, set = 0, binding = 5)
+uniform readonly image2DArray u_animated_wave_field;
+
+layout(set = 0, binding = 6)
+uniform sampler2DArray u_sea_floor_depth;
+
 layout(push_constant, std430)
 uniform PushConstants
 {
@@ -58,6 +65,10 @@ uniform PushConstants
 	vec2 injection_world_xz;
 	float wave_foam_strength;
 	float wave_foam_coverage;
+	float shoreline_foam_max_depth;
+	float shoreline_foam_strength;
+	uint has_sea_floor_depth;
+	uint padding;
 }
 pc;
 
@@ -172,6 +183,49 @@ void main()
 			pc.delta_time *
 			pc.wave_foam_strength *
 			generation;
+	}
+
+	// Crest shoreline source. The canonical final displacement includes all
+	// composed wave inputs. Depth is sampled at the horizontally displaced
+	// surface position, using the same current spatial LOD generation.
+	if (pc.delta_time > 0.0 &&
+		pc.has_sea_floor_depth != 0u &&
+		pc.shoreline_foam_strength > 0.0)
+	{
+		vec3 displacement = imageLoad(
+			u_animated_wave_field,
+			coord).xyz;
+
+		vec2 displaced_world_xz =
+			world_xz +
+			displacement.xz;
+
+		vec2 depth_uv = world_to_uv(
+			displaced_world_xz,
+			current_lod);
+
+		float terrain_y = textureLod(
+			u_sea_floor_depth,
+			vec3(
+				depth_uv,
+				float(coord.z)),
+			0.0).r;
+
+		float signed_water_depth =
+			displacement.y -
+			terrain_y;
+
+		float shoreline_factor = clamp(
+			1.0 -
+				signed_water_depth /
+				pc.shoreline_foam_max_depth,
+			0.0,
+			1.0);
+
+		foam +=
+			pc.shoreline_foam_strength *
+			pc.delta_time *
+			shoreline_factor;
 	}
 
 	if (pc.inject_spot != 0u && pc.injection_radius > 0.0)

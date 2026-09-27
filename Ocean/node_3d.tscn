@@ -32,10 +32,7 @@ DistortionStrength = 0.25
 
 [sub_resource type="Resource" id="Resource_foam"]
 script = ExtResource("17_foam_settings")
-Enabled = true
-SimulationFrequency = 30.0
 FadeRate = 0.8
-WaveFoamStrength = 1.0
 WaveFoamCoverage = 0.55
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_diagnostic"]
@@ -85,7 +82,7 @@ material = SubResource("StandardMaterial3D_hull_below")
 size = Vector3(7, 3, 14)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_marker_red"]
-albedo_color = Color(1, 0.015, 0.025, 1)
+albedo_color = Color(0.8156863, 0.08235294, 0.95686275, 1)
 emission_enabled = true
 emission = Color(0.8, 0.005, 0.01, 1)
 emission_energy_multiplier = 1.4
@@ -392,6 +389,12 @@ metadata/_custom_type_script = "uid://babws5gk4e73c"
 [node name="SeaFloorDepthRectInput" type="Node3D" parent="." unique_id=1810248882]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 700, 0, 0)
 script = ExtResource("11_brc6h")
-BottomHeightY = -2.0
+BottomHeightY = 0.19999999999708962
 SizeXZ = Vector2(100, 100)
 metadata/_custom_type_script = "uid://vhpnweemwyoy"
+
+[node name="PortRed2" type="MeshInstance3D" parent="SeaFloorDepthRectInput" unique_id=1255086641]
+transform = Transform3D(0.99216557, 0.12492937, 0, 0.0027853132, -0.022120433, 0.99975145, 0.124898314, -0.991919, -0.022295102, -71.51227, 21.527473, -9.665959)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_red")
+mesh = SubResource("BoxMesh_marker_side")

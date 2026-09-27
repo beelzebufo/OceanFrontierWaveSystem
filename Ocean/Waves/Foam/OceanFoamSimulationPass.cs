@@ -18,7 +18,7 @@ namespace OceanFrontier.Water.Waves.Foam;
 internal sealed class OceanFoamSimulationPass : IDisposable
 {
 	private const int LocalSize = 8;
-	private const int PushConstantBytes = 48;
+	private const int PushConstantBytes = 64;
 
 	private readonly RenderingDevice _rd;
 	private readonly OceanFoamField _field;
@@ -27,6 +27,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 
 	private Rid _shader;
 	private Rid _pipeline;
+	private Rid _seaFloorDepthSampler;
 	private readonly Rid[] _uniformSets = new Rid[2];
 
 	private bool _hasSimulationTime;
@@ -44,6 +45,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		OceanFoamField field,
 		Rid currentLodBuffer,
 		Rid animatedWaveDerivativeField,
+		Rid animatedWaveField,
+		Rid seaFloorDepthField,
 		AnimatedWaveLodLayout initialLayout)
 	{
 		_rd = rd ?? throw new ArgumentNullException(nameof(rd));
@@ -63,6 +66,20 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				nameof(animatedWaveDerivativeField));
 		}
 
+		if (!animatedWaveField.IsValid)
+		{
+			throw new ArgumentException(
+				"Canonical Animated Wave field is invalid.",
+				nameof(animatedWaveField));
+		}
+
+		if (!seaFloorDepthField.IsValid)
+		{
+			throw new ArgumentException(
+				"Sea Floor Depth field is invalid.",
+				nameof(seaFloorDepthField));
+		}
+
 		if (initialLayout == null)
 		{
 			throw new ArgumentNullException(nameof(initialLayout));
@@ -75,7 +92,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		{
 			Create(
 				currentLodBuffer,
-				animatedWaveDerivativeField);
+				animatedWaveDerivativeField,
+				animatedWaveField,
+				seaFloorDepthField);
 		}
 		catch
 		{
@@ -86,7 +105,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 
 	private void Create(
 		Rid currentLodBuffer,
-		Rid animatedWaveDerivativeField)
+		Rid animatedWaveDerivativeField,
+		Rid animatedWaveField,
+		Rid seaFloorDepthField)
 	{
 		RDShaderFile shaderFile = GD.Load<RDShaderFile>(
 			"res://Ocean/Shaders/Waves/ocean_foam_update.glsl")
@@ -114,20 +135,37 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		_shader = _rd.ShaderCreateFromSpirV(spirv);
 		_pipeline = _rd.ComputePipelineCreate(_shader);
 
+		_seaFloorDepthSampler =
+			_rd.SamplerCreate(
+				new RDSamplerState
+				{
+					MinFilter = RenderingDevice.SamplerFilter.Linear,
+					MagFilter = RenderingDevice.SamplerFilter.Linear,
+					MipFilter = RenderingDevice.SamplerFilter.Nearest,
+					RepeatU = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+					RepeatV = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+					RepeatW = RenderingDevice.SamplerRepeatMode.ClampToEdge,
+				});
+
 		_uniformSets[0] = CreateUniformSet(
 			_field.Texture0,
 			_field.Texture1,
 			currentLodBuffer,
-			animatedWaveDerivativeField);
+			animatedWaveDerivativeField,
+			animatedWaveField,
+			seaFloorDepthField);
 
 		_uniformSets[1] = CreateUniformSet(
 			_field.Texture1,
 			_field.Texture0,
 			currentLodBuffer,
-			animatedWaveDerivativeField);
+			animatedWaveDerivativeField,
+			animatedWaveField,
+			seaFloorDepthField);
 
 		if (!_shader.IsValid ||
 			!_pipeline.IsValid ||
+			!_seaFloorDepthSampler.IsValid ||
 			!_uniformSets[0].IsValid ||
 			!_uniformSets[1].IsValid)
 		{
@@ -140,7 +178,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		Rid source,
 		Rid target,
 		Rid currentLodBuffer,
-		Rid animatedWaveDerivativeField)
+		Rid animatedWaveDerivativeField,
+		Rid animatedWaveField,
+		Rid seaFloorDepthField)
 	{
 		var sourceUniform = new RDUniform
 		{
@@ -177,6 +217,21 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		};
 		derivativeUniform.AddId(animatedWaveDerivativeField);
 
+		var animatedWaveUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.Image,
+			Binding = 5,
+		};
+		animatedWaveUniform.AddId(animatedWaveField);
+
+		var seaFloorDepthUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.SamplerWithTexture,
+			Binding = 6,
+		};
+		seaFloorDepthUniform.AddId(_seaFloorDepthSampler);
+		seaFloorDepthUniform.AddId(seaFloorDepthField);
+
 		return _rd.UniformSetCreate(
 			new Godot.Collections.Array<RDUniform>
 			{
@@ -185,6 +240,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				currentLodUniform,
 				previousLodUniform,
 				derivativeUniform,
+				animatedWaveUniform,
+				seaFloorDepthUniform,
 			},
 			_shader,
 			0);
@@ -197,7 +254,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 	public void Update(
 		float simulationTime,
 		AnimatedWaveLodLayout currentLayout,
-		OceanFoamState settings)
+		OceanFoamState settings,
+		bool hasSeaFloorDepth)
 	{
 		if (currentLayout == null)
 		{
@@ -258,6 +316,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				settings.FadeRate,
 				settings.WaveFoamStrength,
 				settings.WaveFoamCoverage,
+				settings.ShorelineFoamMaxDepth,
+				settings.ShorelineFoamStrength,
+				hasSeaFloorDepth,
 				step == 0 ? sourceLodOffset : 0,
 				inject && step == 0,
 				settings.DiagnosticSpotWorldXZ,
@@ -288,6 +349,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		float fadeRate,
 		float waveFoamStrength,
 		float waveFoamCoverage,
+		float shorelineFoamMaxDepth,
+		float shorelineFoamStrength,
+		bool hasSeaFloorDepth,
 		int sourceLodOffset,
 		bool inject,
 		Vector2 injectionWorldXZ,
@@ -306,6 +370,10 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		WriteFloat(36, injectionWorldXZ.Y);
 		WriteFloat(40, waveFoamStrength);
 		WriteFloat(44, waveFoamCoverage);
+		WriteFloat(48, shorelineFoamMaxDepth);
+		WriteFloat(52, shorelineFoamStrength);
+		WriteUInt(56, hasSeaFloorDepth ? 1u : 0u);
+		WriteUInt(60, 0u);
 
 		int sourceIndex = _field.Latest == _field.Texture0 ? 0 : 1;
 		uint groups = (uint)((_field.Resolution + LocalSize - 1) / LocalSize);
@@ -368,6 +436,12 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		{
 			_rd.FreeRid(_pipeline);
 			_pipeline = default;
+		}
+
+		if (_seaFloorDepthSampler.IsValid)
+		{
+			_rd.FreeRid(_seaFloorDepthSampler);
+			_seaFloorDepthSampler = default;
 		}
 
 		if (_shader.IsValid)
