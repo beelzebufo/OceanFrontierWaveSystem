@@ -15,6 +15,7 @@
 [ext_resource type="Script" uid="uid://b3rpa8s0aiagb" path="res://Ocean/Rendering/Underwater/OceanUnderwaterController.cs" id="12_underwater"]
 [ext_resource type="Script" uid="uid://dl4jqx10hld4r" path="res://Ocean/Rendering/OceanCausticsSettings.cs" id="13_caustics_settings"]
 [ext_resource type="Script" uid="uid://bwyoy820f1p5p" path="res://Ocean/Lighting/OceanSceneLightingBridge.cs" id="14_lighting_bridge"]
+[ext_resource type="Script" uid="uid://daoi4l7n4vkln" path="res://Ocean/Rendering/Reflections/OceanPlanarReflectionDiagnostic.cs" id="15_planar_diagnostic"]
 
 [sub_resource type="Resource" id="Resource_caustics"]
 script = ExtResource("13_caustics_settings")
@@ -42,6 +43,59 @@ background_mode = 2
 sky = SubResource("Sky_diagnostic")
 ambient_light_source = 3
 reflected_light_source = 2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_reflection_target"]
+albedo_color = Color(1, 0.015, 0.045, 1)
+roughness = 0.35
+emission_enabled = true
+emission = Color(1, 0.002, 0.008, 1)
+emission_energy_multiplier = 2.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_reflection_target"]
+material = SubResource("StandardMaterial3D_reflection_target")
+size = Vector3(4, 20, 4)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hull_above"]
+albedo_color = Color(0.78, 0.72, 0.2, 1)
+metallic = 0.12
+roughness = 0.38
+
+[sub_resource type="BoxMesh" id="BoxMesh_hull_above"]
+material = SubResource("StandardMaterial3D_hull_above")
+size = Vector3(8, 3, 16)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hull_below"]
+albedo_color = Color(0.12, 0.18, 0.24, 1)
+metallic = 0.12
+roughness = 0.48
+
+[sub_resource type="BoxMesh" id="BoxMesh_hull_below"]
+material = SubResource("StandardMaterial3D_hull_below")
+size = Vector3(7, 3, 14)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_marker_red"]
+albedo_color = Color(1, 0.015, 0.025, 1)
+emission_enabled = true
+emission = Color(0.8, 0.005, 0.01, 1)
+emission_energy_multiplier = 1.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_marker_side"]
+size = Vector3(0.35, 2.2, 15.361816)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_marker_green"]
+albedo_color = Color(0.015, 1, 0.035, 1)
+emission_enabled = true
+emission = Color(0.005, 0.8, 0.015, 1)
+emission_energy_multiplier = 1.4
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_marker_blue"]
+albedo_color = Color(0.015, 0.08, 1, 1)
+emission_enabled = true
+emission = Color(0.005, 0.035, 0.8, 1)
+emission_energy_multiplier = 1.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_marker_bow"]
+size = Vector3(3, 2.2, 0.35)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_diagnostic_hull"]
 size = Vector3(3.5, 1.7, 13)
@@ -71,17 +125,6 @@ roughness = 0.7
 material = SubResource("StandardMaterial3D_optical_reference")
 size = Vector3(6, 0.8, 6)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_reflection_target"]
-albedo_color = Color(1, 0.015, 0.045, 1)
-roughness = 0.35
-emission_enabled = true
-emission = Color(1, 0.002, 0.008, 1)
-emission_energy_multiplier = 2.0
-
-[sub_resource type="BoxMesh" id="BoxMesh_reflection_target"]
-material = SubResource("StandardMaterial3D_reflection_target")
-size = Vector3(4, 20, 4)
-
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
 Caustics = SubResource("Resource_caustics")
@@ -97,24 +140,51 @@ script = ExtResource("12_underwater")
 [node name="DiagnosticEnvironment" type="WorldEnvironment" parent="." unique_id=1659707573]
 environment = SubResource("Environment_diagnostic_sky")
 
-[node name="DiagnosticReflectionProbe" type="ReflectionProbe" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
-update_mode = 0
+[node name="DiagnosticReflectionProbe" type="ReflectionProbe" parent="." unique_id=2066590998]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.798645, 8, 0)
 max_distance = 100.0
-size = Vector3(96, 48, 96)
+size = Vector3(95.460815, 48, 96)
 origin_offset = Vector3(0, 4, 0)
-enable_shadows = false
 cull_mask = 524287
-reflection_mask = 1048575
 
-[node name="ReflectionProbeTestTarget" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 10, -8)
+[node name="ReflectionProbeTestTarget" type="MeshInstance3D" parent="." unique_id=1182070679]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120.77382, 10, -8)
 layers = 262144
 mesh = SubResource("BoxMesh_reflection_target")
 
+[node name="PlanarDiagnosticHull" type="Node3D" parent="." unique_id=426818060]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -13)
+
+[node name="HullAboveWater" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=294244270]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.228676, 2.922432, 0)
+layers = 262144
+mesh = SubResource("BoxMesh_hull_above")
+
+[node name="HullBelowWater" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=1248567760]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20.339859, -1.5, 0)
+mesh = SubResource("BoxMesh_hull_below")
+
+[node name="PortRed" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=1991063167]
+transform = Transform3D(0.99216557, 0.12492937, 0, -0.12492937, 0.99216557, 0, 0, 0, 1, -2.9477286, 6.424341, 3.3340406)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_red")
+mesh = SubResource("BoxMesh_marker_side")
+
+[node name="StarboardGreen" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=977321656]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.15, 6.452853, 0)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_green")
+mesh = SubResource("BoxMesh_marker_side")
+
+[node name="BowBlue" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=1120340412]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.9530532, -8.15)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_blue")
+mesh = SubResource("BoxMesh_marker_bow")
+
 [node name="DiagnosticSun" type="DirectionalLight3D" parent="." unique_id=580536801]
 
-[node name="OceanSceneLightingBridge" type="Node" parent="."]
+[node name="OceanSceneLightingBridge" type="Node" parent="." unique_id=1343526258]
 script = ExtResource("14_lighting_bridge")
 PrimarySunPath = NodePath("../DiagnosticSun")
 
@@ -124,6 +194,13 @@ SpatialLodIndex = 0
 LayoutMode = 1
 VisualNormalMap = ExtResource("4_8gmc7")
 VisualNormalStrength = 0.1
+
+[node name="OceanPlanarReflectionDiagnostic" type="Node" parent="." unique_id=1006521731]
+script = ExtResource("15_planar_diagnostic")
+SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
+MainCameraPath = NodePath("../Camera3D")
+ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
+HullBelowWaterPath = NodePath("../PlanarDiagnosticHull/HullBelowWater")
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")
@@ -138,7 +215,7 @@ script = ExtResource("5_reference")
 script = ExtResource("8_point_queries")
 
 [node name="DiagnosticBuoyancyHull" type="RigidBody3D" parent="." unique_id=2045824732]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 33.487778)
 mass = 7000.0
 can_sleep = false
 

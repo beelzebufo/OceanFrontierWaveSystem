@@ -128,7 +128,24 @@ uniform vec3 water_horizon_radiance :
     source_color = vec3(0.69, 0.79, 0.90);
 
 uniform float water_horizon_guard_fade :
-    hint_range(0.001, 0.2, 0.001) = 0.03;	
+    hint_range(0.001, 0.2, 0.001) = 0.03;
+
+uniform sampler2D planar_reflection_texture :
+    filter_linear,
+    repeat_disable;
+
+uniform float planar_reflection_weight :
+    hint_range(0.0, 1.0, 0.01) = 0.0;
+
+uniform float planar_reflection_distortion :
+    hint_range(0.0, 0.02, 0.0001) = 0.0;
+
+// Reflection-1B-V1-Fix surface-only diagnostics:
+// 0 final, 1 projective RGB, 2 projective alpha, 3 projective UV,
+// 4 force weight, 5 no distortion, 6 old SCREEN_UV RGB comparison.
+uniform int planar_reflection_diagnostic_mode = 0;
+
+uniform mat4 planar_reflection_view_projection = mat4(1.0);
 
 
 // Crest-compatible parameter convention.
@@ -161,6 +178,10 @@ varying vec2 base_uv;
 // Crest samples visual normals using the undisplaced
 // horizontal position.
 varying vec2 undisplaced_world_xz;
+
+// Final rendered world position after topology morph and full XYZ canonical
+// AWF displacement. The fragment-stage built-in VERTEX is view-space.
+varying vec3 displaced_world_position;
 
 
 // Same transition alpha used by displacement/topology.
@@ -709,6 +730,10 @@ void vertex()
             world_xz);
 
 
+    displaced_world_position =
+        VERTEX;
+
+
     displacement_height =
         composed_content.y;
 
@@ -945,6 +970,69 @@ void fragment()
                 NORMAL);
 
 
+        vec4 planar_clip =
+            planar_reflection_view_projection *
+            vec4(
+                displaced_world_position,
+                1.0);
+
+
+        float planar_safe_w =
+            abs(planar_clip.w) > 0.000001
+                ? planar_clip.w
+                : 0.000001;
+
+
+        vec2 planar_ndc =
+            planar_clip.xy /
+            planar_safe_w;
+
+
+        vec2 projective_planar_uv =
+            vec2(
+                planar_ndc.x * 0.5 + 0.5,
+                -planar_ndc.y * 0.5 + 0.5);
+
+
+        vec2 planar_base_uv =
+            planar_reflection_diagnostic_mode == 6
+                ? SCREEN_UV
+                : projective_planar_uv;
+
+
+        vec2 planar_texture_size =
+            vec2(
+                textureSize(
+                    planar_reflection_texture,
+                    0));
+
+
+        vec2 planar_uv =
+            clamp_screen_uv(
+                planar_base_uv +
+                    final_normal.xy *
+                    (
+                        planar_reflection_diagnostic_mode == 5 ||
+                        planar_reflection_diagnostic_mode == 6
+                            ? 0.0
+                            : planar_reflection_distortion
+                    ),
+                planar_texture_size);
+
+
+        vec4 planar_sample =
+            textureLod(
+                planar_reflection_texture,
+                planar_uv,
+                0.0);
+
+
+        planar_sample.a *=
+            planar_clip.w > 0.000001
+                ? 1.0
+                : 0.0;
+
+
         // Crest prevents ocean reflections from sampling below the world
         // horizon. Godot's native IBL does not perform this water-specific
         // clamp, so low-roughness wave slopes can sample the dark ground
@@ -993,10 +1081,44 @@ void fragment()
                     -reflection_world.y);
 
 
-            RADIANCE =
-                vec4(
-                    water_horizon_radiance,
-                    below_horizon);
+            float planar_weight =
+                clamp(
+                    (
+                        planar_reflection_diagnostic_mode == 4
+                            ? 1.0
+                            : planar_reflection_weight
+                    ) *
+                        planar_sample.a,
+                    0.0,
+                    1.0);
+
+
+            float radiance_weight =
+                below_horizon +
+                planar_weight -
+                below_horizon *
+                    planar_weight;
+
+
+            vec3 radiance_numerator =
+                water_horizon_radiance *
+                    below_horizon *
+                    (1.0 - planar_weight) +
+                planar_sample.rgb *
+                    planar_weight;
+
+
+            // Forward+ consumes custom RADIANCE before its reflection-probe
+            // loop. A zero-intensity probe is skipped and preserves this
+            // value; a positive-intensity probe may blend over it later.
+            if (radiance_weight > 0.000001)
+            {
+                RADIANCE =
+                    vec4(
+                        radiance_numerator /
+                            radiance_weight,
+                        radiance_weight);
+            }
         }
 
 
@@ -1650,6 +1772,54 @@ void fragment()
 
             // RADIANCE alpha 1 replaces environment radiance instead of
             // preserving Godot's native IBL contribution.
+            RADIANCE =
+                vec4(
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0);
+        }
+
+
+        if (!viewing_from_underwater &&
+            !planet_curvature_enabled &&
+            planar_reflection_diagnostic_mode >= 1 &&
+            (
+                planar_reflection_diagnostic_mode <= 3 ||
+                planar_reflection_diagnostic_mode == 6
+            ))
+        {
+            ALBEDO =
+                vec3(0.0);
+
+
+            if (planar_reflection_diagnostic_mode == 1 ||
+                planar_reflection_diagnostic_mode == 6)
+            {
+                EMISSION =
+                    planar_sample.rgb;
+            }
+            else if (planar_reflection_diagnostic_mode == 2)
+            {
+                EMISSION =
+                    vec3(
+                        planar_sample.a);
+            }
+            else
+            {
+                EMISSION =
+                    vec3(
+                        planar_uv,
+                        0.0);
+            }
+
+
+            SPECULAR =
+                0.0;
+
+
+            // Direct emission isolates the surface sample from Godot's
+            // environment/probe composition and native water BRDF.
             RADIANCE =
                 vec4(
                     0.0,

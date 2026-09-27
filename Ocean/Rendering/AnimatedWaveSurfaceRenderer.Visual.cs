@@ -77,6 +77,52 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
+
+
+		// The planar diagnostic can bind its viewport texture before nested LOD
+		// materials exist. Reapply the cached state whenever display parameters
+		// seed newly constructed materials.
+		ApplyPlanarReflectionParameters();
+	}
+
+
+	private void ApplyPlanarReflectionParameters()
+	{
+		if (_material == null)
+		{
+			return;
+		}
+
+
+		if (_planarReflectionTexture != null)
+		{
+			SetSurfaceParameter(
+				"planar_reflection_texture",
+				_planarReflectionTexture);
+		}
+
+
+		SetSurfaceParameter(
+			"planar_reflection_weight",
+			_planarReflectionWeight);
+
+
+		SetSurfaceParameter(
+			"planar_reflection_distortion",
+			_planarReflectionDistortion);
+
+
+		SetSurfaceParameter(
+			"planar_reflection_diagnostic_mode",
+			_planarReflectionDiagnosticMode);
+
+
+		if (_planarReflectionViewProjectionInitialized)
+		{
+			SetSurfaceParameter(
+				"planar_reflection_view_projection",
+				_planarReflectionViewProjection);
+		}
 	}
 
 

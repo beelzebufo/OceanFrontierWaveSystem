@@ -214,6 +214,13 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private bool _hasSeaFloorDepth;
 
+	private Texture2D _planarReflectionTexture;
+	private float _planarReflectionWeight;
+	private float _planarReflectionDistortion;
+	private int _planarReflectionDiagnosticMode;
+	private Projection _planarReflectionViewProjection;
+	private bool _planarReflectionViewProjectionInitialized;
+
 
 	private int _meshResolution;
 	private float _meshWorldSize;
@@ -352,6 +359,100 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		SetSurfaceParameter(
 			"diagnostic_roughness",
 			_diagnosticRoughness);
+	}
+
+
+	internal void SetPlanarReflectionDiagnostic(
+		Texture2D texture,
+		float weight,
+		float distortionStrength)
+	{
+		_planarReflectionTexture =
+			texture;
+
+		_planarReflectionWeight =
+			Mathf.Clamp(
+				weight,
+				0.0f,
+				1.0f);
+
+		_planarReflectionDistortion =
+			Mathf.Max(
+				0.0f,
+				distortionStrength);
+
+
+		ApplyPlanarReflectionParameters();
+	}
+
+
+	internal void SetPlanarReflectionWeight(
+		float weight)
+	{
+		_planarReflectionWeight =
+			Mathf.Clamp(
+				weight,
+				0.0f,
+				1.0f);
+
+
+		SetSurfaceParameter(
+			"planar_reflection_weight",
+			_planarReflectionWeight);
+	}
+
+
+	internal void SetPlanarReflectionDistortion(
+		float strength)
+	{
+		_planarReflectionDistortion =
+			Mathf.Max(
+				0.0f,
+				strength);
+
+
+		SetSurfaceParameter(
+			"planar_reflection_distortion",
+			_planarReflectionDistortion);
+	}
+
+
+	internal void SetPlanarReflectionDiagnosticMode(
+		int mode)
+	{
+		_planarReflectionDiagnosticMode =
+			Math.Clamp(
+				mode,
+				0,
+				6);
+
+
+		SetSurfaceParameter(
+			"planar_reflection_diagnostic_mode",
+			_planarReflectionDiagnosticMode);
+	}
+
+
+	internal void SetPlanarReflectionViewProjection(
+		Projection viewProjection)
+	{
+		if (_planarReflectionViewProjectionInitialized &&
+			_planarReflectionViewProjection == viewProjection)
+		{
+			return;
+		}
+
+
+		_planarReflectionViewProjection =
+			viewProjection;
+
+		_planarReflectionViewProjectionInitialized =
+			true;
+
+
+		SetSurfaceParameter(
+			"planar_reflection_view_projection",
+			_planarReflectionViewProjection);
 	}
 
 
