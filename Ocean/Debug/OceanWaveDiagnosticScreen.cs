@@ -291,6 +291,12 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 				"Ocean");
 
 
+		VBoxContainer reflectionsTab =
+			OceanDiagnosticUi.AddTab(
+				tabs,
+				"Reflections");
+
+
 		VBoxContainer physicsTab =
 			OceanDiagnosticUi.AddTab(
 				tabs,
@@ -313,14 +319,6 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			OceanDiagnosticUi.AddTab(
 				tabs,
 				"Diagnostics");
-
-
-		VBoxContainer reflectionsTab =
-			OceanDiagnosticUi.AddTab(
-				tabs,
-				"Reflections");
-
-
 		_oceanPanel =
 			new OceanDiagnosticOceanPanel();
 

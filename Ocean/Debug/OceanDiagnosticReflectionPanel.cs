@@ -5,7 +5,6 @@ namespace OceanFrontier.Water.Debug;
 
 /// <summary>
 /// Mouse-accessible controls for the disposable planar/probe validation rig.
-/// Hotkeys remain available on OceanPlanarReflectionDiagnostic.
 /// </summary>
 internal sealed class OceanDiagnosticReflectionPanel
 {
@@ -46,7 +45,7 @@ internal sealed class OceanDiagnosticReflectionPanel
 
 		OceanDiagnosticUi.Info(
 			parent,
-			"Probe, planar capture, boat segmentation, and surface debug controls. F1-F7 remain available.");
+			"Probe, planar capture, boat segmentation, and surface debug controls.");
 
 
 		CheckBox probeEnabled =
@@ -214,14 +213,71 @@ internal sealed class OceanDiagnosticReflectionPanel
 					(int)index);
 
 
-		CheckBox previews =
-			OceanDiagnosticUi.Check(
+		VBoxContainer previews =
+			OceanDiagnosticUi.Foldout(
 				parent,
-				"Show planar RGB/alpha previews",
-				_diagnostic.PreviewsVisible);
+				"Planar previews");
 
 
-		previews.Toggled +=
-			_diagnostic.SetPreviewsVisible;
+		OceanDiagnosticUi.Info(
+			previews,
+			"RGB");
+
+
+		previews.AddChild(
+			CreatePreview(
+				_diagnostic.PlanarTexture));
+
+
+		OceanDiagnosticUi.Info(
+			previews,
+			"Alpha");
+
+
+		TextureRect alphaPreview =
+			CreatePreview(
+				_diagnostic.PlanarTexture);
+
+
+		alphaPreview.Material =
+			new ShaderMaterial
+			{
+				Shader =
+					new Shader
+					{
+						Code =
+							"shader_type canvas_item;\n" +
+							"void fragment(){ float a = texture(TEXTURE, UV).a; COLOR = vec4(vec3(a), 1.0); }",
+					},
+			};
+
+
+		previews.AddChild(
+			alphaPreview);
+	}
+
+
+	private static TextureRect CreatePreview(
+		Texture2D texture)
+	{
+		return new TextureRect
+		{
+			CustomMinimumSize =
+				new Vector2(
+					320.0f,
+					180.0f),
+
+			SizeFlagsHorizontal =
+				Control.SizeFlags.ExpandFill,
+
+			Texture =
+				texture,
+
+			ExpandMode =
+				TextureRect.ExpandModeEnum.IgnoreSize,
+
+			StretchMode =
+				TextureRect.StretchModeEnum.KeepAspectCentered,
+		};
 	}
 }

@@ -10,6 +10,9 @@ const ISLAND_SCATTER_ZONE_SCRIPT := preload(
 const ISLAND_TERRAIN_DOCK_SCRIPT := preload(
 	"res://addons/lowpolyterrain/editor/LowPolyTerrainEditorDock.gd"
 )
+const SCATTER_ZONE_GIZMO_PLUGIN_SCRIPT := preload(
+	"res://addons/lowpolyterrain/editor/LowPolyTerrainScatterZoneGizmoPlugin.gd"
+)
 
 ## EditorPlugin script that bridges the Godot 3D viewports with the low poly terrain tools.
 ## Handles a persistent, semi-transparent 3D brush gizmo and processes painting signals.
@@ -159,6 +162,7 @@ var _inspector_plugin: EditorInspectorPlugin = null
 
 var _island_terrain_dock: EditorDock = null
 var _island_terrain_dock_content: Control = null
+var _scatter_zone_gizmo_plugin: EditorNode3DGizmoPlugin = null
 
 func _get_plugin_name() -> String:
 	return "Low Poly Terrain Builder"
@@ -178,6 +182,9 @@ func _enter_tree() -> void:
 	_initialize_editor_shortcuts()
 	_initialize_brush_appearance_settings()
 	_create_brush_ui_panel()
+	
+	_scatter_zone_gizmo_plugin = (SCATTER_ZONE_GIZMO_PLUGIN_SCRIPT.new())
+	add_node_3d_gizmo_plugin(_scatter_zone_gizmo_plugin)
 
 	# Turns the paint_layer slider into a row of colour-tinted buttons.
 	_inspector_plugin = LowPolyTerrainInspector.new()
@@ -201,6 +208,11 @@ func _enter_tree() -> void:
 	call_deferred("_create_island_terrain_dock")
 
 func _exit_tree() -> void:
+	
+	if _scatter_zone_gizmo_plugin != null:
+		remove_node_3d_gizmo_plugin(_scatter_zone_gizmo_plugin)
+		_scatter_zone_gizmo_plugin = null
+	
 	remove_custom_type("LowPolyTerrainManager")
 
 	if _inspector_plugin != null:

@@ -35,6 +35,9 @@ const GENERATED_NAME: String = "_GeneratedScatter"
 			maxf(absf(value.z), 0.05)
 		)
 
+		if Engine.is_editor_hint() and is_inside_tree():
+			update_gizmos()
+
 
 @export_group("Build")
 

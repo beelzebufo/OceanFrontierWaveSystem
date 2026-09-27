@@ -13,21 +13,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private const uint PlanarCandidateLayerMask = 1u << 18;
 	private const float SeaLevel = 0.0f;
 
-	private static readonly float[] ProbeIntensities =
-	{
-		1.0f,
-		0.5f,
-		0.25f,
-		0.0f,
-	};
-
-	private static readonly float[] PlanarWeights =
-	{
-		0.0f,
-		0.5f,
-		1.0f,
-	};
-
 	[Export]
 	public NodePath SurfaceRendererPath { get; set; }
 
@@ -49,27 +34,18 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private Camera3D _planarCamera;
 	private Texture2D _planarTexture;
 
-	private Label _statusLabel;
-	private TextureRect _rgbPreview;
-	private TextureRect _alphaPreview;
-
 	private bool _segmentedHull = true;
 	private bool _smallDistortion = true;
 	private bool _everyTwoFrames = true;
 	private bool _probeEnabled = true;
 	private bool _planarEnabled = true;
-	private bool _previewsVisible = true;
 	private float _probeIntensity = 1.0f;
 	private float _planarWeight = 1.0f;
 	private int _targetWidth = 256;
 	private int _frameIndex;
-	private int _probeIntensityIndex;
-	private int _planarWeightIndex = 2;
 	private int _surfaceDiagnosticMode;
-	private ulong _reflectionStateRevision;
 	private Transform3D _mainCameraSnapshot;
 	private Transform3D _mirroredCameraSnapshot;
-	private double _statusAccumulator;
 
 
 	internal bool ProbeEnabled =>
@@ -99,8 +75,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal int SurfaceDiagnosticMode =>
 		_surfaceDiagnosticMode;
 
-	internal bool PreviewsVisible =>
-		_previewsVisible;
+	internal Texture2D PlanarTexture =>
+		_planarTexture;
 
 	public override void _Ready()
 	{
@@ -132,14 +108,12 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		}
 
 		CreatePlanarViewport();
-		CreateOverlay();
 		ApplyHullMode();
-		ApplyWeights();
+		SetProbeIntensity(_probeIntensity);
+		SetPlanarWeight(_planarWeight);
 
 		RenderingServer.FramePreDraw +=
 			SynchronizePlanarStateForDraw;
-
-		UpdateStatus();
 	}
 
 	private void CreatePlanarViewport()
@@ -186,78 +160,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_surfaceRenderer.SetPlanarReflectionDiagnostic(
 			_planarTexture,
-				PlanarWeights[_planarWeightIndex],
+				_planarWeight,
 				0.0035f);
-	}
-
-	private void CreateOverlay()
-	{
-		var canvas =
-			new CanvasLayer
-			{
-				Name = "PlanarReflectionDiagnosticOverlay",
-				Layer = 100,
-			};
-
-		AddChild(canvas);
-
-		_statusLabel =
-			new Label
-			{
-				Position = new Vector2(344.0f, 12.0f),
-				Modulate = Colors.White,
-			};
-
-		_statusLabel.AddThemeColorOverride(
-			"font_shadow_color",
-			Colors.Black);
-
-		_statusLabel.AddThemeConstantOverride(
-			"shadow_offset_x",
-			2);
-
-		_statusLabel.AddThemeConstantOverride(
-			"shadow_offset_y",
-			2);
-
-		canvas.AddChild(_statusLabel);
-
-		_rgbPreview = CreatePreview(
-			new Vector2(1076.0f, 12.0f));
-
-		canvas.AddChild(_rgbPreview);
-
-		_alphaPreview = CreatePreview(
-			new Vector2(1076.0f, 126.0f));
-
-		var alphaShader =
-			new Shader
-			{
-				Code =
-					"shader_type canvas_item;\n" +
-					"void fragment(){ float a = texture(TEXTURE, UV).a; COLOR = vec4(vec3(a), 1.0); }",
-			};
-
-		_alphaPreview.Material =
-			new ShaderMaterial
-			{
-				Shader = alphaShader,
-			};
-
-		canvas.AddChild(_alphaPreview);
-	}
-
-	private TextureRect CreatePreview(
-		Vector2 position)
-	{
-		return new TextureRect
-		{
-			Position = position,
-			Size = new Vector2(192.0f, 108.0f),
-			Texture = _planarTexture,
-			ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-			StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-		};
 	}
 
 	public override void _Process(
@@ -303,13 +207,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		}
 
 		_frameIndex++;
-		_statusAccumulator += delta;
-
-		if (_statusAccumulator >= 0.25)
-		{
-			_statusAccumulator = 0.0;
-			UpdateStatus();
-		}
 	}
 
 
@@ -362,8 +259,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_surfaceRenderer.SetPlanarReflectionViewProjection(
 			reflectionViewProjection);
 
-
-		_reflectionStateRevision++;
 	}
 
 	private void UpdateViewportSize()
@@ -481,7 +376,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_reflectionProbe.Visible =
 			enabled;
 
-		UpdateStatus();
 	}
 
 
@@ -497,7 +391,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_reflectionProbe.Intensity =
 			_probeIntensity;
 
-		UpdateStatus();
 	}
 
 
@@ -512,7 +405,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 				? _planarWeight
 				: 0.0f);
 
-		UpdateStatus();
 	}
 
 
@@ -530,7 +422,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 				? _planarWeight
 				: 0.0f);
 
-		UpdateStatus();
 	}
 
 
@@ -540,7 +431,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_everyTwoFrames =
 			everyTwoFrames;
 
-		UpdateStatus();
 	}
 
 
@@ -557,7 +447,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			};
 
 		UpdateViewportSize();
-		UpdateStatus();
 	}
 
 
@@ -572,7 +461,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 				? 0.0035f
 				: 0.0f);
 
-		UpdateStatus();
 	}
 
 
@@ -583,7 +471,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			segmented;
 
 		ApplyHullMode();
-		UpdateStatus();
 	}
 
 
@@ -599,149 +486,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
 			_surfaceDiagnosticMode);
 
-		UpdateStatus();
-	}
-
-
-	internal void SetPreviewsVisible(
-		bool visible)
-	{
-		_previewsVisible =
-			visible;
-
-		if (_rgbPreview != null)
-		{
-			_rgbPreview.Visible =
-				visible;
-		}
-
-
-		if (_alphaPreview != null)
-		{
-			_alphaPreview.Visible =
-				visible;
-		}
-	}
-
-	private void ApplyWeights()
-	{
-		SetProbeIntensity(
-			ProbeIntensities[_probeIntensityIndex]);
-
-		SetPlanarWeight(
-			PlanarWeights[_planarWeightIndex]);
-	}
-
-	private void UpdateStatus()
-	{
-		if (_statusLabel == null)
-		{
-			return;
-		}
-
-		double fps =
-			Engine.GetFramesPerSecond();
-
-		double frameMilliseconds =
-			fps > 0.0
-				? 1000.0 / fps
-				: 0.0;
-
-		_statusLabel.Text =
-			"Reflection-1B-V1\n" +
-			$"F1 hull: {(_segmentedHull ? "SEGMENTED" : "WHOLE")}\n" +
-			$"F2 probe: {(_probeEnabled ? "ON" : "OFF")} {_probeIntensity:0.##}\n" +
-			$"F3 planar: {(_planarEnabled ? "ON" : "OFF")} {_planarWeight:0.##}\n" +
-			$"F4 distortion: {(_smallDistortion ? "SMALL" : "OFF")}\n" +
-			$"F5 size: {_planarViewport.Size.X}x{_planarViewport.Size.Y}\n" +
-			$"F6 update: {(_everyTwoFrames ? "EVERY 2" : "ALWAYS")}\n" +
-			$"F7 surface: {GetSurfaceDiagnosticName()}\n" +
-			$"sync: PRE_DRAW  state/VP/planar: {_reflectionStateRevision}\n" +
-			$"physics interp: {_mainCamera.IsPhysicsInterpolatedAndEnabled()}\n" +
-			$"main: {_mainCameraSnapshot.Origin.X:0.0}, {_mainCameraSnapshot.Origin.Y:0.0}, {_mainCameraSnapshot.Origin.Z:0.0}\n" +
-			$"mirror: {_mirroredCameraSnapshot.Origin.X:0.0}, {_mirroredCameraSnapshot.Origin.Y:0.0}, {_mirroredCameraSnapshot.Origin.Z:0.0}\n" +
-			$"main forward: {-_mainCameraSnapshot.Basis.Z.X:0.00}, {-_mainCameraSnapshot.Basis.Z.Y:0.00}, {-_mainCameraSnapshot.Basis.Z.Z:0.00}\n" +
-			$"mirror det: {_mirroredCameraSnapshot.Basis.Determinant():0.00}\n" +
-			$"FPS: {fps:0.0}  frame: {frameMilliseconds:0.00} ms\n" +
-			"RGB preview / alpha preview at right";
-	}
-
-	public override void _UnhandledKeyInput(
-		InputEvent @event)
-	{
-		if (@event is not InputEventKey key ||
-			!key.Pressed ||
-			key.Echo)
-		{
-			return;
-		}
-
-		switch (key.Keycode)
-		{
-			case Key.F1:
-				SetSegmentedHull(
-					!_segmentedHull);
-				break;
-
-			case Key.F2:
-				_probeIntensityIndex =
-					(_probeIntensityIndex + 1) %
-					ProbeIntensities.Length;
-				SetProbeIntensity(
-					ProbeIntensities[_probeIntensityIndex]);
-				break;
-
-			case Key.F3:
-				_planarWeightIndex =
-					(_planarWeightIndex + 1) %
-					PlanarWeights.Length;
-				SetPlanarWeight(
-					PlanarWeights[_planarWeightIndex]);
-				break;
-
-			case Key.F4:
-				SetSmallDistortion(
-					!_smallDistortion);
-				break;
-
-			case Key.F5:
-				SetTargetWidth(
-					_targetWidth == 256
-						? 1024
-						: 256);
-				break;
-
-			case Key.F6:
-				SetEveryTwoFrames(
-					!_everyTwoFrames);
-				break;
-
-			case Key.F7:
-				SetSurfaceDiagnosticMode(
-					(_surfaceDiagnosticMode + 1) % 7);
-				break;
-
-			default:
-				return;
-		}
-
-		UpdateStatus();
-		GetViewport().SetInputAsHandled();
-	}
-
-
-	private string GetSurfaceDiagnosticName()
-	{
-		return _surfaceDiagnosticMode switch
-		{
-			1 => "SAMPLED RGB",
-			2 => "SAMPLED ALPHA",
-			3 => "PLANAR UV",
-			4 => "FORCE WEIGHT 1",
-			5 => "DISTORTION OFF",
-			6 => "OLD SCREEN_UV RGB",
-			_ => "FINAL",
-		};
 	}
 
 	public override void _ExitTree()
