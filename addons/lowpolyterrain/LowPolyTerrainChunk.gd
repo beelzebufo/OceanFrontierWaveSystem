@@ -46,7 +46,23 @@ func _ready() -> void:
 
 
 ## Called by the manager to safely pass initialized tracking states, configurations, and raw height arrays.
-func initialize(coord: Vector2i, c_size: int, cell_s: float, step_h: float, manager_data: PackedFloat32Array, m_jitter: float, m_threshold: float, m_material: Material, paint_window: PackedByteArray = PackedByteArray(), paint_steps: int = 8, m_paint_overlay: Material = null, m_smooth_shading: bool = false, m_padded_heights: PackedFloat32Array = PackedFloat32Array()) -> void:
+func initialize(
+	coord: Vector2i,
+	c_size: int,
+	cell_s: float,
+	step_h: float,
+	manager_data: PackedFloat32Array,
+	m_jitter: float,
+	m_threshold: float,
+	m_material: Material,
+	paint_window: PackedByteArray = PackedByteArray(),
+	paint_steps: int = 8,
+	m_paint_overlay: Material = null,
+	m_smooth_shading: bool = false,
+	m_padded_heights: PackedFloat32Array = PackedFloat32Array(),
+	m_effective_heights: PackedFloat32Array = PackedFloat32Array(),
+	m_macro_anchor_stride: int = 4
+) -> void:
 	chunk_coord = coord
 	chunk_size = c_size
 	cell_size = cell_s
@@ -57,36 +73,44 @@ func initialize(coord: Vector2i, c_size: int, cell_s: float, step_h: float, mana
 	paint_overlay = m_paint_overlay
 	smooth_shading = m_smooth_shading
 	_padded_heights = m_padded_heights
-	
-	# [FIX] Ensure the visibility state from the manager is respected on scene load
+
 	if not visible:
 		if Engine.is_editor_hint():
-			# If we are in editor, force visibility back to true so the placeholder mesh can be clicked
 			visible = true
 		else:
 			mesh = null
-			# generate_mesh() is the one place that releases the padded window, and this path
-			# never reaches it. Released here instead, so a chunk hidden at runtime does not
-			# carry a window for a mesh it will never build.
 			_padded_heights = PackedFloat32Array()
 			return
 
 	var vert_count: int = chunk_size + 1
 	var required_size: int = vert_count * vert_count
 
-	# Self-healing against a mismatched window; the local copy is discarded again once the
-	# mesh has been generated.
 	var heights: PackedFloat32Array = manager_data
 	if heights.size() != required_size:
 		heights.resize(required_size)
 		heights.fill(0.0)
+
+	var effective_heights: PackedFloat32Array = m_effective_heights
+
+	if (
+		not effective_heights.is_empty()
+		and effective_heights.size() != required_size
+	):
+		effective_heights = PackedFloat32Array()
 
 	position = Vector3(
 		float(coord.x * chunk_size) * cell_size,
 		0.0,
 		float(-coord.y * chunk_size) * cell_size
 	)
-	generate_mesh(heights, paint_window, paint_steps)
+
+	generate_mesh(
+		heights,
+		paint_window,
+		paint_steps,
+		effective_heights,
+		m_macro_anchor_stride
+	)
 
 
 ## Core geometry generation engine. Parses the heightmap grid, runs decimation rules, 
@@ -103,12 +127,10 @@ func initialize(coord: Vector2i, c_size: int, cell_s: float, step_h: float, mana
 func generate_mesh(
 	heights: PackedFloat32Array,
 	paint_window: PackedByteArray = PackedByteArray(),
-	paint_steps: int = 8
+	paint_steps: int = 8,
+	effective_heights: PackedFloat32Array = PackedFloat32Array(),
+	macro_anchor_stride: int = 4
 ) -> void:
-	# Taken and released in one step, before the early return below can skip past it. The local
-	# keeps the buffer alive for the builder call: a PackedFloat32Array is reference counted, so
-	# clearing the field only drops the CHUNK's claim on it, and the memory goes back when this
-	# function returns rather than being held until the next rebuild.
 	var padded: PackedFloat32Array = _padded_heights
 	_padded_heights = PackedFloat32Array()
 
@@ -116,15 +138,21 @@ func generate_mesh(
 		mesh = null
 		return
 
-	# Delegates to the shared stateless builder so that the MeshInstance3D backend and the
-	# RenderingServer backend always emit bit-identical geometry from identical inputs.
 	mesh = LowPolyTerrainMeshBuilder.build_chunk_mesh(
-		chunk_coord, chunk_size, cell_size, heights,
-		jitter_strength, jitter_slope_threshold,
-		paint_window, paint_steps, smooth_shading, padded
+		chunk_coord,
+		chunk_size,
+		cell_size,
+		heights,
+		jitter_strength,
+		jitter_slope_threshold,
+		paint_window,
+		paint_steps,
+		smooth_shading,
+		padded,
+		effective_heights,
+		macro_anchor_stride
 	)
-	
-	# Attach your specific rendering logic, material properties, or visual effects
+
 	_apply_custom_shader()
 
 

@@ -1155,9 +1155,7 @@ func get_macro_curvature_offset(
 ##     +
 ##     non-destructive Macro Curvature
 ##
-## For now this is intentionally NOT wired into get_height_at_world_coords().
-## That happens together with mesh generation in MC-1B so queries can never disagree
-## with the rendered surface between stages.
+
 func sample_effective_grid_height(
 	grid_x: float,
 	grid_z: float
@@ -1676,7 +1674,10 @@ func get_height_at_world_coords(world_x: float, world_z: float) -> float:
 		return 0.0
 
 	var local: Vector3 = to_local(Vector3(world_x, 0.0, world_z))
-	var height: float = sample_grid_height(local.x / cell_size, -local.z / cell_size)
+	var height: float = sample_effective_grid_height(
+		local.x / cell_size,
+		-local.z / cell_size
+	)
 
 	# Sampled in local space, handed back in world space, so a moved or scaled manager reports
 	# the height the caller can actually place something at.
@@ -2948,7 +2949,9 @@ func _update_single_chunk(coord: Vector2i) -> void:
 		extract_chunk_paint(coord), PAINT_STEPS,
 		get_active_paint_material(),
 		shading_mode == ShadingMode.SMOOTH,
-		extract_chunk_heights_padded(coord)
+		extract_chunk_heights_padded(coord),
+		extract_chunk_effective_heights(coord),
+		macro_curvature_anchor_stride
 	)
 
 
@@ -3195,6 +3198,49 @@ func extract_chunk_heights(coord: Vector2i) -> PackedFloat32Array:
 
 	return chunk_local_heights
 
+## Builds the non-destructive effective height window consumed by the render mesh.
+##
+## Empty while Macro Curvature is disabled. This is deliberate: an empty array lets
+## MeshBuilder remain on its exact legacy path without extra anchors or geometry work.
+func extract_chunk_effective_heights(
+	coord: Vector2i
+) -> PackedFloat32Array:
+	if not macro_curvature_enabled:
+		return PackedFloat32Array()
+
+	if macro_curvature_amount <= 0.0:
+		return PackedFloat32Array()
+
+	if global_height_data.is_empty():
+		return PackedFloat32Array()
+
+	var vert_stride: int = chunk_size + 1
+	var effective := PackedFloat32Array()
+	effective.resize(vert_stride * vert_stride)
+
+	for lz in range(vert_stride):
+		var global_z: int = coord.y * chunk_size + lz
+		var local_offset: int = lz * vert_stride
+		var global_row_start: int = (
+			global_z * _total_vertices_x
+			+ coord.x * chunk_size
+		)
+
+		for lx in range(vert_stride):
+			var global_x: int = coord.x * chunk_size + lx
+			var base_height: float = global_height_data[
+				global_row_start + lx
+			]
+
+			effective[local_offset + lx] = (
+				base_height
+				+ get_macro_curvature_offset(
+					float(global_x),
+					float(global_z)
+				)
+			)
+
+	return effective
 
 ## The height window of one chunk plus ONE RING of its neighbours' heights around it.
 ##
@@ -3224,7 +3270,17 @@ func extract_chunk_heights_padded(coord: Vector2i) -> PackedFloat32Array:
 
 		for px in range(stride):
 			var global_x: int = clampi((coord.x * chunk_size) + px - 1, 0, _total_vertices_x - 1)
-			padded[local_offset + px] = global_height_data[global_row_start + global_x]
+			var base_height: float = global_height_data[
+				global_row_start + global_x
+			]
+
+			padded[local_offset + px] = (
+				base_height
+				+ get_macro_curvature_offset(
+					float(global_x),
+					float(global_z)
+				)
+			)
 
 	return padded
 

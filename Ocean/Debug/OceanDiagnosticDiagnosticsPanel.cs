@@ -2,6 +2,7 @@ using System;
 using Godot;
 using OceanFrontier.Water.Runtime;
 using OceanFrontier.Water.Waves.AnimatedWaves;
+using OceanFrontier.Water.Waves.Foam;
 
 namespace OceanFrontier.Water.Debug;
 
@@ -135,39 +136,15 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 			};
 
 
-		var injectFoamSpot =
-			OceanDiagnosticUi.Check(
+		VBoxContainer foamRuntime =
+			OceanDiagnosticUi.Foldout(
 				parent,
-				"Inject one Foam-1A spot at camera XZ",
-				_runtime.Foam?.InjectWorldSpaceSpot ?? false);
+				"Foam Runtime",
+				expanded: false);
 
 
-		injectFoamSpot.Toggled +=
-			value =>
-			{
-				_runtime.Foam ??=
-					new Waves.Foam.OceanFoamSettings();
-
-				if (value)
-				{
-					Camera3D camera =
-						_runtime.GetViewport()?.GetCamera3D();
-
-					if (camera != null)
-					{
-						Vector3 position = camera.GlobalPosition;
-						_runtime.Foam.DiagnosticSpotWorldXZ =
-							new Vector2(position.X, position.Z);
-					}
-				}
-
-				_runtime.Foam.InjectWorldSpaceSpot = value;
-			};
-
-
-		OceanDiagnosticUi.Info(
-			parent,
-			"The Foam-1A spot is injected once on enable. Toggle off/on to re-arm it; then move the camera or change the whole-stack LOD scale.");
+		BuildFoamRuntimeControls(
+			foamRuntime);
 
 
 		_debugSource =
@@ -288,6 +265,136 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 
 
 		UpdateInset();
+	}
+
+
+	private void BuildFoamRuntimeControls(
+		VBoxContainer parent)
+	{
+		OceanFoamSettings settings =
+			_runtime.Foam;
+
+
+		var enabled =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Foam Simulation Enabled",
+				settings?.Enabled ?? true);
+
+
+		var strength =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Foam Strength",
+				settings?.WaveFoamStrength ??
+					OceanFoamSettings.DefaultWaveFoamStrength,
+				0.0,
+				5.0,
+				0.01);
+
+
+		var coverage =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Foam Coverage",
+				settings?.WaveFoamCoverage ??
+					OceanFoamSettings.DefaultWaveFoamCoverage,
+				0.0,
+				1.0,
+				0.01);
+
+
+		var fadeRate =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Foam Fade Rate",
+				settings?.FadeRate ??
+					OceanFoamSettings.DefaultFadeRate,
+				0.0,
+				20.0,
+				0.01);
+
+
+		var simulationFrequency =
+			OceanDiagnosticUi.Spin(
+				parent,
+				"Foam Simulation Hz",
+				settings?.SimulationFrequency ??
+					OceanFoamSettings.DefaultSimulationFrequency,
+				1.0,
+				200.0,
+				1.0,
+				" Hz");
+
+
+		var injectFoamSpot =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Inject diagnostic foam spot at camera XZ",
+				settings?.InjectWorldSpaceSpot ?? false);
+
+
+		enabled.Toggled +=
+			value =>
+				EnsureFoamSettings().Enabled = value;
+
+
+		strength.ValueChanged +=
+			value =>
+				EnsureFoamSettings().WaveFoamStrength = (float)value;
+
+
+		coverage.ValueChanged +=
+			value =>
+				EnsureFoamSettings().WaveFoamCoverage = (float)value;
+
+
+		fadeRate.ValueChanged +=
+			value =>
+				EnsureFoamSettings().FadeRate = (float)value;
+
+
+		simulationFrequency.ValueChanged +=
+			value =>
+				EnsureFoamSettings().SimulationFrequency = (float)value;
+
+
+		injectFoamSpot.Toggled +=
+			value =>
+			{
+				OceanFoamSettings foam =
+					EnsureFoamSettings();
+
+				if (value)
+				{
+					Camera3D camera =
+						_runtime.GetViewport()?.GetCamera3D();
+
+					if (camera != null)
+					{
+						Vector3 position = camera.GlobalPosition;
+						foam.DiagnosticSpotWorldXZ =
+							new Vector2(position.X, position.Z);
+					}
+				}
+
+				foam.InjectWorldSpaceSpot = value;
+			};
+
+
+		OceanDiagnosticUi.Info(
+			parent,
+			"The diagnostic spot is injected once on enable. Toggle off/on to re-arm it; then move the camera or change the whole-stack LOD scale.");
+	}
+
+
+	private OceanFoamSettings EnsureFoamSettings()
+	{
+		_runtime.Foam ??=
+			new OceanFoamSettings();
+
+
+		return _runtime.Foam;
 	}
 
 

@@ -896,6 +896,16 @@ public partial class AnimatedWaveSurfaceRenderer
 				_seaFloorDepthTexture);
 
 
+			material.SetShaderParameter(
+				"ocean_foam_field",
+				_oceanFoamTexture);
+
+
+			material.SetShaderParameter(
+				"has_ocean_foam",
+				_hasOceanFoam);
+
+
 			_nestedMaterials[lod] =
 				material;
 
@@ -1013,6 +1023,10 @@ public partial class AnimatedWaveSurfaceRenderer
 
 
 		ApplyVisualMicroNormalParameters(
+			force: true);
+
+
+		ApplyFoamRenderingParameters(
 			force: true);
 
 

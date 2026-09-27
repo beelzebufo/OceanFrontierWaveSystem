@@ -191,7 +191,9 @@ static func build_chunk_mesh(
 	paint_data: PackedByteArray = PackedByteArray(),
 	paint_steps: int = 8,
 	smooth_shading: bool = false,
-	padded_heights: PackedFloat32Array = PackedFloat32Array()
+	padded_heights: PackedFloat32Array = PackedFloat32Array(),
+	effective_height_data: PackedFloat32Array = PackedFloat32Array(),
+	macro_anchor_stride: int = 4
 ) -> ArrayMesh:
 	if height_data.is_empty():
 		return null
@@ -214,6 +216,21 @@ static func build_chunk_mesh(
 
 	# --- STEP 1: PRE-ALLOCATE ARRAYS TO ELIMINATE RE-ALLOCATION LATENCY ---
 	var max_points: int = vert_count * vert_count
+		# Macro Curvature is supplied as a second height window.
+	#
+	# height_data remains the authoritative BASE sculpt field and continues to drive
+	# flatness detection and jitter damping. effective_height_data affects only the
+	# actual rendered Y coordinate.
+	#
+	# When the effective window is empty the builder follows the exact legacy path.
+	var has_effective_heights: bool = (
+		effective_height_data.size() >= max_points
+	)
+
+	var safe_macro_anchor_stride: int = maxi(
+		macro_anchor_stride,
+		2
+	)
 	var points_2d := PackedVector2Array()
 	var points_3d := PackedVector3Array()
 	# Parallel to the two above: the paint of every point that survives decimation, so the
@@ -246,7 +263,13 @@ static func build_chunk_mesh(
 				(x == 0 or x == chunk_size) and (z == 0 or z == chunk_size)
 			)
 
-			var current_h: float = height_data[x + z * vert_count]
+			var point_index: int = x + z * vert_count
+			var base_h: float = height_data[point_index]
+			var current_h: float = (
+				effective_height_data[point_index]
+				if has_effective_heights
+				else base_h
+			)
 
 			# Cross-examination check for completely flat interior spaces
 			var is_flat_center: bool = false
@@ -255,8 +278,8 @@ static func build_chunk_mesh(
 				var h_l: float = height_data[(x-1) + z * vert_count]
 				var h_d: float = height_data[x + (z+1) * vert_count]
 				var h_u: float = height_data[x + (z-1) * vert_count]
-				if is_equal_approx(current_h, h_r) and is_equal_approx(current_h, h_l) and \
-				is_equal_approx(current_h, h_d) and is_equal_approx(current_h, h_u):
+				if is_equal_approx(base_h, h_r) and is_equal_approx(base_h, h_l) and \
+				is_equal_approx(base_h, h_d) and is_equal_approx(base_h, h_u):
 					is_flat_center = true
 				if is_flat_center and has_paint:
 					is_flat_center = (
@@ -290,9 +313,29 @@ static func build_chunk_mesh(
 							and _same_paint(paint_data, vert_count, x, z, x, z + 1)
 						)
 
-			# Radical geometry optimization for planar interior surfaces
+						# Radical geometry optimization for planar interior surfaces.
+			#
+			# Macro Curvature needs a sparse set of interior vertices to describe its broad
+			# vertical shape. The anchor lattice uses GLOBAL grid coordinates so it continues
+			# seamlessly across chunk boundaries.
 			if is_flat_center:
-				continue
+				var keep_macro_anchor: bool = false
+
+				if has_effective_heights:
+					var global_gx: int = (
+						chunk_coord.x * chunk_size + x
+					)
+					var global_gz: int = (
+						chunk_coord.y * chunk_size + z
+					)
+
+					keep_macro_anchor = (
+						global_gx % safe_macro_anchor_stride == 0
+						and global_gz % safe_macro_anchor_stride == 0
+					)
+
+				if not keep_macro_anchor:
+					continue
 
 			if is_flat_edge_point:
 				if (x == 0 or x == chunk_size):
@@ -308,8 +351,8 @@ static func build_chunk_mesh(
 				var h_d: float = height_data[x + clampi(z + 1, 0, chunk_size) * vert_count]
 				var h_u: float = height_data[x + clampi(z - 1, 0, chunk_size) * vert_count]
 
-				var diff_x: float = maxf(absf(current_h - h_r), absf(current_h - h_l))
-				var diff_z: float = maxf(absf(current_h - h_d), absf(current_h - h_u))
+				var diff_x: float = maxf(absf(base_h - h_r), absf(base_h - h_l))
+				var diff_z: float = maxf(absf(base_h - h_d), absf(base_h - h_u))
 				var max_diff: float = maxf(diff_x, diff_z)
 
 				var true_slope: float = max_diff / cell_size

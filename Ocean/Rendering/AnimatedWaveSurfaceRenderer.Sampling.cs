@@ -36,7 +36,7 @@ public partial class AnimatedWaveSurfaceRenderer
 				out _,
 				out float lodScaleAlpha,
 				out bool hasSeaFloorDepth,
-				out _))
+				out long generation))
 		{
 			HideSurfaceRoots();
 			return;
@@ -58,6 +58,17 @@ public partial class AnimatedWaveSurfaceRenderer
 			seaFloorDepthRid);
 
 
+		bool hasOceanFoam =
+			_runtime.TryGetOceanFoamRenderTexture(
+				generation,
+				out Rid oceanFoamRid);
+
+
+		BindOceanFoamTexture(
+			oceanFoamRid,
+			hasOceanFoam);
+
+
 		if (_hasSeaFloorDepth !=
 			hasSeaFloorDepth)
 		{
@@ -76,6 +87,7 @@ public partial class AnimatedWaveSurfaceRenderer
 		//
 
 		ApplyVisualMicroNormalParameters();
+		ApplyFoamRenderingParameters();
 		ApplyCausticsParameters();
 		ApplyVisualTime();
 
@@ -271,6 +283,36 @@ public partial class AnimatedWaveSurfaceRenderer
 
 			_boundSeaFloorDepthRid =
 				seaFloorDepthRid;
+		}
+	}
+
+
+	private void BindOceanFoamTexture(
+		Rid oceanFoamRid,
+		bool hasOceanFoam)
+	{
+		if (hasOceanFoam &&
+			(!_boundOceanFoamRid.IsValid ||
+			 _boundOceanFoamRid.Id != oceanFoamRid.Id))
+		{
+			_oceanFoamTexture.TextureRdRid =
+				oceanFoamRid;
+
+
+			_boundOceanFoamRid =
+				oceanFoamRid;
+		}
+
+
+		if (_hasOceanFoam != hasOceanFoam)
+		{
+			_hasOceanFoam =
+				hasOceanFoam;
+
+
+			SetSurfaceParameter(
+				"has_ocean_foam",
+				hasOceanFoam);
 		}
 	}
 

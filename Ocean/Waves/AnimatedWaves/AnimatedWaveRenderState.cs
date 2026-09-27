@@ -84,6 +84,60 @@ internal sealed class AnimatedWaveRenderState
 		_slices.Length;
 
 
+	/// <summary>
+	/// Render-thread accessor for the generation committed by the most recent
+	/// Publish(). This does not calculate or advance a generation.
+	/// </summary>
+	public bool TryGetPublishedGeneration(
+		out long generation)
+	{
+		generation = 0;
+
+
+		for (int attempt = 0;
+			 attempt < MaxReadAttempts;
+			 attempt++)
+		{
+			int sequenceBefore =
+				Volatile.Read(
+					ref _sequence);
+
+
+			if ((sequenceBefore & 1) != 0)
+			{
+				continue;
+			}
+
+
+			long localGeneration =
+				_generation;
+
+
+			Thread.MemoryBarrier();
+
+
+			int sequenceAfter =
+				Volatile.Read(
+					ref _sequence);
+
+
+			if (sequenceBefore == sequenceAfter &&
+				(sequenceAfter & 1) == 0 &&
+				localGeneration > 0)
+			{
+				generation =
+					localGeneration;
+
+
+				return true;
+			}
+		}
+
+
+		return false;
+	}
+
+
 	public AnimatedWaveRenderState(
 		int lodCount)
 	{

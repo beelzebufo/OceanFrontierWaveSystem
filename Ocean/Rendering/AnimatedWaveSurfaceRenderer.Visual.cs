@@ -504,6 +504,109 @@ public partial class AnimatedWaveSurfaceRenderer
 	}
 
 
+	/// <summary>
+	/// Pushes renderer-only foam breakup settings to production water
+	/// materials. These values never enter OceanFoamSettings or the persistent
+	/// scalar simulation field.
+	/// </summary>
+	private void ApplyFoamRenderingParameters(
+		bool force = false)
+	{
+		if (_material == null)
+		{
+			return;
+		}
+
+
+		float scale =
+			Mathf.Clamp(
+				FoamScale,
+				0.01f,
+				50.0f);
+
+
+		float feather =
+			Mathf.Clamp(
+				FoamFeather,
+				0.001f,
+				1.0f);
+
+
+		bool textureChanged =
+			!ReferenceEquals(
+				_appliedFoamTexture,
+				FoamTexture);
+
+
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			textureChanged)
+		{
+			SetSurfaceParameter(
+				"has_foam_pattern_texture",
+				FoamTexture != null);
+
+
+			if (FoamTexture != null)
+			{
+				SetSurfaceParameter(
+					"foam_pattern_texture",
+					FoamTexture);
+			}
+		}
+
+
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedFoamScale,
+				scale))
+		{
+			SetSurfaceParameter(
+				"foam_pattern_scale",
+				scale);
+		}
+
+
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedFoamFeather,
+				feather))
+		{
+			SetSurfaceParameter(
+				"foam_pattern_feather",
+				feather);
+		}
+
+
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			_appliedFoamTint != FoamTint)
+		{
+			SetSurfaceParameter(
+				"foam_tint",
+				FoamTint);
+		}
+
+
+		_appliedFoamTexture =
+			FoamTexture;
+
+		_appliedFoamScale =
+			scale;
+
+		_appliedFoamFeather =
+			feather;
+
+		_appliedFoamTint =
+			FoamTint;
+
+		_foamRenderingStateInitialized =
+			true;
+	}
+
+
 	private void SetSamplingParameter(
 		string name,
 		Variant value)

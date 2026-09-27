@@ -1,7 +1,12 @@
 shader_type spatial;
 render_mode world_vertex_coords, cull_disabled, depth_draw_always;
 
+// Ocean simulation time supplied by OceanRuntime. Declared before the foam
+// include because Godot resolves include identifiers in source order.
+uniform float visual_time = 0.0;
+
 #include "res://Ocean/Shaders/Rendering/animated_wave_surface_contract.gdshaderinc"
+#include "res://Ocean/Shaders/Rendering/animated_wave_surface_foam.gdshaderinc"
 #include "res://Ocean/Shaders/Rendering/animated_wave_surface_optics.gdshaderinc"
 
 
@@ -157,12 +162,6 @@ uniform float visual_normal_scale = 40.0;
 
 // Conservative validation default; Crest's source default is 0.36.
 uniform float visual_normal_strength = 0.08;
-
-// Ocean simulation time supplied by OceanRuntime.
-// Unlike Godot TIME, this freezes with SimulationPaused
-// and respects SimulationTimeScale.
-uniform float visual_time = 0.0;
-
 
 varying float displacement_height;
 
@@ -1751,6 +1750,46 @@ void fragment()
                         0.16),
                     0.0,
                     1.0);
+
+
+            if (planar_reflection_diagnostic_mode == 0 &&
+                has_ocean_foam)
+            {
+                float foam_amount =
+                    clamp(
+                        sample_render_foam(
+                            undisplaced_world_xz,
+                            visual_normal_lod_alpha),
+                        0.0,
+                        1.0);
+
+
+                float visible_foam =
+                    sample_visible_foam(
+                        undisplaced_world_xz,
+                        visual_normal_lod_alpha,
+                        foam_amount);
+
+
+                ALBEDO =
+                    mix(
+                        ALBEDO,
+                        foam_tint.rgb,
+                        visible_foam *
+                            foam_tint.a);
+
+
+                ROUGHNESS =
+                    mix(
+                        ROUGHNESS,
+                        1.0,
+                        visible_foam);
+
+
+                SPECULAR *=
+                    1.0 -
+                    visible_foam;
+            }
         }
 
 

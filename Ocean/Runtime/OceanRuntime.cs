@@ -63,6 +63,7 @@ public partial class OceanRuntime : Node
 
 	private OceanFoamField _oceanFoamField;
 	private OceanFoamSimulationPass _oceanFoamSimulation;
+	private readonly OceanFoamRenderState _oceanFoamRenderState = new();
 
 	private readonly AnimatedWaveInputRegistry _animatedWaveInputs = new();
 
@@ -939,6 +940,10 @@ public partial class OceanRuntime : Node
 						initialFoamState);
 
 
+					PublishOceanFoamRenderState(
+						initialFoamState.Enabled);
+
+
 					_animatedWaveGpuResourceGeneration++;
 
 					PublishAnimatedWaveFieldGpuSnapshot();
@@ -1019,6 +1024,7 @@ public partial class OceanRuntime : Node
 				//
 
 				ClearAnimatedWaveFieldGpuSnapshot();
+				_oceanFoamRenderState.Invalidate();
 
 				queries.Release();
 
@@ -1401,6 +1407,10 @@ public partial class OceanRuntime : Node
 			foamState);
 
 
+		PublishOceanFoamRenderState(
+			foamState.Enabled);
+
+
 		//
 		// 5. Queries consume the SAME canonical AWF
 		//    immediately after composition.
@@ -1583,6 +1593,47 @@ public partial class OceanRuntime : Node
 
 
 		return true;
+	}
+
+
+	/// <summary>
+	/// Returns foam only when it represents the exact committed AWF generation
+	/// consumed by the renderer frame.
+	/// </summary>
+	internal bool TryGetOceanFoamRenderTexture(
+		long expectedAnimatedWaveGeneration,
+		out Rid foamTexture)
+	{
+		foamTexture =
+			default;
+
+
+		return _gpuReady &&
+			_oceanFoamRenderState.TryGetTexture(
+				expectedAnimatedWaveGeneration,
+				out foamTexture);
+	}
+
+
+	/// <summary>Render thread only.</summary>
+	private void PublishOceanFoamRenderState(
+		bool enabled)
+	{
+		if (!enabled ||
+			_oceanFoamField == null ||
+			!_oceanFoamField.Latest.IsValid ||
+			!_animatedWaveComposer.RenderState.TryGetPublishedGeneration(
+				out long generation))
+		{
+			_oceanFoamRenderState.Invalidate();
+			return;
+		}
+
+
+		_oceanFoamRenderState.Publish(
+			_oceanFoamField.Latest,
+			generation,
+			true);
 	}
 
 

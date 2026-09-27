@@ -100,6 +100,24 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	public float VisualNormalStrength { get; set; } = 0.08f;
 
 
+	[ExportGroup("Foam Rendering")]
+	[Export]
+	public Texture2D FoamTexture { get; set; }
+
+
+	[Export(PropertyHint.Range, "0.01,50,0.01")]
+	public float FoamScale { get; set; } = 10.0f;
+
+
+	[Export(PropertyHint.Range, "0.001,1,0.001")]
+	public float FoamFeather { get; set; } = 0.4f;
+
+
+	[Export]
+	public Color FoamTint { get; set; } = Colors.White;
+
+
+	[ExportGroup("")]
 	[Export]
 	public bool DebugUnderwaterTransmission
 	{
@@ -162,16 +180,18 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		new();
 
 
-	// Persistent Godot wrappers around the three persistent RenderingDevice RIDs.
+	// Persistent Godot wrappers around the persistent RenderingDevice RIDs.
 	// Their objects are created once; only TextureRdRid changes if a RID changes.
 	private Texture2DArrayRD _animatedWaveTexture;
 	private Texture2DArrayRD _derivativeTexture;
 	private Texture2DArrayRD _seaFloorDepthTexture;
+	private Texture2DArrayRD _oceanFoamTexture;
 	private Texture2D _visualNormalFallback;
 	private Texture2D _causticsFallback;
 	private Rid _boundAnimatedWaveRid;
 	private Rid _boundDerivativeRid;
 	private Rid _boundSeaFloorDepthRid;
+	private Rid _boundOceanFoamRid;
 
 
 	private Vector2 _lastCenter =
@@ -213,6 +233,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		DefaultWaterShallowColorStrength;
 
 	private bool _hasSeaFloorDepth;
+	private bool _hasOceanFoam;
 
 	private Texture2D _planarReflectionTexture;
 	private float _planarReflectionWeight;
@@ -264,6 +285,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 
 	private float _appliedVisualNormalStrength =
 		float.NaN;
+
+	private bool _foamRenderingStateInitialized;
+	private Texture2D _appliedFoamTexture;
+	private float _appliedFoamScale =
+		float.NaN;
+	private float _appliedFoamFeather =
+		float.NaN;
+	private Color _appliedFoamTint;
 
 
 	internal int SelectedLodIndex =>
@@ -735,6 +764,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_seaFloorDepthTexture =
 			new Texture2DArrayRD();
 
+		_oceanFoamTexture =
+			new Texture2DArrayRD();
+
 
 		_material.SetShaderParameter(
 			"animated_wave_field",
@@ -747,6 +779,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		_material.SetShaderParameter(
 			"sea_floor_depth_field",
 			_seaFloorDepthTexture);
+
+		_material.SetShaderParameter(
+			"ocean_foam_field",
+			_oceanFoamTexture);
+
+
+		ApplyFoamRenderingParameters(
+			force: true);
 
 
 		//
@@ -894,6 +934,12 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 				default;
 		}
 
+		if (_oceanFoamTexture != null)
+		{
+			_oceanFoamTexture.TextureRdRid =
+				default;
+		}
+
 		_boundAnimatedWaveRid =
 			default;
 
@@ -901,6 +947,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			default;
 
 		_boundSeaFloorDepthRid =
+			default;
+
+		_boundOceanFoamRid =
 			default;
 	}
 }
