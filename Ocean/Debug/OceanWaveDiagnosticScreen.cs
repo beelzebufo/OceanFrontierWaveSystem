@@ -1,5 +1,6 @@
 using Godot;
 using OceanFrontier.Water.Rendering;
+using OceanFrontier.Water.Rendering.Reflections;
 using OceanFrontier.Water.Runtime;
 
 namespace OceanFrontier.Water.Debug;
@@ -31,6 +32,8 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 	private FftDisplacementDebugView _inset;
 
+	private OceanPlanarReflectionDiagnostic _reflectionDiagnostic;
+
 
 	private OceanDiagnosticOceanPanel _oceanPanel;
 
@@ -41,6 +44,8 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 	private OceanDiagnosticLightingPanel _lightingPanel;
 
 	private OceanDiagnosticDiagnosticsPanel _diagnosticsPanel;
+
+	private OceanDiagnosticReflectionPanel _reflectionPanel;
 
 	private OceanDiagnosticPerformanceHud _performanceHud;
 
@@ -120,6 +125,11 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 		_inset =
 			_runtime.GetNodeOrNull<FftDisplacementDebugView>(
 				"FftDisplacementDebugView");
+
+
+		_reflectionDiagnostic =
+			_runtime.GetNodeOrNull<OceanPlanarReflectionDiagnostic>(
+				"OceanPlanarReflectionDiagnostic");
 	}
 
 
@@ -305,6 +315,12 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 				"Diagnostics");
 
 
+		VBoxContainer reflectionsTab =
+			OceanDiagnosticUi.AddTab(
+				tabs,
+				"Reflections");
+
+
 		_oceanPanel =
 			new OceanDiagnosticOceanPanel();
 
@@ -365,6 +381,15 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 			_surface,
 			_inset,
 			_diagnosticHull);
+
+
+		_reflectionPanel =
+			new OceanDiagnosticReflectionPanel();
+
+
+		_reflectionPanel.Initialize(
+			reflectionsTab,
+			_reflectionDiagnostic);
 
 
 		_performanceHud =

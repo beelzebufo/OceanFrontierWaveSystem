@@ -1,6 +1,16 @@
 @tool
 extends EditorPlugin
 
+const ISLAND_SCATTER_PROFILE_SCRIPT := preload(
+	"res://addons/lowpolyterrain/IslandScatterProfile.gd"
+)
+const ISLAND_SCATTER_ZONE_SCRIPT := preload(
+	"res://addons/lowpolyterrain/IslandScatterZone.gd"
+)
+const ISLAND_TERRAIN_DOCK_SCRIPT := preload(
+	"res://addons/lowpolyterrain/editor/LowPolyTerrainEditorDock.gd"
+)
+
 ## EditorPlugin script that bridges the Godot 3D viewports with the low poly terrain tools.
 ## Handles a persistent, semi-transparent 3D brush gizmo and processes painting signals.
 
@@ -48,6 +58,18 @@ const BRUSH_TOOL_DEFINITIONS: Array = [
 
 var active_manager: LowPolyTerrainManager = null
 var is_drawing: bool = false
+
+enum EditorPlacementMode {
+	NONE = 0,
+	SCATTER = 1,
+}
+
+var _placement_mode: int = EditorPlacementMode.NONE
+var _scatter_toolbar_button: Button = null
+var _scatter_toolbar_separator: VSeparator = null
+var _scatter_preview_root: Node3D = null
+var _scatter_preview_lines: MeshInstance3D = null
+var _scatter_preview_material: StandardMaterial3D = null
 
 ## True while Shift is held, which temporarily inverts the active tool. Tracked so the ring
 ## colour and the caption can follow the stroke instead of describing the toolbar selection.
@@ -135,6 +157,9 @@ var brush_shortcuts: Dictionary = {}
 ## Draws paint_layer as four buttons instead of a slider. Registered in _enter_tree().
 var _inspector_plugin: EditorInspectorPlugin = null
 
+var _island_terrain_dock: EditorDock = null
+var _island_terrain_dock_content: Control = null
+
 func _get_plugin_name() -> String:
 	return "Low Poly Terrain Builder"
 	
@@ -171,6 +196,10 @@ func _enter_tree() -> void:
 	if not scene_changed.is_connected(_on_editor_scene_changed):
 		scene_changed.connect(_on_editor_scene_changed)
 
+	# Dock creation is isolated from the core terrain toolbar.
+	# This prevents a dock script/import problem from disabling sculpt/paint tools.
+	call_deferred("_create_island_terrain_dock")
+
 func _exit_tree() -> void:
 	remove_custom_type("LowPolyTerrainManager")
 
@@ -178,6 +207,7 @@ func _exit_tree() -> void:
 		remove_inspector_plugin(_inspector_plugin)
 		_inspector_plugin = null
 	_destroy_brush_ui_panel()
+	_destroy_island_terrain_dock()
 
 	# Both overlays live OUTSIDE this plugin node - the ring under the terrain manager, the
 	# label under the editor's base control - so freeing the plugin does not take them with it.
@@ -227,6 +257,19 @@ func _handles(object: Object) -> bool:
 ## tabs meant a manager in the background could still rescale the active one's brush, and
 ## _edit() could no longer reach it to disconnect, because the reference was already gone.
 func _release_active_manager() -> void:
+	_placement_mode = EditorPlacementMode.NONE
+	_destroy_scatter_preview()
+
+	if (
+		_island_terrain_dock_content != null
+		and is_instance_valid(_island_terrain_dock_content)
+	):
+		_island_terrain_dock_content.call(
+			"set_terrain",
+			null
+		)
+		if (_island_terrain_dock != null and is_instance_valid(_island_terrain_dock)):
+			_island_terrain_dock.make_visible()
 	var inspector := EditorInterface.get_inspector()
 	if inspector and inspector.property_edited.is_connected(_on_inspector_property_edited):
 		inspector.property_edited.disconnect(_on_inspector_property_edited)
@@ -255,6 +298,24 @@ func _edit(object: Object) -> void:
 
 	if object is LowPolyTerrainManager and object.is_inside_tree():
 		active_manager = object
+
+		if (
+			_island_terrain_dock == null
+			or not is_instance_valid(_island_terrain_dock)
+			or _island_terrain_dock_content == null
+			or not is_instance_valid(_island_terrain_dock_content)
+		):
+			_create_island_terrain_dock()
+
+		if (
+			_island_terrain_dock_content != null
+			and is_instance_valid(_island_terrain_dock_content)
+		):
+			_island_terrain_dock_content.call(
+				"set_terrain",
+				active_manager
+			)
+
 		active_manager.set_meta("_edit_lock_", true)
 		# [E3] Only rebuilds when the chunk structure is actually missing. Selecting the
 		# manager no longer regenerates every chunk mesh in the world.
@@ -328,54 +389,56 @@ func _on_main_screen_changed(screen_name: String) -> void:
 func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 	if not active_manager:
 		return 0 # EditorPlugin.AFTER_GUI_INPUT_PASS
-		
-	# Events that carry the modifier update it immediately; _process() polls it as well, so a
-	# bare Shift press is picked up even when no event follows.
+
 	if event is InputEventWithModifiers:
 		_set_shift_held((event as InputEventWithModifiers).shift_pressed)
 
-	# Escape drops a pending ramp anchor. Consumed only when there is something to drop, so
-	# Escape keeps its usual editor meaning the rest of the time.
 	if event is InputEventKey and event.pressed and not event.echo:
-		if (event as InputEventKey).keycode == KEY_ESCAPE and _ramp_anchor_set:
-			_cancel_ramp()
-			return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
+		var key_event := event as InputEventKey
 
-	# Process brush size and tool switching shortcuts inside the 3D viewport
+		if key_event.keycode == KEY_ESCAPE:
+			if _placement_mode == EditorPlacementMode.SCATTER:
+				_set_placement_mode(EditorPlacementMode.NONE)
+				return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
+
+			if _ramp_anchor_set:
+				_cancel_ramp()
+				return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
+
 	if event is InputEventKey and event.pressed:
 		if _try_handle_brush_shortcut(event as InputEventKey):
 			return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
 
-	# Track and update the 2D label and 3D gizmo position on mouse motion
 	if event is InputEventMouseMotion:
 		_update_gizmo_position(viewport_camera, event.position)
-		
-		if mouse_label and brush_gizmo and brush_gizmo.visible:
-			var global_mouse_pos: Vector2 = event.global_position
-			mouse_label.position = global_mouse_pos + Vector2(20, 20)
+
+		var placement_visible: bool = (
+			_placement_mode == EditorPlacementMode.SCATTER
+			and _scatter_preview_root != null
+			and _scatter_preview_root.visible
+		)
+		var brush_visible: bool = brush_gizmo != null and brush_gizmo.visible
+
+		if mouse_label and (placement_visible or brush_visible):
+			mouse_label.position = event.global_position + Vector2(20, 20)
 			mouse_label.visible = true
 		elif mouse_label:
 			mouse_label.visible = false
-			
+
 		if is_drawing:
-			# The stroke itself is applied once per frame from _process(), NOT here. Applying
-			# it per motion event meant a high polling rate mouse sculpted many times per
-			# frame - every one of them at the same spot, because _update_gizmo_position() is
-			# frame guarded. That was redundant work, and it tied the sculpting speed to the
-			# mouse hardware instead of to the brush settings.
-			# The event is still consumed, or dragging would orbit the editor camera.
 			return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
-			
-	# Process active mouse click strokes for sculpting operations
+
 	if event is InputEventMouseButton:
-		# RAMP is a two-click operation, not a stroke. Handled before the stroke branch so it
-		# never sets is_drawing and therefore never reaches the per-frame sculpting path.
+		if _placement_mode == EditorPlacementMode.SCATTER:
+			if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+				if _place_scatter_zone():
+					return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
+			return 0 # EditorPlugin.AFTER_GUI_INPUT_PASS
+
 		if active_manager.resolve_brush_mode(_shift_held) == LowPolyTerrainManager.BrushMode.RAMP:
 			if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 				if _handle_ramp_click():
 					return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
-			# Right-click abandons a pending anchor rather than orbiting straight out of the
-			# half-finished operation.
 			elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and _ramp_anchor_set:
 				_cancel_ramp()
 				return 1 # EditorPlugin.AFTER_GUI_INPUT_STOP
@@ -383,20 +446,15 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			is_drawing = event.pressed
-			
-			# [UNDO/REDO INTERCEPT] Handle stroke lifecycle management inside the editor workspace
+
 			if is_drawing and active_manager:
 				var manager_undo_redo: EditorUndoRedoManager = get_undo_redo()
 				if active_manager.has_method("stroke_started"):
 					active_manager.stroke_started(manager_undo_redo)
 
-				# Seeded here, or the first held frame would measure its travel against
-				# wherever the PREVIOUS stroke ended and start at full strength by accident.
 				if brush_gizmo:
 					_last_paint_position = brush_gizmo.global_position
-			
-			# When the user releases the left mouse button, reset the session cache in the manager
-			# needed for FLATTEN mode where is_paint_stroke_active is set to true
+
 			if not is_drawing:
 				_end_paint_stroke()
 
@@ -617,6 +675,8 @@ func _hide_brush_visuals() -> void:
 		mouse_label.visible = false
 	if brush_gizmo and brush_gizmo.visible:
 		brush_gizmo.visible = false
+	if _scatter_preview_root and _scatter_preview_root.visible:
+		_scatter_preview_root.visible = false
 	# The anchor itself survives leaving the viewport; only its line stops being drawn, since
 	# it would otherwise point at a cursor position that is no longer meaningful.
 	if _ramp_line and _ramp_line.visible:
@@ -749,9 +809,15 @@ func _brush_color_for(mode_idx: int) -> Color:
 
 
 func _update_gizmo_scale() -> void:
-	if not brush_gizmo or not active_manager: 
+	if not brush_gizmo or not active_manager:
 		return
-	
+
+	if _placement_mode == EditorPlacementMode.SCATTER:
+		brush_gizmo.visible = false
+		_rebuild_scatter_preview_geometry()
+		_update_scatter_label()
+		return
+
 	var ring_mesh: MeshInstance3D = brush_gizmo
 	# The mode the stroke would actually perform right now, Shift included. Using tool_mode
 	# here left the ring green and captioned "Activate Chunk" while Shift was deactivating.
@@ -819,6 +885,7 @@ func _update_gizmo_scale() -> void:
 func _destroy_3d_brush_gizmo() -> void:
 	# Nothing left to watch over once the overlays are gone.
 	set_process(false)
+	_destroy_scatter_preview()
 
 	if brush_gizmo:
 		if brush_gizmo.get_parent():
@@ -871,19 +938,12 @@ func _update_gizmo_position(camera: Camera3D, mouse_pos: Vector2) -> void:
 
 	var ray_origin: Vector3 = camera.project_ray_origin(mouse_pos)
 	var ray_dir: Vector3 = camera.project_ray_normal(mouse_pos)
-	
-	# The terrain pass lives in LowPolyTerrainPicking so it can be unit tested; GUT cannot
-	# instantiate an EditorPlugin. Cache and result dictionary are passed in and reused, so
-	# this allocates nothing per frame.
 	var found_hit: bool = LowPolyTerrainPicking.raycast_terrain(
 		active_manager, ray_origin, ray_dir, _faces_cache, _terrain_pick
 	)
 	var closest_hit: float = float(_terrain_pick["distance"])
 	var world_hit_point: Vector3 = _terrain_pick["point"]
 
-	# The SERVERS backend draws deactivated chunks without any pickable geometry, so their
-	# flat preview plane is intersected analytically instead. In MESH_NODES the clickable red
-	# quads still exist as real meshes and were already covered by the loop above.
 	if active_manager.terrain_backend == LowPolyTerrainManager.TerrainBackend.SERVERS:
 		var pick: Dictionary = LowPolyTerrainPicking.pick_deactivated_chunk(
 			active_manager, ray_origin, ray_dir
@@ -892,14 +952,31 @@ func _update_gizmo_position(camera: Camera3D, mouse_pos: Vector2) -> void:
 			world_hit_point = pick["point"]
 			found_hit = true
 
+	if _placement_mode == EditorPlacementMode.SCATTER:
+		brush_gizmo.visible = false
+		_cancel_ramp()
+		_ensure_scatter_preview()
+
+		if found_hit:
+			var profile: Resource = _get_active_scatter_profile()
+			var y_offset: float = profile.volume_center_y_offset if profile != null else 0.0
+			_scatter_preview_root.visible = true
+			_scatter_preview_root.global_position = world_hit_point + Vector3.UP * y_offset
+			_update_scatter_label()
+		else:
+			_scatter_preview_root.visible = false
+
+		return
+
+	if _scatter_preview_root:
+		_scatter_preview_root.visible = false
+
 	if found_hit:
 		brush_gizmo.visible = true
 		brush_gizmo.global_position = world_hit_point
 	else:
 		brush_gizmo.visible = false
 
-	# The span follows the cursor, so it is redrawn wherever the ring moves. Frame guarded
-	# along with the pick above, not per motion event.
 	_update_ramp_line()
 
 
@@ -1166,10 +1243,85 @@ func _create_brush_ui_panel() -> void:
 		btn.pressed.connect(_on_brush_button_pressed.bind(mode_idx))
 		brush_panel_container.add_child(btn)
 
+	_scatter_toolbar_separator = VSeparator.new()
+	brush_panel_container.add_child(_scatter_toolbar_separator)
+
+	_scatter_toolbar_button = Button.new()
+	_scatter_toolbar_button.text = "Scatter"
+	_scatter_toolbar_button.toggle_mode = true
+	_scatter_toolbar_button.button_group = button_group
+	_scatter_toolbar_button.tooltip_text = "Place the active Scatter Profile as a 3D candidate volume."
+	_scatter_toolbar_button.pressed.connect(_on_scatter_tool_pressed)
+	brush_panel_container.add_child(_scatter_toolbar_button)
+
 	_create_layer_buttons()
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, brush_panel_container)
 
+func _create_island_terrain_dock() -> void:
+	if (
+		_island_terrain_dock != null
+		and is_instance_valid(_island_terrain_dock)
+	):
+		return
 
+	# Godot 4.7 introduced EditorDock as the supported dock API.
+	# Do not use the deprecated add_control_to_dock() path here: it mutates
+	# legacy dock-slot state and can interfere with the editor's built-in
+	# Scene / FileSystem / Inspector dock layout.
+	_island_terrain_dock = EditorDock.new()
+	_island_terrain_dock.name = "LowPolyTerrainIslandDock"
+	_island_terrain_dock.title = "Island Terrain"
+	_island_terrain_dock.layout_key = "lowpolyterrain_island_terrain"
+	_island_terrain_dock.default_slot = EditorDock.DOCK_SLOT_RIGHT_BL
+	_island_terrain_dock.available_layouts = (
+		EditorDock.DOCK_LAYOUT_VERTICAL
+		| EditorDock.DOCK_LAYOUT_FLOATING
+	)
+	_island_terrain_dock.closable = true
+	_island_terrain_dock.transient = true
+
+	_island_terrain_dock_content = ISLAND_TERRAIN_DOCK_SCRIPT.new() as Control
+	if _island_terrain_dock_content == null:
+		push_error("Low Poly Terrain: could not instantiate Island Terrain dock content.")
+		return
+
+	_island_terrain_dock_content.name = "IslandTerrainContent"
+	_island_terrain_dock_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_island_terrain_dock_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	_island_terrain_dock_content.call(
+		"set_undo_redo_manager",
+		get_undo_redo()
+	)
+
+	_island_terrain_dock_content.connect(
+		"scatter_profile_changed",
+		Callable(self, "_on_scatter_profile_changed")
+	)
+	_island_terrain_dock_content.connect(
+		"scatter_profile_settings_changed",
+		Callable(self, "_on_scatter_profile_settings_changed")
+	)
+	_island_terrain_dock_content.connect(
+		"rebuild_scatter_zones_requested",
+		Callable(self, "_on_rebuild_scatter_zones_requested")
+	)
+
+	_island_terrain_dock.add_child(_island_terrain_dock_content)
+	add_dock(_island_terrain_dock)
+	
+
+
+func _destroy_island_terrain_dock() -> void:
+	if (
+		_island_terrain_dock != null
+		and is_instance_valid(_island_terrain_dock)
+	):
+		remove_dock(_island_terrain_dock)
+		_island_terrain_dock.queue_free()
+
+	_island_terrain_dock = null
+	_island_terrain_dock_content = null
 
 
 ## Clears out the UI elements from the memory tree completely to prevent leaks.
@@ -1179,6 +1331,8 @@ func _destroy_brush_ui_panel() -> void:
 		brush_panel_container.queue_free()
 		brush_panel_container = null
 		button_group = null
+		_scatter_toolbar_button = null
+		_scatter_toolbar_separator = null
 
 ## Toggles visibility status of the tool selection menu container dynamically.
 func _show_brush_ui_panel(visible: bool) -> void:
@@ -1187,7 +1341,10 @@ func _show_brush_ui_panel(visible: bool) -> void:
 
 ## Updates the manager state and forces property list synchronization on click.
 func _select_brush_mode(mode_idx: int) -> void:
-	if not active_manager: return
+	if not active_manager:
+		return
+
+	_set_placement_mode(EditorPlacementMode.NONE, false)
 
 	# A pending ramp anchor must not survive a tool change, or the next click would mean
 	# something entirely different from what the visible line promises.
@@ -1218,18 +1375,232 @@ func _on_brush_button_pressed(mode_idx: int) -> void:
 
 ## Pulls active settings directly from the selected node to depress the correct button instance.
 func _sync_ui_buttons_with_manager() -> void:
-	if not active_manager or not brush_panel_container: return
+	if not active_manager or not brush_panel_container:
+		return
+
 	var active_mode: int = active_manager.tool_mode
-	
+	var placing_scatter: bool = _placement_mode == EditorPlacementMode.SCATTER
+
 	for child in brush_panel_container.get_children():
 		if child is Button and child.has_meta("brush_mode"):
 			var btn_mode: int = child.get_meta("brush_mode")
-			child.set_pressed_no_signal(btn_mode == active_mode)
-			
-			# Force immediate redrawing update on active state color toggles
+			child.set_pressed_no_signal(not placing_scatter and btn_mode == active_mode)
 			child.queue_redraw()
 
+	if _scatter_toolbar_button:
+		_scatter_toolbar_button.set_pressed_no_signal(placing_scatter)
+		_scatter_toolbar_button.queue_redraw()
+
 	_sync_layer_buttons()
+
+
+func _on_scatter_tool_pressed() -> void:
+	if active_manager == null:
+		return
+
+	_set_placement_mode(EditorPlacementMode.SCATTER)
+
+	if _island_terrain_dock_content != null and is_instance_valid(_island_terrain_dock_content):
+		_island_terrain_dock_content.call("show_scatter_page")
+
+
+func _set_placement_mode(mode: int, sync_ui: bool = true) -> void:
+	if _placement_mode == mode:
+		if sync_ui:
+			_sync_ui_buttons_with_manager()
+		return
+
+	if is_drawing:
+		_end_paint_stroke()
+
+	_cancel_ramp()
+	_placement_mode = mode
+
+	if _placement_mode == EditorPlacementMode.SCATTER:
+		_ensure_scatter_preview()
+		_rebuild_scatter_preview_geometry()
+		if brush_gizmo:
+			brush_gizmo.visible = false
+	else:
+		if _scatter_preview_root:
+			_scatter_preview_root.visible = false
+
+	if sync_ui:
+		_sync_ui_buttons_with_manager()
+
+	_update_gizmo_scale()
+
+
+func _get_active_scatter_profile() -> Resource:
+	if _island_terrain_dock_content == null or not is_instance_valid(_island_terrain_dock_content):
+		return null
+
+	return _island_terrain_dock_content.call("get_active_scatter_profile") as Resource
+
+
+func _on_scatter_profile_changed(_profile: Resource) -> void:
+	if _placement_mode == EditorPlacementMode.SCATTER:
+		_rebuild_scatter_preview_geometry()
+		_update_scatter_label()
+
+
+func _on_scatter_profile_settings_changed(_profile: Resource) -> void:
+	if _placement_mode == EditorPlacementMode.SCATTER:
+		_rebuild_scatter_preview_geometry()
+		_update_scatter_label()
+
+
+func _on_rebuild_scatter_zones_requested(profile: Resource) -> void:
+	if active_manager == null or profile == null:
+		return
+
+	var assets: Node = active_manager.get_node_or_null("Terrain_Assets")
+	if assets == null:
+		return
+
+	for child in assets.get_children():
+		if child.get_script() == ISLAND_SCATTER_ZONE_SCRIPT and child.profile == profile:
+			child.build()
+
+
+func _ensure_scatter_preview() -> void:
+	if active_manager == null:
+		return
+
+	if _scatter_preview_root != null and is_instance_valid(_scatter_preview_root):
+		return
+
+	_scatter_preview_root = Node3D.new()
+	_scatter_preview_root.name = "DEBUG_ScatterVolume_Transient"
+	active_manager.add_child(_scatter_preview_root)
+
+	_scatter_preview_lines = MeshInstance3D.new()
+	_scatter_preview_lines.name = "ScatterVolumeLines"
+	_scatter_preview_root.add_child(_scatter_preview_lines)
+
+	_scatter_preview_material = StandardMaterial3D.new()
+	_scatter_preview_material.shading_mode = StandardMaterial3D.SHADING_MODE_UNSHADED
+	_scatter_preview_material.transparency = StandardMaterial3D.TRANSPARENCY_ALPHA
+	_scatter_preview_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_scatter_preview_material.no_depth_test = true
+	_scatter_preview_material.albedo_color = Color(0.10, 0.85, 1.0, 0.95)
+
+	_rebuild_scatter_preview_geometry()
+	_scatter_preview_root.visible = false
+
+
+func _destroy_scatter_preview() -> void:
+	if _scatter_preview_root != null and is_instance_valid(_scatter_preview_root):
+		if _scatter_preview_root.get_parent():
+			_scatter_preview_root.get_parent().remove_child(_scatter_preview_root)
+		_scatter_preview_root.free()
+
+	_scatter_preview_root = null
+	_scatter_preview_lines = null
+	_scatter_preview_material = null
+
+
+func _rebuild_scatter_preview_geometry() -> void:
+	if _scatter_preview_lines == null or not is_instance_valid(_scatter_preview_lines):
+		return
+
+	var profile: Resource = _get_active_scatter_profile()
+	if profile == null:
+		_scatter_preview_lines.mesh = null
+		return
+
+	var size := Vector3(
+		maxf(absf(profile.volume_size.x), 0.05),
+		maxf(absf(profile.volume_size.y), 0.05),
+		maxf(absf(profile.volume_size.z), 0.05)
+	)
+	var h: Vector3 = size * 0.5
+	var corners: Array[Vector3] = [
+		Vector3(-h.x, -h.y, -h.z),
+		Vector3(h.x, -h.y, -h.z),
+		Vector3(h.x, -h.y, h.z),
+		Vector3(-h.x, -h.y, h.z),
+		Vector3(-h.x, h.y, -h.z),
+		Vector3(h.x, h.y, -h.z),
+		Vector3(h.x, h.y, h.z),
+		Vector3(-h.x, h.y, h.z),
+	]
+	var edges: Array[Vector2i] = [
+		Vector2i(0, 1), Vector2i(1, 2), Vector2i(2, 3), Vector2i(3, 0),
+		Vector2i(4, 5), Vector2i(5, 6), Vector2i(6, 7), Vector2i(7, 4),
+		Vector2i(0, 4), Vector2i(1, 5), Vector2i(2, 6), Vector2i(3, 7),
+	]
+
+	var mesh := ImmediateMesh.new()
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES, _scatter_preview_material)
+
+	for edge in edges:
+		mesh.surface_add_vertex(corners[edge.x])
+		mesh.surface_add_vertex(corners[edge.y])
+
+	mesh.surface_end()
+	_scatter_preview_lines.mesh = mesh
+
+
+func _update_scatter_label() -> void:
+	if mouse_label == null:
+		return
+
+	var profile: Resource = _get_active_scatter_profile()
+	if profile == null:
+		mouse_label.text = "Scatter\nNo active profile"
+		return
+
+	mouse_label.text = "Scatter: %s\n%.1f × %.1f × %.1f m" % [
+		profile.display_name,
+		profile.volume_size.x,
+		profile.volume_size.y,
+		profile.volume_size.z,
+	]
+
+
+func _place_scatter_zone() -> bool:
+	if active_manager == null:
+		return false
+	if _scatter_preview_root == null or not _scatter_preview_root.visible:
+		return false
+
+	var profile: Resource = _get_active_scatter_profile()
+	if profile == null:
+		return false
+
+	var scene_root: Node = EditorInterface.get_edited_scene_root()
+	if scene_root == null:
+		return false
+
+	var assets: Node3D = active_manager.get_node_or_null("Terrain_Assets") as Node3D
+	if assets == null:
+		assets = Node3D.new()
+		assets.name = "Terrain_Assets"
+		active_manager.add_child(assets)
+		assets.owner = scene_root
+
+	var zone := ISLAND_SCATTER_ZONE_SCRIPT.new() as Node3D
+	if zone == null:
+		push_error("Low Poly Terrain: could not instantiate scatter zone.")
+		return false
+
+	zone.name = "ScatterZone_%s" % profile.display_name
+	zone.terrain = active_manager
+	zone.profile = profile
+	zone.volume_size = profile.volume_size
+	var placement_transform: Transform3D = _scatter_preview_root.global_transform
+
+	var undo_redo: EditorUndoRedoManager = get_undo_redo()
+	undo_redo.create_action("Place Scatter Zone", UndoRedo.MERGE_DISABLE, active_manager)
+	undo_redo.add_do_method(assets, "add_child", zone, true)
+	undo_redo.add_do_method(zone, "set_owner", scene_root)
+	undo_redo.add_do_property(zone, "global_transform", placement_transform)
+	undo_redo.add_do_method(zone, "build")
+	undo_redo.add_do_reference(zone)
+	undo_redo.add_undo_method(assets, "remove_child", zone)
+	undo_redo.commit_action()
+	return true
 
 
 
@@ -1289,7 +1660,10 @@ func _sync_layer_buttons() -> void:
 	if active_manager == null or _layer_buttons.is_empty():
 		return
 
-	var painting: bool = active_manager.tool_mode == LowPolyTerrainManager.BrushMode.PAINT
+	var painting: bool = (
+		_placement_mode == EditorPlacementMode.NONE
+		and active_manager.tool_mode == LowPolyTerrainManager.BrushMode.PAINT
+	)
 	if _layer_separator:
 		_layer_separator.visible = painting
 
@@ -1311,6 +1685,8 @@ var _layer_swatch_colors: PackedColorArray = PackedColorArray()
 ## parameter is set - measured, only assigning the shader itself does - so there is nothing to
 ## connect to. Four colour comparisons per frame, and only while the Paint tool is active.
 func _refresh_layer_swatches_if_changed() -> void:
+	if _placement_mode != EditorPlacementMode.NONE:
+		return
 	if active_manager == null or _layer_buttons.is_empty():
 		return
 	if active_manager.tool_mode != LowPolyTerrainManager.BrushMode.PAINT:

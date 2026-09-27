@@ -56,12 +56,51 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private bool _segmentedHull = true;
 	private bool _smallDistortion = true;
 	private bool _everyTwoFrames = true;
+	private bool _probeEnabled = true;
+	private bool _planarEnabled = true;
+	private bool _previewsVisible = true;
+	private float _probeIntensity = 1.0f;
+	private float _planarWeight = 1.0f;
 	private int _targetWidth = 256;
 	private int _frameIndex;
 	private int _probeIntensityIndex;
 	private int _planarWeightIndex = 2;
 	private int _surfaceDiagnosticMode;
+	private ulong _reflectionStateRevision;
+	private Transform3D _mainCameraSnapshot;
+	private Transform3D _mirroredCameraSnapshot;
 	private double _statusAccumulator;
+
+
+	internal bool ProbeEnabled =>
+		_probeEnabled;
+
+	internal float ProbeIntensity =>
+		_probeIntensity;
+
+	internal bool PlanarEnabled =>
+		_planarEnabled;
+
+	internal float PlanarWeight =>
+		_planarWeight;
+
+	internal bool EveryTwoFrames =>
+		_everyTwoFrames;
+
+	internal int TargetWidth =>
+		_targetWidth;
+
+	internal bool SmallDistortion =>
+		_smallDistortion;
+
+	internal bool SegmentedHull =>
+		_segmentedHull;
+
+	internal int SurfaceDiagnosticMode =>
+		_surfaceDiagnosticMode;
+
+	internal bool PreviewsVisible =>
+		_previewsVisible;
 
 	public override void _Ready()
 	{
@@ -96,6 +135,10 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		CreateOverlay();
 		ApplyHullMode();
 		ApplyWeights();
+
+		RenderingServer.FramePreDraw +=
+			SynchronizePlanarStateForDraw;
+
 		UpdateStatus();
 	}
 
@@ -127,6 +170,11 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 				Name = "PlanarReflectionCamera",
 				CullMask = PlanarCandidateLayerMask,
 				Current = true,
+				// This camera is driven from the main camera's already effective
+				// render-time transform once per draw. Interpolating it again would
+				// mix two camera states.
+				PhysicsInterpolationMode =
+					PhysicsInterpolationModeEnum.Off,
 			};
 
 		_planarViewport.AddChild(_planarCamera);
@@ -222,9 +270,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		}
 
 		UpdateViewportSize();
-		CopyProjectionAndEnvironment();
-		UpdateMirroredTransform();
-		UpdateSurfaceProjection();
 
 		bool aboveWater =
 			_mainCamera.GlobalPosition.Y >=
@@ -233,11 +278,12 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		bool planarActive =
 			aboveWater &&
 			!_surfaceRenderer.PlanetCurvatureEnabled &&
-			PlanarWeights[_planarWeightIndex] > 0.0f;
+			_planarEnabled &&
+			_planarWeight > 0.0f;
 
 		_surfaceRenderer.SetPlanarReflectionWeight(
 			planarActive
-				? PlanarWeights[_planarWeightIndex]
+				? _planarWeight
 				: 0.0f);
 
 		if (!planarActive)
@@ -267,16 +313,45 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	}
 
 
-	private void UpdateSurfaceProjection()
+	private void SynchronizePlanarStateForDraw()
 	{
+		if (!IsInsideTree() ||
+			_planarCamera == null ||
+			_mainCamera == null ||
+			_surfaceRenderer == null)
+		{
+			return;
+		}
+
+
+		CopyProjectionAndEnvironment();
+
+
+		// This is the exact effective camera transform used by Camera3D for the
+		// coming draw, including physics interpolation (when globally enabled)
+		// and camera H/V offsets. FramePreDraw runs after gameplay processing and
+		// before RenderingServer updates either viewport.
+		_mainCameraSnapshot =
+			_mainCamera.GetCameraTransform();
+
+
+		_mirroredCameraSnapshot =
+			ReflectCameraTransform(
+				_mainCameraSnapshot)
+				.Orthonormalized();
+
+
+		_planarCamera.GlobalTransform =
+			_mirroredCameraSnapshot;
+
+
 		// Camera3D's raw projection maps view-space Y upward. The shader applies
 		// the same final Y inversion as Camera3D.UnprojectPosition when mapping
-		// NDC to ViewportTexture UV.
+		// NDC to ViewportTexture UV. Use the same mirrored snapshot assigned to
+		// the camera instead of re-reading mutable node state.
 		Projection reflectionView =
 			new(
-				_planarCamera
-					.GetCameraTransform()
-					.AffineInverse());
+				_mirroredCameraSnapshot.AffineInverse());
 
 
 		Projection reflectionViewProjection =
@@ -286,6 +361,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_surfaceRenderer.SetPlanarReflectionViewProjection(
 			reflectionViewProjection);
+
+
+		_reflectionStateRevision++;
 	}
 
 	private void UpdateViewportSize()
@@ -348,12 +426,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_planarCamera.KeepAspect =
 			_mainCamera.KeepAspect;
 
-		_planarCamera.HOffset =
-			_mainCamera.HOffset;
-
-		_planarCamera.VOffset =
-			_mainCamera.VOffset;
-
 		_planarCamera.Environment =
 			_mainCamera.Environment;
 
@@ -361,11 +433,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			_mainCamera.Attributes;
 	}
 
-	private void UpdateMirroredTransform()
+	private static Transform3D ReflectCameraTransform(
+		Transform3D source)
 	{
-		Transform3D source =
-			_mainCamera.GlobalTransform;
-
 		static Vector3 ReflectVector(
 			Vector3 value)
 		{
@@ -388,10 +458,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			2.0f *
 			SeaLevel;
 
-		_planarCamera.GlobalTransform =
-			new Transform3D(
-				reflectedBasis,
-				reflectedOrigin);
+		return new Transform3D(
+			reflectedBasis,
+			reflectedOrigin);
 	}
 
 	private void ApplyHullMode()
@@ -402,12 +471,164 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 				: PlanarCandidateLayerMask;
 	}
 
-	private void ApplyWeights()
+
+	internal void SetProbeEnabled(
+		bool enabled)
 	{
+		_probeEnabled =
+			enabled;
+
+		_reflectionProbe.Visible =
+			enabled;
+
+		UpdateStatus();
+	}
+
+
+	internal void SetProbeIntensity(
+		float intensity)
+	{
+		_probeIntensity =
+			Mathf.Clamp(
+				intensity,
+				0.0f,
+				2.0f);
+
 		_reflectionProbe.Intensity =
-			ProbeIntensities[_probeIntensityIndex];
+			_probeIntensity;
+
+		UpdateStatus();
+	}
+
+
+	internal void SetPlanarEnabled(
+		bool enabled)
+	{
+		_planarEnabled =
+			enabled;
 
 		_surfaceRenderer.SetPlanarReflectionWeight(
+			enabled
+				? _planarWeight
+				: 0.0f);
+
+		UpdateStatus();
+	}
+
+
+	internal void SetPlanarWeight(
+		float weight)
+	{
+		_planarWeight =
+			Mathf.Clamp(
+				weight,
+				0.0f,
+				1.0f);
+
+		_surfaceRenderer.SetPlanarReflectionWeight(
+			_planarEnabled
+				? _planarWeight
+				: 0.0f);
+
+		UpdateStatus();
+	}
+
+
+	internal void SetEveryTwoFrames(
+		bool everyTwoFrames)
+	{
+		_everyTwoFrames =
+			everyTwoFrames;
+
+		UpdateStatus();
+	}
+
+
+	internal void SetTargetWidth(
+		int width)
+	{
+		_targetWidth =
+			width switch
+			{
+				512 => 512,
+				768 => 768,
+				1024 => 1024,
+				_ => 256,
+			};
+
+		UpdateViewportSize();
+		UpdateStatus();
+	}
+
+
+	internal void SetSmallDistortion(
+		bool enabled)
+	{
+		_smallDistortion =
+			enabled;
+
+		_surfaceRenderer.SetPlanarReflectionDistortion(
+			enabled
+				? 0.0035f
+				: 0.0f);
+
+		UpdateStatus();
+	}
+
+
+	internal void SetSegmentedHull(
+		bool segmented)
+	{
+		_segmentedHull =
+			segmented;
+
+		ApplyHullMode();
+		UpdateStatus();
+	}
+
+
+	internal void SetSurfaceDiagnosticMode(
+		int mode)
+	{
+		_surfaceDiagnosticMode =
+			Math.Clamp(
+				mode,
+				0,
+				6);
+
+		_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
+			_surfaceDiagnosticMode);
+
+		UpdateStatus();
+	}
+
+
+	internal void SetPreviewsVisible(
+		bool visible)
+	{
+		_previewsVisible =
+			visible;
+
+		if (_rgbPreview != null)
+		{
+			_rgbPreview.Visible =
+				visible;
+		}
+
+
+		if (_alphaPreview != null)
+		{
+			_alphaPreview.Visible =
+				visible;
+		}
+	}
+
+	private void ApplyWeights()
+	{
+		SetProbeIntensity(
+			ProbeIntensities[_probeIntensityIndex]);
+
+		SetPlanarWeight(
 			PlanarWeights[_planarWeightIndex]);
 	}
 
@@ -429,14 +650,18 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_statusLabel.Text =
 			"Reflection-1B-V1\n" +
 			$"F1 hull: {(_segmentedHull ? "SEGMENTED" : "WHOLE")}\n" +
-			$"F2 probe: {ProbeIntensities[_probeIntensityIndex]:0.##}\n" +
-			$"F3 planar: {PlanarWeights[_planarWeightIndex]:0.##}\n" +
+			$"F2 probe: {(_probeEnabled ? "ON" : "OFF")} {_probeIntensity:0.##}\n" +
+			$"F3 planar: {(_planarEnabled ? "ON" : "OFF")} {_planarWeight:0.##}\n" +
 			$"F4 distortion: {(_smallDistortion ? "SMALL" : "OFF")}\n" +
 			$"F5 size: {_planarViewport.Size.X}x{_planarViewport.Size.Y}\n" +
 			$"F6 update: {(_everyTwoFrames ? "EVERY 2" : "ALWAYS")}\n" +
 			$"F7 surface: {GetSurfaceDiagnosticName()}\n" +
-			$"camera Y: {_mainCamera.GlobalPosition.Y:0.00}\n" +
-			$"mirror det: {_planarCamera.GlobalTransform.Basis.Determinant():0.00}\n" +
+			$"sync: PRE_DRAW  state/VP/planar: {_reflectionStateRevision}\n" +
+			$"physics interp: {_mainCamera.IsPhysicsInterpolatedAndEnabled()}\n" +
+			$"main: {_mainCameraSnapshot.Origin.X:0.0}, {_mainCameraSnapshot.Origin.Y:0.0}, {_mainCameraSnapshot.Origin.Z:0.0}\n" +
+			$"mirror: {_mirroredCameraSnapshot.Origin.X:0.0}, {_mirroredCameraSnapshot.Origin.Y:0.0}, {_mirroredCameraSnapshot.Origin.Z:0.0}\n" +
+			$"main forward: {-_mainCameraSnapshot.Basis.Z.X:0.00}, {-_mainCameraSnapshot.Basis.Z.Y:0.00}, {-_mainCameraSnapshot.Basis.Z.Z:0.00}\n" +
+			$"mirror det: {_mirroredCameraSnapshot.Basis.Determinant():0.00}\n" +
 			$"FPS: {fps:0.0}  frame: {frameMilliseconds:0.00} ms\n" +
 			"RGB preview / alpha preview at right";
 	}
@@ -454,49 +679,46 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		switch (key.Keycode)
 		{
 			case Key.F1:
-				_segmentedHull = !_segmentedHull;
-				ApplyHullMode();
+				SetSegmentedHull(
+					!_segmentedHull);
 				break;
 
 			case Key.F2:
 				_probeIntensityIndex =
 					(_probeIntensityIndex + 1) %
 					ProbeIntensities.Length;
-				ApplyWeights();
+				SetProbeIntensity(
+					ProbeIntensities[_probeIntensityIndex]);
 				break;
 
 			case Key.F3:
 				_planarWeightIndex =
 					(_planarWeightIndex + 1) %
 					PlanarWeights.Length;
-				ApplyWeights();
+				SetPlanarWeight(
+					PlanarWeights[_planarWeightIndex]);
 				break;
 
 			case Key.F4:
-				_smallDistortion = !_smallDistortion;
-				_surfaceRenderer.SetPlanarReflectionDistortion(
-					_smallDistortion
-						? 0.0035f
-						: 0.0f);
+				SetSmallDistortion(
+					!_smallDistortion);
 				break;
 
 			case Key.F5:
-				_targetWidth =
+				SetTargetWidth(
 					_targetWidth == 256
-						? 384
-						: 256;
-				UpdateViewportSize();
+						? 1024
+						: 256);
 				break;
 
 			case Key.F6:
-				_everyTwoFrames = !_everyTwoFrames;
+				SetEveryTwoFrames(
+					!_everyTwoFrames);
 				break;
 
 			case Key.F7:
-				_surfaceDiagnosticMode =
-					(_surfaceDiagnosticMode + 1) % 7;
-				_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
-					_surfaceDiagnosticMode);
+				SetSurfaceDiagnosticMode(
+					(_surfaceDiagnosticMode + 1) % 7);
 				break;
 
 			default:
@@ -524,6 +746,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 	public override void _ExitTree()
 	{
+		RenderingServer.FramePreDraw -=
+			SynchronizePlanarStateForDraw;
+
 		_surfaceRenderer?.SetPlanarReflectionDiagnosticMode(0);
 		_surfaceRenderer?.SetPlanarReflectionWeight(0.0f);
 	}

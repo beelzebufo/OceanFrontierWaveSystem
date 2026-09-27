@@ -1,0 +1,227 @@
+using Godot;
+using OceanFrontier.Water.Rendering.Reflections;
+
+namespace OceanFrontier.Water.Debug;
+
+/// <summary>
+/// Mouse-accessible controls for the disposable planar/probe validation rig.
+/// Hotkeys remain available on OceanPlanarReflectionDiagnostic.
+/// </summary>
+internal sealed class OceanDiagnosticReflectionPanel
+{
+	private static readonly int[] PlanarWidths =
+	{
+		256,
+		512,
+		768,
+		1024,
+	};
+
+
+	private OceanPlanarReflectionDiagnostic _diagnostic;
+
+
+	internal void Initialize(
+		VBoxContainer parent,
+		OceanPlanarReflectionDiagnostic diagnostic)
+	{
+		_diagnostic =
+			diagnostic;
+
+
+		OceanDiagnosticUi.Header(
+			parent,
+			"Reflection Diagnostics");
+
+
+		if (_diagnostic == null)
+		{
+			OceanDiagnosticUi.Info(
+				parent,
+				"OceanPlanarReflectionDiagnostic was not found.");
+
+			return;
+		}
+
+
+		OceanDiagnosticUi.Info(
+			parent,
+			"Probe, planar capture, boat segmentation, and surface debug controls. F1-F7 remain available.");
+
+
+		CheckBox probeEnabled =
+			OceanDiagnosticUi.Check(
+				parent,
+				"ReflectionProbe enabled",
+				_diagnostic.ProbeEnabled);
+
+
+		probeEnabled.Toggled +=
+			_diagnostic.SetProbeEnabled;
+
+
+		OceanDiagnosticUi.Spin(
+			parent,
+			"Probe intensity",
+			_diagnostic.ProbeIntensity,
+			0.0,
+			2.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+					_diagnostic.SetProbeIntensity(
+						(float)value);
+
+
+		parent.AddChild(
+			new HSeparator());
+
+
+		CheckBox planarEnabled =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Planar reflection enabled",
+				_diagnostic.PlanarEnabled);
+
+
+		planarEnabled.Toggled +=
+			_diagnostic.SetPlanarEnabled;
+
+
+		OceanDiagnosticUi.Spin(
+			parent,
+			"Planar weight",
+			_diagnostic.PlanarWeight,
+			0.0,
+			1.0,
+			0.05)
+			.ValueChanged +=
+				value =>
+					_diagnostic.SetPlanarWeight(
+						(float)value);
+
+
+		OptionButton updateMode =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Update mode",
+				"ALWAYS",
+				"EVERY 2");
+
+
+		updateMode.Selected =
+			_diagnostic.EveryTwoFrames
+				? 1
+				: 0;
+
+
+		updateMode.ItemSelected +=
+			index =>
+				_diagnostic.SetEveryTwoFrames(
+					index == 1);
+
+
+		OptionButton resolution =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Planar resolution",
+				"256",
+				"512",
+				"768",
+				"1024");
+
+
+		resolution.Selected =
+			System.Array.IndexOf(
+				PlanarWidths,
+				_diagnostic.TargetWidth);
+
+
+		if (resolution.Selected < 0)
+		{
+			resolution.Selected =
+				0;
+		}
+
+
+		resolution.ItemSelected +=
+			index =>
+				_diagnostic.SetTargetWidth(
+					PlanarWidths[
+						(int)index]);
+
+
+		OptionButton distortion =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Distortion",
+				"OFF",
+				"SMALL");
+
+
+		distortion.Selected =
+			_diagnostic.SmallDistortion
+				? 1
+				: 0;
+
+
+		distortion.ItemSelected +=
+			index =>
+				_diagnostic.SetSmallDistortion(
+					index == 1);
+
+
+		OptionButton segmentation =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Boat segmentation",
+				"WHOLE",
+				"SEGMENTED");
+
+
+		segmentation.Selected =
+			_diagnostic.SegmentedHull
+				? 1
+				: 0;
+
+
+		segmentation.ItemSelected +=
+			index =>
+				_diagnostic.SetSegmentedHull(
+					index == 1);
+
+
+		OptionButton debugMode =
+			OceanDiagnosticUi.Option(
+				parent,
+				"Surface display",
+				"FINAL",
+				"PROJECTIVE RGB",
+				"PROJECTIVE ALPHA",
+				"PROJECTIVE UV",
+				"FORCE WEIGHT 1",
+				"DISTORTION OFF",
+				"OLD SCREEN_UV RGB");
+
+
+		debugMode.Selected =
+			_diagnostic.SurfaceDiagnosticMode;
+
+
+		debugMode.ItemSelected +=
+			index =>
+				_diagnostic.SetSurfaceDiagnosticMode(
+					(int)index);
+
+
+		CheckBox previews =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Show planar RGB/alpha previews",
+				_diagnostic.PreviewsVisible);
+
+
+		previews.Toggled +=
+			_diagnostic.SetPreviewsVisible;
+	}
+}

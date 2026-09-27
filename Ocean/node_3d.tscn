@@ -16,6 +16,7 @@
 [ext_resource type="Script" uid="uid://dl4jqx10hld4r" path="res://Ocean/Rendering/OceanCausticsSettings.cs" id="13_caustics_settings"]
 [ext_resource type="Script" uid="uid://bwyoy820f1p5p" path="res://Ocean/Lighting/OceanSceneLightingBridge.cs" id="14_lighting_bridge"]
 [ext_resource type="Script" uid="uid://daoi4l7n4vkln" path="res://Ocean/Rendering/Reflections/OceanPlanarReflectionDiagnostic.cs" id="15_planar_diagnostic"]
+[ext_resource type="Script" uid="uid://b8bu1xdd4gdml" path="res://Ocean/Physics/Weird/WeirdBuoyancy.cs" id="16_weird_buoyancy"]
 
 [sub_resource type="Resource" id="Resource_caustics"]
 script = ExtResource("13_caustics_settings")
@@ -97,8 +98,55 @@ emission_energy_multiplier = 1.4
 [sub_resource type="BoxMesh" id="BoxMesh_marker_bow"]
 size = Vector3(3, 2.2, 0.35)
 
+[sub_resource type="BoxMesh" id="BoxMesh_boat_hull_above"]
+material = SubResource("StandardMaterial3D_hull_above")
+size = Vector3(6, 1.2, 13)
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat_hull_below"]
+material = SubResource("StandardMaterial3D_hull_below")
+size = Vector3(5.4, 1.6, 12)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_boat_cabin"]
+albedo_color = Color(0.08, 0.32, 0.72, 1)
+metallic = 0.08
+roughness = 0.32
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat_cabin"]
+material = SubResource("StandardMaterial3D_boat_cabin")
+size = Vector3(3.8, 2.2, 4.2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_boat_mast"]
+albedo_color = Color(0.14, 0.12, 0.1, 1)
+metallic = 0.35
+roughness = 0.28
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_boat_mast"]
+material = SubResource("StandardMaterial3D_boat_mast")
+top_radius = 0.14
+bottom_radius = 0.18
+height = 8.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_boat_sail"]
+transparency = 1
+cull_mode = 2
+albedo_color = Color(0.86, 0.88, 0.92, 0.68)
+roughness = 0.7
+
+[sub_resource type="QuadMesh" id="QuadMesh_boat_sail"]
+material = SubResource("StandardMaterial3D_boat_sail")
+size = Vector2(4.8, 6.2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat_outrigger"]
+size = Vector3(3.2, 0.28, 0.35)
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat_colour_marker"]
+size = Vector3(0.45, 0.8, 3.2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_boat_bow_marker"]
+size = Vector3(2.8, 0.9, 0.5)
+
 [sub_resource type="BoxShape3D" id="BoxShape3D_diagnostic_hull"]
-size = Vector3(3.5, 1.7, 13)
+size = Vector3(6, 2.6, 13)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_diagnostic_hull"]
 albedo_color = Color(0.12, 0.32, 0.52, 1)
@@ -106,8 +154,7 @@ metallic = 0.15
 roughness = 0.42
 
 [sub_resource type="BoxMesh" id="BoxMesh_diagnostic_hull"]
-material = SubResource("StandardMaterial3D_diagnostic_hull")
-size = Vector3(3.5, 1.7, 13)
+size = Vector3(6, 2.6, 13)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_diagnostic_seabed"]
 albedo_color = Color(0.62, 0.58, 0.48, 1)
@@ -154,6 +201,7 @@ mesh = SubResource("BoxMesh_reflection_target")
 
 [node name="PlanarDiagnosticHull" type="Node3D" parent="." unique_id=426818060]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -13)
+visible = false
 
 [node name="HullAboveWater" type="MeshInstance3D" parent="PlanarDiagnosticHull" unique_id=294244270]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.228676, 2.922432, 0)
@@ -200,7 +248,7 @@ script = ExtResource("15_planar_diagnostic")
 SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
 MainCameraPath = NodePath("../Camera3D")
 ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
-HullBelowWaterPath = NodePath("../PlanarDiagnosticHull/HullBelowWater")
+HullBelowWaterPath = NodePath("../DiagnosticBuoyancyHull/TestBoat/HullBelowWater")
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")
@@ -215,15 +263,80 @@ script = ExtResource("5_reference")
 script = ExtResource("8_point_queries")
 
 [node name="DiagnosticBuoyancyHull" type="RigidBody3D" parent="." unique_id=2045824732]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 33.487778)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, -13)
 mass = 7000.0
 can_sleep = false
+angular_damp = 0.8
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="DiagnosticBuoyancyHull" unique_id=1515431562]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 shape = SubResource("BoxShape3D_diagnostic_hull")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="DiagnosticBuoyancyHull" unique_id=199489003]
+[node name="PhysicsHullMesh" type="MeshInstance3D" parent="DiagnosticBuoyancyHull" unique_id=199489003]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+visible = false
 mesh = SubResource("BoxMesh_diagnostic_hull")
+
+[node name="WeirdBuoyancy" type="Node" parent="DiagnosticBuoyancyHull"]
+script = ExtResource("16_weird_buoyancy")
+UseLongitudinalWeightProfile = true
+SternWeightScale = 0.75
+BowWeightScale = 0.45
+
+[node name="TestBoat" type="Node3D" parent="DiagnosticBuoyancyHull"]
+
+[node name="HullAboveWater" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+layers = 262144
+mesh = SubResource("BoxMesh_boat_hull_above")
+
+[node name="HullBelowWater" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.25, 0)
+mesh = SubResource("BoxMesh_boat_hull_below")
+
+[node name="Cabin" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 1.5)
+layers = 262144
+mesh = SubResource("BoxMesh_boat_cabin")
+
+[node name="Mast" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, -1)
+layers = 262144
+mesh = SubResource("CylinderMesh_boat_mast")
+
+[node name="Sail" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.55, 5.2, -0.9)
+layers = 262144
+mesh = SubResource("QuadMesh_boat_sail")
+
+[node name="SideProtrusionLeft" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.1, 0.55, 1.8)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_red")
+mesh = SubResource("BoxMesh_boat_outrigger")
+
+[node name="SideProtrusionRight" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.1, 0.55, -1.8)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_green")
+mesh = SubResource("BoxMesh_boat_outrigger")
+
+[node name="PortRed" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.1, 0.35, 0.5)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_red")
+mesh = SubResource("BoxMesh_boat_colour_marker")
+
+[node name="StarboardGreen" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.1, 0.35, 0.5)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_green")
+mesh = SubResource("BoxMesh_boat_colour_marker")
+
+[node name="BowBlue" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, -6.65)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_marker_blue")
+mesh = SubResource("BoxMesh_boat_bow_marker")
 
 [node name="DiagnosticSeabed" type="MeshInstance3D" parent="." unique_id=1593720993]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -18, 0)
