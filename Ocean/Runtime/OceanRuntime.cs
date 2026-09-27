@@ -5,6 +5,7 @@ using OceanFrontier.Water.Waves;
 using OceanFrontier.Water.Waves.FFT;
 using OceanFrontier.Water.Waves.AnimatedWaves;
 using OceanFrontier.Water.Waves.SeaFloorDepth;
+using OceanFrontier.Water.Waves.Foam;
 using OceanFrontier.Water.Queries;
 using OceanFrontier.Water.Optics;
 using OceanFrontier.Water.Rendering;
@@ -26,6 +27,9 @@ public partial class OceanRuntime : Node
 
 	[Export]
 	public OceanCausticsSettings Caustics { get; set; } = new();
+
+	[Export]
+	public OceanFoamSettings Foam { get; set; } = new();
 
 	[Export(PropertyHint.Range, "16,512,1")]
 	public int FftResolution { get; set; } = 128;
@@ -56,6 +60,9 @@ public partial class OceanRuntime : Node
 	private readonly FftWaveSource _fftWaveSource = new();
 
 	private readonly AnimatedWaveComposer _animatedWaveComposer = new();
+
+	private OceanFoamField _oceanFoamField;
+	private OceanFoamSimulationPass _oceanFoamSimulation;
 
 	private readonly AnimatedWaveInputRegistry _animatedWaveInputs = new();
 
@@ -92,6 +99,12 @@ public partial class OceanRuntime : Node
 		OceanCausticsSettings.DefaultState;
 
 	private int _causticsRevision = 1;
+
+	private OceanFoamState _foamState =
+		OceanFoamSettings.DefaultState;
+
+	private OceanFoamState _pendingFoamState =
+		OceanFoamSettings.DefaultState;
 
 	private OceanLightingState _lightingState =
 		OceanLightingState.Default;
@@ -225,6 +238,12 @@ public partial class OceanRuntime : Node
 
 	internal long RuntimeSeaFloorDepthDispatchCount =>
 		_animatedWaveComposer.SeaFloorDepthDispatchCount;
+
+	internal long RuntimeFoamDispatchCount =>
+		_oceanFoamSimulation?.DispatchCount ?? 0;
+
+	internal int RuntimeFoamSubstepCount =>
+		_oceanFoamSimulation?.LastUpdateSubstepCount ?? 0;
 
 
 	internal void RegisterAnimatedWaveInput(
@@ -453,6 +472,7 @@ public partial class OceanRuntime : Node
 
 		CaptureOpticsSettings();
 		CaptureCausticsSettings();
+		CaptureFoamSettings();
 
 		QueueGpuInitialization();
 	}
@@ -646,6 +666,9 @@ public partial class OceanRuntime : Node
 			RuntimeWaveSettings.FromResources(
 				SeaState,
 				Spectrum);
+
+		OceanFoamState initialFoamState =
+			_foamState;
 
 		_startupWaveSettings =
 			initialSettings.Copy();
@@ -889,6 +912,30 @@ public partial class OceanRuntime : Node
 						initialSettings.ShallowWaterMaximumDepth);
 
 
+					//
+					// Foam-1A persistent field. It borrows the canonical current
+					// LOD metadata and owns the previous committed foam layout.
+					//
+
+					_oceanFoamField =
+						new OceanFoamField(
+							rd,
+							composer.Field.Resolution,
+							composer.Field.LodCount);
+
+					_oceanFoamSimulation =
+						new OceanFoamSimulationPass(
+							rd,
+							_oceanFoamField,
+							composer.LodGpuBuffer.Buffer,
+							composer.LodLayout);
+
+					_oceanFoamSimulation.Update(
+						0.0f,
+						composer.LodLayout,
+						initialFoamState);
+
+
 					_animatedWaveGpuResourceGeneration++;
 
 					PublishAnimatedWaveFieldGpuSnapshot();
@@ -972,6 +1019,12 @@ public partial class OceanRuntime : Node
 
 				queries.Release();
 
+				_oceanFoamSimulation?.Dispose();
+				_oceanFoamSimulation = null;
+
+				_oceanFoamField?.Dispose();
+				_oceanFoamField = null;
+
 				composer.Release();
 
 				fft.Release();
@@ -1036,6 +1089,7 @@ public partial class OceanRuntime : Node
 	{
 		CaptureOpticsSettings();
 		CaptureCausticsSettings();
+		CaptureFoamSettings();
 
 
 		if (!_simulationPaused)
@@ -1087,6 +1141,10 @@ public partial class OceanRuntime : Node
 		Volatile.Write(
 			ref _frameWaveSettings,
 			_requestedWaveSettings);
+
+
+		_pendingFoamState =
+			_foamState;
 
 
 		_animatedWaveInputs.CaptureMainThread();
@@ -1156,6 +1214,18 @@ public partial class OceanRuntime : Node
 
 
 	/// <summary>
+	/// Main-thread Resource read. The render thread receives only the
+	/// allocation-free value snapshot.
+	/// </summary>
+	private void CaptureFoamSettings()
+	{
+		_foamState =
+			Foam?.Snapshot() ??
+			OceanFoamSettings.DefaultState;
+	}
+
+
+	/// <summary>
 	/// PER-FRAME RENDER-THREAD UPDATE.
 	///
 	/// This is the "render update".
@@ -1165,6 +1235,7 @@ public partial class OceanRuntime : Node
 	/// spectrum evolution
 	/// -> IFFT
 	/// -> canonical AWF composition
+	/// -> persistent foam reprojection/decay
 	/// -> physics query dispatch
 	///
 	/// All LOD scale data is snapshotted at the beginning so the
@@ -1300,7 +1371,19 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// 4. Queries consume the SAME canonical AWF
+		// 4. Foam consumes the coherent current Animated Wave spatial layout,
+		//    reprojects the last committed foam generation in world XZ, applies
+		//    fixed-step decay, then advances texture + previous-layout state.
+		//
+
+		_oceanFoamSimulation?.Update(
+			simulationTime,
+			_animatedWaveComposer.LodLayout,
+			_pendingFoamState);
+
+
+		//
+		// 5. Queries consume the SAME canonical AWF
 		//    immediately after composition.
 		//
 		// lodScaleAlpha is required so physics sampling
@@ -1739,6 +1822,29 @@ public partial class OceanRuntime : Node
 
 		texture = field.NormalJacobian;
 		lodCount = field.LodCount;
+
+		return texture.IsValid && lodCount > 0;
+	}
+
+
+	/// <summary>
+	/// Foam-1A diagnostic access only. No foam rendering logic is attached to
+	/// the production ocean renderer at this stage.
+	/// </summary>
+	internal bool TryGetOceanFoamDebugTexture(
+		out Rid texture,
+		out int lodCount)
+	{
+		texture = default;
+		lodCount = 0;
+
+		if (!_gpuReady || _oceanFoamField == null)
+		{
+			return false;
+		}
+
+		texture = _oceanFoamField.Latest;
+		lodCount = _oceanFoamField.LodCount;
 
 		return texture.IsValid && lodCount > 0;
 	}

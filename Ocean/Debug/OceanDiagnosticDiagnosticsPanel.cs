@@ -135,13 +135,49 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 			};
 
 
+		var injectFoamSpot =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Inject one Foam-1A spot at camera XZ",
+				_runtime.Foam?.InjectWorldSpaceSpot ?? false);
+
+
+		injectFoamSpot.Toggled +=
+			value =>
+			{
+				_runtime.Foam ??=
+					new Waves.Foam.OceanFoamSettings();
+
+				if (value)
+				{
+					Camera3D camera =
+						_runtime.GetViewport()?.GetCamera3D();
+
+					if (camera != null)
+					{
+						Vector3 position = camera.GlobalPosition;
+						_runtime.Foam.DiagnosticSpotWorldXZ =
+							new Vector2(position.X, position.Z);
+					}
+				}
+
+				_runtime.Foam.InjectWorldSpaceSpot = value;
+			};
+
+
+		OceanDiagnosticUi.Info(
+			parent,
+			"The Foam-1A spot is injected once on enable. Toggle off/on to re-arm it; then move the camera or change the whole-stack LOD scale.");
+
+
 		_debugSource =
 			OceanDiagnosticUi.Option(
 				parent,
 				"Source",
 				"Raw FFT",
 				"AnimatedWaveField",
-				"AnimatedWaveDerivativeField");
+				"AnimatedWaveDerivativeField",
+				"OceanFoamField (Foam-1A)");
 
 
 		_debugSlice =
@@ -172,7 +208,8 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 				"Magnitude",
 				"UV/material diagnostic",
 				"Normal RGB",
-				"Jacobian");
+				"Jacobian",
+				"Scalar [0,1]");
 
 
 		_debugGain =
@@ -211,6 +248,16 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 		_debugSource.ItemSelected +=
 			_ =>
 			{
+				if (_debugSource.Selected ==
+					(int)FftDisplacementDebugView.DebugSource.OceanFoamField)
+				{
+					_debugChannel.Selected =
+						(int)FftDisplacementDebugView.DebugChannel.DisplacementX;
+
+					_debugMode.Selected =
+						(int)FftDisplacementDebugView.DebugMode.Scalar01;
+				}
+
 				UpdateDebugSliceRange();
 
 				UpdateInset();

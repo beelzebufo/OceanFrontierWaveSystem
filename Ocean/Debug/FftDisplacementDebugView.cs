@@ -11,6 +11,7 @@ namespace OceanFrontier.Water.Debug;
 /// - raw FFT spectral displacement slices;
 /// - canonical AnimatedWaveField spatial LOD slices.
 /// - derived normal/Jacobian spatial LOD slices.
+/// - Foam-1A scalar spatial LOD slices.
 ///
 /// Debug only.
 /// Must never become the production ocean rendering path.
@@ -26,6 +27,7 @@ public partial class FftDisplacementDebugView : CanvasLayer
 		RawFft = 0,
 		AnimatedWaveField = 1,
 		AnimatedWaveDerivativeField = 2,
+		OceanFoamField = 3,
 	}
 
 
@@ -45,6 +47,7 @@ public partial class FftDisplacementDebugView : CanvasLayer
 		UvTest = 3,
 		Normal = 4,
 		Jacobian = 5,
+		Scalar01 = 6,
 	}
 
 
@@ -320,6 +323,13 @@ public partial class FftDisplacementDebugView : CanvasLayer
 						out sliceCount);
 
 
+			case DebugSource.OceanFoamField:
+				return
+					_runtime.TryGetOceanFoamDebugTexture(
+						out textureRid,
+						out sliceCount);
+
+
 			default:
 				return false;
 		}
@@ -339,6 +349,9 @@ public partial class FftDisplacementDebugView : CanvasLayer
 
 				DebugSource.AnimatedWaveDerivativeField =>
 					"AnimatedWaveDerivativeField",
+
+				DebugSource.OceanFoamField =>
+					"OceanFoamField (Foam-1A diagnostic)",
 
 				_ =>
 					"Unknown displacement source",
@@ -369,10 +382,15 @@ public partial class FftDisplacementDebugView : CanvasLayer
 			textureRid;
 
 
-		GD.Print(
-			$"[Ocean Debug] Bound " +
-			$"{GetSourceDisplayName()} RID " +
-			$"{textureRid.Id}");
+		// Foam ping-pongs between two persistent RIDs. Log only when the
+		// selected source changes, not on every diagnostic rebind.
+		if (_lastSource != (int)Source)
+		{
+			GD.Print(
+				$"[Ocean Debug] Bound " +
+				$"{GetSourceDisplayName()} RID " +
+				$"{textureRid.Id}");
+		}
 	}
 
 

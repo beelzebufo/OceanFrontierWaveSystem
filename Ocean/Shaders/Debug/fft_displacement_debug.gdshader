@@ -32,6 +32,7 @@ uniform int channel = 1;
 // 3 = UV/material diagnostic
 // 4 = derivative normal RGB
 // 5 = derivative raw Jacobian classification
+// 6 = scalar field already normalized to [0, 1]
 uniform int debug_mode = 3;
 
 
@@ -97,7 +98,14 @@ void fragment()
         // This shader never recomputes derivatives.
         // -------------------------------------------------------------
 
-        if (debug_mode == 4)
+        if (debug_mode == 6)
+        {
+            result_color = vec4(
+                vec3(clamp(displacement.x, 0.0, 1.0)),
+                1.0
+            );
+        }
+        else if (debug_mode == 4)
         {
             vec3 normal = displacement.xyz;
 
