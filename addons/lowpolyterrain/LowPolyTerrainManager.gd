@@ -392,6 +392,57 @@ enum ShadingMode {
 @export var shading_mode: ShadingMode = ShadingMode.FLAT:
 	set(v): shading_mode = v; _queue_setup()
 
+@export_group("Macro Curvature")
+
+## Adds broad, non-destructive vertical curvature on top of global_height_data.
+##
+## The sculpted height matrix remains untouched. Mesh generation, collision and public
+## surface queries will consume the effective height in the next stage.
+@export var macro_curvature_enabled: bool = false:
+	set(v):
+		macro_curvature_enabled = v
+		_queue_setup()
+
+
+## Characteristic width of one broad hill / depression, measured in terrain GRID CELLS.
+##
+## Values around 20–40 are the intended range for removing large perfectly flat areas
+## without turning the terrain into high-frequency noise.
+@export_range(4.0, 128.0, 1.0) var macro_curvature_size_cells: float = 32.0:
+	set(v):
+		macro_curvature_size_cells = maxf(v, 1.0)
+		_queue_setup()
+
+
+## Maximum vertical displacement in local terrain units.
+##
+## The generated field contains both positive and negative values, so an amount of 1.0
+## can produce approximately +1 m hills and -1 m depressions.
+@export_range(0.0, 10.0, 0.05) var macro_curvature_amount: float = 0.75:
+	set(v):
+		macro_curvature_amount = maxf(v, 0.0)
+		_queue_setup()
+
+
+## Changes the deterministic broad-shape pattern without modifying sculpted terrain data.
+@export var macro_curvature_seed: int = 12345:
+	set(v):
+		macro_curvature_seed = v
+		_queue_setup()
+
+
+## Flat terrain currently discards almost every interior grid point.
+##
+## When Macro Curvature is active, every Nth global grid point will later be retained as
+## a curvature anchor so the broad shape has enough geometry without restoring the full grid.
+@export_range(2, 16, 1) var macro_curvature_anchor_stride: int = 4:
+	set(v):
+		macro_curvature_anchor_stride = maxi(v, 2)
+		_queue_setup()
+
+
+@export_group("")	
+
 
 ## The material every chunk is drawn with. Left empty - which is the default - the chunks carry no
 ## material_override at all and Godot draws them with its own default one. There is no automatic
@@ -1027,6 +1078,94 @@ func get_outer_stitch_weight(gx: int, gz: int) -> float:
 	)
 	return t * t * (3.0 - 2.0 * t)
 
+## Fractional-coordinate counterpart of get_outer_stitch_weight().
+##
+## Needed by Macro Curvature because public height queries can sample between grid vertices.
+## It guarantees an exact zero curvature offset on the MacroShell seam.
+func get_outer_stitch_weight_at(
+	grid_x: float,
+	grid_z: float
+) -> float:
+	if not lock_outer_stitch:
+		return 1.0
+
+	if _total_vertices_x <= 0 or _total_vertices_z <= 0:
+		return 1.0
+
+	var max_x: float = float(_total_vertices_x - 1)
+	var max_z: float = float(_total_vertices_z - 1)
+
+	var gx: float = clampf(grid_x, 0.0, max_x)
+	var gz: float = clampf(grid_z, 0.0, max_z)
+
+	var distance_to_edge: float = minf(
+		minf(gx, max_x - gx),
+		minf(gz, max_z - gz)
+	)
+
+	if distance_to_edge <= 0.0:
+		return 0.0
+
+	if stitch_blend_cells <= 0:
+		return 1.0
+
+	var t: float = clampf(
+		distance_to_edge / float(stitch_blend_cells),
+		0.0,
+		1.0
+	)
+
+	return t * t * (3.0 - 2.0 * t)
+
+
+## Non-destructive Macro Curvature contribution at a GLOBAL terrain grid position.
+func get_macro_curvature_offset(
+	grid_x: float,
+	grid_z: float
+) -> float:
+	if not macro_curvature_enabled:
+		return 0.0
+
+	if macro_curvature_amount <= 0.0:
+		return 0.0
+
+	if _total_vertices_x <= 0 or _total_vertices_z <= 0:
+		return 0.0
+
+	var max_x: float = float(_total_vertices_x - 1)
+	var max_z: float = float(_total_vertices_z - 1)
+
+	var gx: float = clampf(grid_x, 0.0, max_x)
+	var gz: float = clampf(grid_z, 0.0, max_z)
+
+	var offset: float = LowPolyTerrainMeshBuilder.macro_curvature_offset(
+		gx,
+		gz,
+		macro_curvature_size_cells,
+		macro_curvature_amount,
+		macro_curvature_seed
+	)
+
+	return offset * get_outer_stitch_weight_at(gx, gz)
+
+
+## Effective terrain surface:
+##
+##     sculpted base height
+##     +
+##     non-destructive Macro Curvature
+##
+## For now this is intentionally NOT wired into get_height_at_world_coords().
+## That happens together with mesh generation in MC-1B so queries can never disagree
+## with the rendered surface between stages.
+func sample_effective_grid_height(
+	grid_x: float,
+	grid_z: float
+) -> float:
+	return (
+		sample_grid_height(grid_x, grid_z)
+		+ get_macro_curvature_offset(grid_x, grid_z)
+	)
 
 func _expected_stitch_seam_count() -> int:
 	if _total_vertices_x < 2 or _total_vertices_z < 2:

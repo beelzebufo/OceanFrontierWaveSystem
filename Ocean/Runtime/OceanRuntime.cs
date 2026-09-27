@@ -106,6 +106,8 @@ public partial class OceanRuntime : Node
 	private OceanFoamState _pendingFoamState =
 		OceanFoamSettings.DefaultState;
 
+	private readonly object _foamStateSync = new();
+
 	private OceanLightingState _lightingState =
 		OceanLightingState.Default;
 
@@ -913,8 +915,8 @@ public partial class OceanRuntime : Node
 
 
 					//
-					// Foam-1A persistent field. It borrows the canonical current
-					// LOD metadata and owns the previous committed foam layout.
+					// Persistent foam field. It borrows the canonical current LOD
+					// metadata, derivative cache and owns previous foam layout.
 					//
 
 					_oceanFoamField =
@@ -928,6 +930,7 @@ public partial class OceanRuntime : Node
 							rd,
 							_oceanFoamField,
 							composer.LodGpuBuffer.Buffer,
+							composer.DerivativeField.NormalJacobian,
 							composer.LodLayout);
 
 					_oceanFoamSimulation.Update(
@@ -1143,10 +1146,6 @@ public partial class OceanRuntime : Node
 			_requestedWaveSettings);
 
 
-		_pendingFoamState =
-			_foamState;
-
-
 		_animatedWaveInputs.CaptureMainThread();
 		_seaFloorDepthInputs.CaptureMainThread();
 
@@ -1219,9 +1218,20 @@ public partial class OceanRuntime : Node
 	/// </summary>
 	private void CaptureFoamSettings()
 	{
-		_foamState =
+		OceanFoamState snapshot =
 			Foam?.Snapshot() ??
 			OceanFoamSettings.DefaultState;
+
+
+		_foamState =
+			snapshot;
+
+
+		lock (_foamStateSync)
+		{
+			_pendingFoamState =
+				snapshot;
+		}
 	}
 
 
@@ -1235,7 +1245,7 @@ public partial class OceanRuntime : Node
 	/// spectrum evolution
 	/// -> IFFT
 	/// -> canonical AWF composition
-	/// -> persistent foam reprojection/decay
+	/// -> persistent foam reprojection/decay/whitecaps
 	/// -> physics query dispatch
 	///
 	/// All LOD scale data is snapshotted at the beginning so the
@@ -1270,6 +1280,15 @@ public partial class OceanRuntime : Node
 		RuntimeWaveSettings settings =
 			Volatile.Read(
 				ref _frameWaveSettings);
+
+
+		OceanFoamState foamState;
+
+		lock (_foamStateSync)
+		{
+			foamState =
+				_pendingFoamState;
+		}
 
 
 		if (settings == null)
@@ -1373,13 +1392,13 @@ public partial class OceanRuntime : Node
 		//
 		// 4. Foam consumes the coherent current Animated Wave spatial layout,
 		//    reprojects the last committed foam generation in world XZ, applies
-		//    fixed-step decay, then advances texture + previous-layout state.
+		//    fixed-step decay + whitecap generation, then advances history.
 		//
 
 		_oceanFoamSimulation?.Update(
 			simulationTime,
 			_animatedWaveComposer.LodLayout,
-			_pendingFoamState);
+			foamState);
 
 
 		//

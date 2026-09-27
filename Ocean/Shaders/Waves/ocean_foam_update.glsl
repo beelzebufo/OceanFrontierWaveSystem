@@ -6,8 +6,8 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// Foam-1A has no advection velocity or generators. Source and target are
-// separate storage images so two persistent textures can ping-pong.
+// Source and target are separate storage images so two persistent textures
+// can ping-pong.
 layout(r16f, set = 0, binding = 0)
 uniform readonly image2DArray u_previous_foam;
 
@@ -39,6 +39,11 @@ readonly buffer PreviousLodBuffer
 }
 u_previous_lod_data;
 
+// Borrowed derived cache from the canonical AnimatedWaveField generation.
+// RGB = geometric normal, A = raw horizontal displacement Jacobian.
+layout(rgba16f, set = 0, binding = 4)
+uniform readonly image2DArray u_animated_wave_derivatives;
+
 layout(push_constant, std430)
 uniform PushConstants
 {
@@ -51,7 +56,8 @@ uniform PushConstants
 	float injection_radius;
 	float injection_amount;
 	vec2 injection_world_xz;
-	uvec2 padding_0;
+	float wave_foam_strength;
+	float wave_foam_coverage;
 }
 pc;
 
@@ -147,6 +153,26 @@ void main()
 	}
 
 	foam *= max(0.0, 1.0 - pc.fade_rate * pc.delta_time);
+
+	// Crest whitecap production, using the already-derived same-LOD raw
+	// horizontal Jacobian determinant. The current FFT path has variance W=0,
+	// so Crest's foamBase contribution is intentionally absent.
+	if (pc.delta_time > 0.0 && pc.wave_foam_strength > 0.0)
+	{
+		float determinant = imageLoad(
+			u_animated_wave_derivatives,
+			coord).a;
+		float generation = clamp(
+			pc.wave_foam_coverage - determinant,
+			0.0,
+			1.0);
+
+		foam +=
+			5.0 *
+			pc.delta_time *
+			pc.wave_foam_strength *
+			generation;
+	}
 
 	if (pc.inject_spot != 0u && pc.injection_radius > 0.0)
 	{

@@ -108,7 +108,72 @@ static func paint_color_at(
 		float(paint_data[base + 3]) * scale
 	)
 
+## Deterministic low-frequency value noise used by the optional terrain Macro Curvature layer.
+##
+## Coordinates are expressed in GLOBAL terrain grid cells, not chunk-local coordinates.
+## Because neighbouring chunks evaluate the same global coordinates, the result is seamless
+## across chunk borders.
+static func _macro_curvature_hash(
+	grid_x: int,
+	grid_z: int,
+	seed: int
+) -> float:
+	var value: float = sin(
+		float(grid_x) * 127.1
+		+ float(grid_z) * 311.7
+		+ float(seed) * 74.7
+	) * 43758.5453123
 
+	# Fractional part in [0, 1), including for negative inputs.
+	return value - floorf(value)
+
+
+## Returns a smooth deterministic vertical offset in LOCAL terrain Y units.
+##
+## `size_cells` controls the approximate width of one broad feature.
+## Example:
+##     size_cells = 32
+## produces hills / depressions whose characteristic size is tens of terrain cells.
+##
+## This function does NOT apply the outer stitch attenuation. The manager owns the world
+## dimensions and therefore applies that separately.
+static func macro_curvature_offset(
+	grid_x: float,
+	grid_z: float,
+	size_cells: float,
+	amount: float,
+	seed: int
+) -> float:
+	if amount <= 0.0:
+		return 0.0
+
+	var safe_size: float = maxf(size_cells, 1.0)
+
+	var lattice_x: float = grid_x / safe_size
+	var lattice_z: float = grid_z / safe_size
+
+	var x0: int = floori(lattice_x)
+	var z0: int = floori(lattice_z)
+	var x1: int = x0 + 1
+	var z1: int = z0 + 1
+
+	var tx: float = lattice_x - float(x0)
+	var tz: float = lattice_z - float(z0)
+
+	# Cubic Hermite interpolation.
+	# Unlike raw bilinear interpolation this removes visible slope breaks at lattice borders.
+	tx = tx * tx * (3.0 - 2.0 * tx)
+	tz = tz * tz * (3.0 - 2.0 * tz)
+
+	var h00: float = _macro_curvature_hash(x0, z0, seed) * 2.0 - 1.0
+	var h10: float = _macro_curvature_hash(x1, z0, seed) * 2.0 - 1.0
+	var h01: float = _macro_curvature_hash(x0, z1, seed) * 2.0 - 1.0
+	var h11: float = _macro_curvature_hash(x1, z1, seed) * 2.0 - 1.0
+
+	var row0: float = lerpf(h00, h10, tx)
+	var row1: float = lerpf(h01, h11, tx)
+
+	return lerpf(row0, row1, tz) * amount
 ## Core geometry generation engine. Parses the heightmap grid, runs decimation rules,
 ## applies slope-damped random displacements, and builds the visual trimesh via Delaunay.
 ## Returns null when the supplied data cannot produce any triangle.

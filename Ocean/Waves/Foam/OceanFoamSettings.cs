@@ -4,7 +4,7 @@ using Godot;
 namespace OceanFrontier.Water.Waves.Foam;
 
 /// <summary>
-/// Foam-1A settings. This stage only persists, reprojects and decays foam.
+/// Persistent foam simulation settings.
 /// The diagnostic spot is deliberately a one-shot validation aid, not a
 /// production foam-input API.
 /// </summary>
@@ -13,6 +13,8 @@ public partial class OceanFoamSettings : Resource
 {
 	public const float DefaultSimulationFrequency = 30.0f;
 	public const float DefaultFadeRate = 0.8f;
+	public const float DefaultWaveFoamStrength = 1.0f;
+	public const float DefaultWaveFoamCoverage = 0.55f;
 
 	[Export]
 	public bool Enabled { get; set; } = true;
@@ -24,6 +26,15 @@ public partial class OceanFoamSettings : Resource
 	[Export(PropertyHint.Range, "0,20,0.01,or_greater")]
 	public float FadeRate { get; set; } =
 		DefaultFadeRate;
+
+	[ExportGroup("Whitecaps")]
+	[Export(PropertyHint.Range, "0,5,0.01")]
+	public float WaveFoamStrength { get; set; } =
+		DefaultWaveFoamStrength;
+
+	[Export(PropertyHint.Range, "0,1,0.01")]
+	public float WaveFoamCoverage { get; set; } =
+		DefaultWaveFoamCoverage;
 
 	[ExportGroup("Foam-1A Diagnostic")]
 	[Export]
@@ -48,6 +59,16 @@ public partial class OceanFoamSettings : Resource
 			SanitizeNonNegative(
 				FadeRate,
 				DefaultFadeRate),
+			SanitizeRange(
+				WaveFoamStrength,
+				0.0f,
+				5.0f,
+				DefaultWaveFoamStrength),
+			SanitizeRange(
+				WaveFoamCoverage,
+				0.0f,
+				1.0f,
+				DefaultWaveFoamCoverage),
 			InjectWorldSpaceSpot,
 			DiagnosticSpotWorldXZ,
 			SanitizePositive(
@@ -65,6 +86,8 @@ public partial class OceanFoamSettings : Resource
 			true,
 			DefaultSimulationFrequency,
 			DefaultFadeRate,
+			DefaultWaveFoamStrength,
+			DefaultWaveFoamCoverage,
 			false,
 			Vector2.Zero,
 			2.0f,
@@ -83,6 +106,18 @@ public partial class OceanFoamSettings : Resource
 		float.IsFinite(value)
 			? MathF.Max(0.0f, value)
 			: fallback;
+
+	private static float SanitizeRange(
+		float value,
+		float minimum,
+		float maximum,
+		float fallback) =>
+		Mathf.Clamp(
+			float.IsFinite(value)
+				? value
+				: fallback,
+			minimum,
+			maximum);
 }
 
 
@@ -92,6 +127,8 @@ internal readonly struct OceanFoamState
 	internal readonly bool Enabled;
 	internal readonly float SimulationFrequency;
 	internal readonly float FadeRate;
+	internal readonly float WaveFoamStrength;
+	internal readonly float WaveFoamCoverage;
 	internal readonly bool InjectWorldSpaceSpot;
 	internal readonly Vector2 DiagnosticSpotWorldXZ;
 	internal readonly float DiagnosticSpotRadius;
@@ -101,6 +138,8 @@ internal readonly struct OceanFoamState
 		bool enabled,
 		float simulationFrequency,
 		float fadeRate,
+		float waveFoamStrength,
+		float waveFoamCoverage,
 		bool injectWorldSpaceSpot,
 		Vector2 diagnosticSpotWorldXZ,
 		float diagnosticSpotRadius,
@@ -109,6 +148,8 @@ internal readonly struct OceanFoamState
 		Enabled = enabled;
 		SimulationFrequency = simulationFrequency;
 		FadeRate = fadeRate;
+		WaveFoamStrength = waveFoamStrength;
+		WaveFoamCoverage = waveFoamCoverage;
 		InjectWorldSpaceSpot = injectWorldSpaceSpot;
 		DiagnosticSpotWorldXZ = diagnosticSpotWorldXZ;
 		DiagnosticSpotRadius = diagnosticSpotRadius;

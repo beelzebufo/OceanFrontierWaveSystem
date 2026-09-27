@@ -5,7 +5,7 @@ using OceanFrontier.Water.Waves.AnimatedWaves;
 namespace OceanFrontier.Water.Waves.Foam;
 
 /// <summary>
-/// Foam-1A persistent reprojection and decay pass.
+/// Persistent foam reprojection, decay and whitecap generation pass.
 ///
 /// Reprojection/substep behavior follows Crest 4 LodDataMgrPersistent and
 /// UpdateFoam.compute at wave-harmonic/crest
@@ -43,6 +43,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		RenderingDevice rd,
 		OceanFoamField field,
 		Rid currentLodBuffer,
+		Rid animatedWaveDerivativeField,
 		AnimatedWaveLodLayout initialLayout)
 	{
 		_rd = rd ?? throw new ArgumentNullException(nameof(rd));
@@ -55,6 +56,13 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				nameof(currentLodBuffer));
 		}
 
+		if (!animatedWaveDerivativeField.IsValid)
+		{
+			throw new ArgumentException(
+				"Animated Wave derivative field is invalid.",
+				nameof(animatedWaveDerivativeField));
+		}
+
 		if (initialLayout == null)
 		{
 			throw new ArgumentNullException(nameof(initialLayout));
@@ -65,7 +73,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 
 		try
 		{
-			Create(currentLodBuffer);
+			Create(
+				currentLodBuffer,
+				animatedWaveDerivativeField);
 		}
 		catch
 		{
@@ -74,7 +84,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		}
 	}
 
-	private void Create(Rid currentLodBuffer)
+	private void Create(
+		Rid currentLodBuffer,
+		Rid animatedWaveDerivativeField)
 	{
 		RDShaderFile shaderFile = GD.Load<RDShaderFile>(
 			"res://Ocean/Shaders/Waves/ocean_foam_update.glsl")
@@ -105,12 +117,14 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		_uniformSets[0] = CreateUniformSet(
 			_field.Texture0,
 			_field.Texture1,
-			currentLodBuffer);
+			currentLodBuffer,
+			animatedWaveDerivativeField);
 
 		_uniformSets[1] = CreateUniformSet(
 			_field.Texture1,
 			_field.Texture0,
-			currentLodBuffer);
+			currentLodBuffer,
+			animatedWaveDerivativeField);
 
 		if (!_shader.IsValid ||
 			!_pipeline.IsValid ||
@@ -125,7 +139,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 	private Rid CreateUniformSet(
 		Rid source,
 		Rid target,
-		Rid currentLodBuffer)
+		Rid currentLodBuffer,
+		Rid animatedWaveDerivativeField)
 	{
 		var sourceUniform = new RDUniform
 		{
@@ -155,6 +170,13 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		};
 		previousLodUniform.AddId(_previousLodBuffer.Buffer);
 
+		var derivativeUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.Image,
+			Binding = 4,
+		};
+		derivativeUniform.AddId(animatedWaveDerivativeField);
+
 		return _rd.UniformSetCreate(
 			new Godot.Collections.Array<RDUniform>
 			{
@@ -162,6 +184,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				targetUniform,
 				currentLodUniform,
 				previousLodUniform,
+				derivativeUniform,
 			},
 			_shader,
 			0);
@@ -233,6 +256,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 			Dispatch(
 				dt,
 				settings.FadeRate,
+				settings.WaveFoamStrength,
+				settings.WaveFoamCoverage,
 				step == 0 ? sourceLodOffset : 0,
 				inject && step == 0,
 				settings.DiagnosticSpotWorldXZ,
@@ -261,6 +286,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 	private void Dispatch(
 		float dt,
 		float fadeRate,
+		float waveFoamStrength,
+		float waveFoamCoverage,
 		int sourceLodOffset,
 		bool inject,
 		Vector2 injectionWorldXZ,
@@ -277,8 +304,8 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		WriteFloat(28, injectionAmount);
 		WriteFloat(32, injectionWorldXZ.X);
 		WriteFloat(36, injectionWorldXZ.Y);
-		WriteUInt(40, 0u);
-		WriteUInt(44, 0u);
+		WriteFloat(40, waveFoamStrength);
+		WriteFloat(44, waveFoamCoverage);
 
 		int sourceIndex = _field.Latest == _field.Texture0 ? 0 : 1;
 		uint groups = (uint)((_field.Resolution + LocalSize - 1) / LocalSize);
@@ -296,8 +323,9 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		{
 			_firstDispatchLogged = true;
 			GD.Print(
-				$"[Ocean] Foam-1A dispatch: {groups}x{groups}x" +
-				$"{_field.LodCount} workgroups; persistent reprojection active.");
+				$"[Ocean] Foam dispatch: {groups}x{groups}x" +
+				$"{_field.LodCount} workgroups; persistent reprojection " +
+				"and derivative-driven whitecaps active.");
 		}
 	}
 
