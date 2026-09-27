@@ -532,6 +532,13 @@ public partial class AnimatedWaveSurfaceRenderer
 				1.0f);
 
 
+		float normalStrength =
+			Mathf.Clamp(
+				FoamNormalStrength,
+				0.0f,
+				30.0f);
+
+
 		bool textureChanged =
 			!ReferenceEquals(
 				_appliedFoamTexture,
@@ -590,6 +597,28 @@ public partial class AnimatedWaveSurfaceRenderer
 		}
 
 
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			_appliedFoam3DLighting != Foam3DLighting)
+		{
+			SetSurfaceParameter(
+				"foam_3d_lighting_enabled",
+				Foam3DLighting);
+		}
+
+
+		if (force ||
+			!_foamRenderingStateInitialized ||
+			!Mathf.IsEqualApprox(
+				_appliedFoamNormalStrength,
+				normalStrength))
+		{
+			SetSurfaceParameter(
+				"foam_normal_strength",
+				normalStrength);
+		}
+
+
 		_appliedFoamTexture =
 			FoamTexture;
 
@@ -601,6 +630,12 @@ public partial class AnimatedWaveSurfaceRenderer
 
 		_appliedFoamTint =
 			FoamTint;
+
+		_appliedFoam3DLighting =
+			Foam3DLighting;
+
+		_appliedFoamNormalStrength =
+			normalStrength;
 
 		_foamRenderingStateInitialized =
 			true;

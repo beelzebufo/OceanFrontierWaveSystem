@@ -1789,6 +1789,118 @@ void fragment()
                 SPECULAR *=
                     1.0 -
                     visible_foam;
+
+
+                if (foam_3d_lighting_enabled &&
+                    has_foam_pattern_texture &&
+                    foam_normal_strength > 0.0)
+                {
+                    float view_depth =
+                        max(
+                            -VERTEX.z,
+                            0.0);
+
+
+                    float texture_texel =
+                        1.0 /
+                        max(
+                            float(
+                                textureSize(
+                                    foam_pattern_texture,
+                                    0).x),
+                            1.0);
+
+
+                    float foam_delta =
+                        0.25 *
+                        view_depth *
+                        texture_texel;
+
+
+                    float visible_foam_x =
+                        visible_foam_from_pattern(
+                            foam_amount,
+                            sample_foam_pattern(
+                                undisplaced_world_xz,
+                                vec2(
+                                    foam_delta,
+                                    0.0),
+                                visual_normal_lod_alpha));
+
+
+                    float visible_foam_z =
+                        visible_foam_from_pattern(
+                            foam_amount,
+                            sample_foam_pattern(
+                                undisplaced_world_xz,
+                                vec2(
+                                    0.0,
+                                    foam_delta),
+                                visual_normal_lod_alpha));
+
+
+                    float dfdx =
+                        visible_foam_x -
+                        visible_foam;
+
+
+                    float dfdz =
+                        visible_foam_z -
+                        visible_foam;
+
+
+                    // final_normal is the water + visual micro normal already
+                    // consumed by all water optics above. Only the final Godot
+                    // PBR normal is replaced by this renderer-side foam relief.
+                    vec3 water_normal_view =
+                        final_normal;
+
+
+                    vec3 water_normal_world =
+                        normalize(
+                            (
+                                INV_VIEW_MATRIX *
+                                vec4(
+                                    water_normal_view,
+                                    0.0)
+                            ).xyz);
+
+
+                    vec3 foam_normal_world =
+                        normalize(
+                            water_normal_world +
+                            foam_normal_strength *
+                                vec3(
+                                    -dfdx,
+                                    0.0,
+                                    -dfdz));
+
+
+                    vec3 foam_normal_view =
+                        normalize(
+                            (
+                                VIEW_MATRIX *
+                                vec4(
+                                    foam_normal_world,
+                                    0.0)
+                            ).xyz);
+
+
+                    float foam_weight =
+                        clamp(
+                            visible_foam *
+                                foam_tint.a,
+                            0.0,
+                            1.0);
+
+
+                    NORMAL =
+                        normalize(
+                            mix(
+                                water_normal_view,
+                                foam_normal_view,
+                                foam_weight));
+                }
             }
         }
 

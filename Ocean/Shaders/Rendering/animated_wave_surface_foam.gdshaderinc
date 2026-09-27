@@ -12,6 +12,9 @@ uniform bool has_foam_pattern_texture = false;
 uniform float foam_pattern_scale = 10.0;
 uniform float foam_pattern_feather = 0.4;
 uniform vec4 foam_tint : source_color = vec4(1.0);
+uniform bool foam_3d_lighting_enabled = true;
+uniform float foam_normal_strength :
+    hint_range(0.0, 30.0, 0.1) = 3.5;
 
 
 // Crest cascadeData._scale is the cascade half-width: one quarter of our
@@ -85,24 +88,11 @@ float sample_render_foam(
 }
 
 
-float sample_visible_foam(
+float sample_foam_pattern(
     vec2 world_xz,
-    float lod_alpha,
-    float foam_amount)
+    vec2 pattern_offset,
+    float lod_alpha)
 {
-    foam_amount =
-        clamp(
-            foam_amount,
-            0.0,
-            1.0);
-
-
-    if (!has_foam_pattern_texture)
-    {
-        return foam_amount;
-    }
-
-
     float current_pattern_world_scale =
         max(
             foam_pattern_scale *
@@ -120,7 +110,8 @@ float sample_visible_foam(
     vec2 pattern_position =
         1.25 *
             world_xz +
-        drift;
+        drift +
+        pattern_offset;
 
 
     float current_pattern =
@@ -137,14 +128,25 @@ float sample_visible_foam(
                 (current_pattern_world_scale * 2.0)).r;
 
 
-    float pattern =
-        mix(
-            current_pattern,
-            next_pattern,
-            clamp(
-                lod_alpha,
-                0.0,
-                1.0));
+    return mix(
+        current_pattern,
+        next_pattern,
+        clamp(
+            lod_alpha,
+            0.0,
+            1.0));
+}
+
+
+float visible_foam_from_pattern(
+    float foam_amount,
+    float pattern)
+{
+    foam_amount =
+        clamp(
+            foam_amount,
+            0.0,
+            1.0);
 
 
     float threshold =
@@ -166,4 +168,27 @@ float sample_visible_foam(
         threshold +
             feather,
         pattern);
+}
+
+
+float sample_visible_foam(
+    vec2 world_xz,
+    float lod_alpha,
+    float foam_amount)
+{
+    if (!has_foam_pattern_texture)
+    {
+        return clamp(
+            foam_amount,
+            0.0,
+            1.0);
+    }
+
+
+    return visible_foam_from_pattern(
+        foam_amount,
+        sample_foam_pattern(
+            world_xz,
+            vec2(0.0),
+            lod_alpha));
 }

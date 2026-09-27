@@ -117,6 +117,14 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	public Color FoamTint { get; set; } = Colors.White;
 
 
+	[Export]
+	public bool Foam3DLighting { get; set; } = true;
+
+
+	[Export(PropertyHint.Range, "0,30,0.1")]
+	public float FoamNormalStrength { get; set; } = 3.5f;
+
+
 	[ExportGroup("")]
 	[Export]
 	public bool DebugUnderwaterTransmission
@@ -293,6 +301,9 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _appliedFoamFeather =
 		float.NaN;
 	private Color _appliedFoamTint;
+	private bool _appliedFoam3DLighting;
+	private float _appliedFoamNormalStrength =
+		float.NaN;
 
 
 	internal int SelectedLodIndex =>
