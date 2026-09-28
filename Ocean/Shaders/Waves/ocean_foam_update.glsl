@@ -51,6 +51,21 @@ uniform readonly image2DArray u_animated_wave_field;
 layout(set = 0, binding = 6)
 uniform sampler2DArray u_sea_floor_depth;
 
+struct OceanFoamInputDescriptor
+{
+	vec4 center_xz_axis_x;
+	vec4 axis_z_size_xz;
+	vec4 feather_weight_add_rate_override;
+	uvec4 mode_flags_padding;
+};
+
+layout(std430, set = 0, binding = 7)
+readonly buffer OceanFoamInputBuffer
+{
+	OceanFoamInputDescriptor inputs[];
+}
+u_foam_inputs;
+
 layout(push_constant, std430)
 uniform PushConstants
 {
@@ -68,7 +83,7 @@ uniform PushConstants
 	float shoreline_foam_max_depth;
 	float shoreline_foam_strength;
 	uint has_sea_floor_depth;
-	uint padding;
+	uint foam_input_count;
 }
 pc;
 
@@ -226,6 +241,81 @@ void main()
 			pc.shoreline_foam_strength *
 			pc.delta_time *
 			shoreline_factor;
+	}
+
+	// Direct production inputs are applied only on physical simulation
+	// substeps. The dt=0 camera-reprojection dispatch must never paint foam.
+	if (pc.delta_time > 0.0 &&
+		pc.foam_input_count > 0u)
+	{
+		for (uint input_index = 0u;
+			 input_index < pc.foam_input_count;
+			 input_index++)
+		{
+			OceanFoamInputDescriptor descriptor =
+				u_foam_inputs.inputs[input_index];
+
+			vec2 delta =
+				world_xz -
+				descriptor.center_xz_axis_x.xy;
+
+			vec2 local =
+				vec2(
+					dot(delta, descriptor.center_xz_axis_x.zw),
+					dot(delta, descriptor.axis_z_size_xz.xy));
+
+			vec2 half_size =
+				0.5 *
+				descriptor.axis_z_size_xz.zw;
+
+			float distance_to_edge =
+				min(
+					half_size.x - abs(local.x),
+					half_size.y - abs(local.y));
+
+
+			if (distance_to_edge <= 0.0)
+			{
+				continue;
+			}
+
+
+			float feather_width =
+				descriptor.feather_weight_add_rate_override.x;
+
+			float mask =
+				feather_width <= 0.0
+					? 1.0
+					: clamp(
+						distance_to_edge /
+							feather_width,
+						0.0,
+						1.0);
+
+			float spatial_weight =
+				clamp(
+					mask *
+						descriptor.feather_weight_add_rate_override.y,
+					0.0,
+					1.0);
+
+
+			if (descriptor.mode_flags_padding.x == 0u)
+			{
+				foam +=
+					pc.delta_time *
+					descriptor.feather_weight_add_rate_override.z *
+					spatial_weight;
+			}
+			else if (descriptor.mode_flags_padding.x == 1u)
+			{
+				foam =
+					mix(
+						foam,
+						descriptor.feather_weight_add_rate_override.w,
+						spatial_weight);
+			}
+		}
 	}
 
 	if (pc.inject_spot != 0u && pc.injection_radius > 0.0)

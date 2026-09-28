@@ -19,6 +19,7 @@
 [ext_resource type="Script" uid="uid://b8bu1xdd4gdml" path="res://Ocean/Physics/Weird/WeirdBuoyancy.cs" id="16_weird_buoyancy"]
 [ext_resource type="Script" uid="uid://cjxswiblxafe1" path="res://Ocean/Waves/Foam/OceanFoamSettings.cs" id="17_foam_settings"]
 [ext_resource type="Texture2D" uid="uid://cpipatgad7rww" path="res://Ocean/Textures/Water/Foam2.png" id="18_foam_pattern"]
+[ext_resource type="Script" uid="uid://c5r4umpvah0gj" path="res://Ocean/Waves/Foam/OceanFoamRectInput.cs" id="20_1picx"]
 
 [sub_resource type="Resource" id="Resource_caustics"]
 script = ExtResource("13_caustics_settings")
@@ -33,7 +34,9 @@ DistortionStrength = 0.25
 [sub_resource type="Resource" id="Resource_foam"]
 script = ExtResource("17_foam_settings")
 FadeRate = 0.8
+WaveFoamStrength = 0.0
 WaveFoamCoverage = 0.55
+ShorelineFoamStrength = 0.0
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_diagnostic"]
 sky_top_color = Color(0.2, 0.43, 0.72, 1)
@@ -389,7 +392,7 @@ metadata/_custom_type_script = "uid://babws5gk4e73c"
 [node name="SeaFloorDepthRectInput" type="Node3D" parent="." unique_id=1810248882]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 700, 0, 0)
 script = ExtResource("11_brc6h")
-BottomHeightY = 0.19999999999708962
+BottomHeightY = -0.5
 SizeXZ = Vector2(100, 100)
 metadata/_custom_type_script = "uid://vhpnweemwyoy"
 
@@ -398,3 +401,12 @@ transform = Transform3D(0.99216557, 0.12492937, 0, 0.0027853132, -0.022120433, 0
 layers = 262144
 material_override = SubResource("StandardMaterial3D_marker_red")
 mesh = SubResource("BoxMesh_marker_side")
+
+[node name="FoamRectTest" type="Node3D" parent="." unique_id=884146388]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.234455, 0, 52.883224)
+script = ExtResource("20_1picx")
+Mode = 1
+SizeXZ = Vector2(5, 10)
+FeatherWidth = 0.0
+AdditiveRate = 0.15
+OverrideValue = 0.0

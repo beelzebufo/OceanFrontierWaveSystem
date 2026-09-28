@@ -19,15 +19,20 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 {
 	private const int LocalSize = 8;
 	private const int PushConstantBytes = 64;
+	internal const int DescriptorStrideBytes = 64;
+	internal const int DescriptorBufferBytes =
+		OceanFoamInputRegistry.Capacity * DescriptorStrideBytes;
 
 	private readonly RenderingDevice _rd;
 	private readonly OceanFoamField _field;
 	private readonly AnimatedWaveLodGpuBuffer _previousLodBuffer;
 	private readonly byte[] _pushBytes = new byte[PushConstantBytes];
+	private readonly byte[] _descriptorBytes = new byte[DescriptorBufferBytes];
 
 	private Rid _shader;
 	private Rid _pipeline;
 	private Rid _seaFloorDepthSampler;
+	private Rid _descriptorBuffer;
 	private readonly Rid[] _uniformSets = new Rid[2];
 
 	private bool _hasSimulationTime;
@@ -147,6 +152,11 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 					RepeatW = RenderingDevice.SamplerRepeatMode.ClampToEdge,
 				});
 
+		_descriptorBuffer =
+			_rd.StorageBufferCreate(
+				DescriptorBufferBytes,
+				_descriptorBytes);
+
 		_uniformSets[0] = CreateUniformSet(
 			_field.Texture0,
 			_field.Texture1,
@@ -166,6 +176,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		if (!_shader.IsValid ||
 			!_pipeline.IsValid ||
 			!_seaFloorDepthSampler.IsValid ||
+			!_descriptorBuffer.IsValid ||
 			!_uniformSets[0].IsValid ||
 			!_uniformSets[1].IsValid)
 		{
@@ -232,6 +243,13 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		seaFloorDepthUniform.AddId(_seaFloorDepthSampler);
 		seaFloorDepthUniform.AddId(seaFloorDepthField);
 
+		var descriptorUniform = new RDUniform
+		{
+			UniformType = RenderingDevice.UniformType.StorageBuffer,
+			Binding = 7,
+		};
+		descriptorUniform.AddId(_descriptorBuffer);
+
 		return _rd.UniformSetCreate(
 			new Godot.Collections.Array<RDUniform>
 			{
@@ -242,6 +260,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				derivativeUniform,
 				animatedWaveUniform,
 				seaFloorDepthUniform,
+				descriptorUniform,
 			},
 			_shader,
 			0);
@@ -255,11 +274,17 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		float simulationTime,
 		AnimatedWaveLodLayout currentLayout,
 		OceanFoamState settings,
-		bool hasSeaFloorDepth)
+		bool hasSeaFloorDepth,
+		ReadOnlySpan<OceanFoamInputSnapshot> foamInputs)
 	{
 		if (currentLayout == null)
 		{
 			throw new ArgumentNullException(nameof(currentLayout));
+		}
+
+		if (foamInputs.Length > OceanFoamInputRegistry.Capacity)
+		{
+			throw new ArgumentOutOfRangeException(nameof(foamInputs));
 		}
 
 		float frameSimulationTime = 0.0f;
@@ -284,6 +309,10 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 			_diagnosticWasEnabled = false;
 			return;
 		}
+
+
+		UploadFoamInputs(
+			foamInputs);
 
 		_timeToSimulate += frameSimulationTime;
 
@@ -319,6 +348,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				settings.ShorelineFoamMaxDepth,
 				settings.ShorelineFoamStrength,
 				hasSeaFloorDepth,
+				foamInputs.Length,
 				step == 0 ? sourceLodOffset : 0,
 				inject && step == 0,
 				settings.DiagnosticSpotWorldXZ,
@@ -352,6 +382,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		float shorelineFoamMaxDepth,
 		float shorelineFoamStrength,
 		bool hasSeaFloorDepth,
+		int foamInputCount,
 		int sourceLodOffset,
 		bool inject,
 		Vector2 injectionWorldXZ,
@@ -373,7 +404,7 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		WriteFloat(48, shorelineFoamMaxDepth);
 		WriteFloat(52, shorelineFoamStrength);
 		WriteUInt(56, hasSeaFloorDepth ? 1u : 0u);
-		WriteUInt(60, 0u);
+		WriteUInt(60, (uint)foamInputCount);
 
 		int sourceIndex = _field.Latest == _field.Texture0 ? 0 : 1;
 		uint groups = (uint)((_field.Resolution + LocalSize - 1) / LocalSize);
@@ -394,6 +425,68 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 				$"[Ocean] Foam dispatch: {groups}x{groups}x" +
 				$"{_field.LodCount} workgroups; persistent reprojection " +
 				"and derivative-driven whitecaps active.");
+		}
+	}
+
+
+	private void UploadFoamInputs(
+		ReadOnlySpan<OceanFoamInputSnapshot> inputs)
+	{
+		if (inputs.IsEmpty)
+		{
+			return;
+		}
+
+
+		for (int index = 0;
+			 index < inputs.Length;
+			 index++)
+		{
+			OceanFoamInputSnapshot input =
+				inputs[index];
+			int offset =
+				index * DescriptorStrideBytes;
+
+
+			WriteDescriptorFloat(offset + 0, input.CenterXZ.X);
+			WriteDescriptorFloat(offset + 4, input.CenterXZ.Y);
+			WriteDescriptorFloat(offset + 8, input.AxisX.X);
+			WriteDescriptorFloat(offset + 12, input.AxisX.Y);
+
+			WriteDescriptorFloat(offset + 16, input.AxisZ.X);
+			WriteDescriptorFloat(offset + 20, input.AxisZ.Y);
+			WriteDescriptorFloat(offset + 24, input.SizeXZ.X);
+			WriteDescriptorFloat(offset + 28, input.SizeXZ.Y);
+
+			WriteDescriptorFloat(offset + 32, input.FeatherWidth);
+			WriteDescriptorFloat(offset + 36, input.Weight);
+			WriteDescriptorFloat(offset + 40, input.AdditiveRate);
+			WriteDescriptorFloat(offset + 44, input.OverrideValue);
+
+			WriteDescriptorUInt(offset + 48, (uint)input.Mode);
+			WriteDescriptorUInt(offset + 52, 0u);
+			WriteDescriptorUInt(offset + 56, 0u);
+			WriteDescriptorUInt(offset + 60, 0u);
+		}
+
+
+		uint byteCount =
+			(uint)(inputs.Length * DescriptorStrideBytes);
+
+		Error error =
+			_rd.BufferUpdate(
+				_descriptorBuffer,
+				0,
+				byteCount,
+				_descriptorBytes.AsSpan(
+					0,
+					(int)byteCount));
+
+
+		if (error != Error.Ok)
+		{
+			throw new InvalidOperationException(
+				$"Ocean Foam input descriptor upload failed: {error}.");
 		}
 	}
 
@@ -421,6 +514,16 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 	private void WriteFloat(int offset, float value) =>
 		BitConverter.TryWriteBytes(_pushBytes.AsSpan(offset, sizeof(float)), value);
 
+	private void WriteDescriptorFloat(int offset, float value) =>
+		BitConverter.TryWriteBytes(
+			_descriptorBytes.AsSpan(offset, sizeof(float)),
+			value);
+
+	private void WriteDescriptorUInt(int offset, uint value) =>
+		BitConverter.TryWriteBytes(
+			_descriptorBytes.AsSpan(offset, sizeof(uint)),
+			value);
+
 	public void Dispose()
 	{
 		for (int index = 0; index < _uniformSets.Length; index++)
@@ -436,6 +539,12 @@ internal sealed class OceanFoamSimulationPass : IDisposable
 		{
 			_rd.FreeRid(_pipeline);
 			_pipeline = default;
+		}
+
+		if (_descriptorBuffer.IsValid)
+		{
+			_rd.FreeRid(_descriptorBuffer);
+			_descriptorBuffer = default;
 		}
 
 		if (_seaFloorDepthSampler.IsValid)

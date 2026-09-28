@@ -74,6 +74,10 @@ public partial class OceanRuntime : Node
 	private readonly SeaFloorDepthInputSnapshot[] _seaFloorDepthRenderScratch =
 		new SeaFloorDepthInputSnapshot[SeaFloorDepthInputRegistry.Capacity];
 
+	private readonly OceanFoamInputRegistry _foamInputs = new();
+	private readonly OceanFoamInputSnapshot[] _foamInputRenderScratch =
+		new OceanFoamInputSnapshot[OceanFoamInputRegistry.Capacity];
+
 	public OceanPointQueryService PointQueries { get; } = new();
 
 
@@ -269,6 +273,14 @@ public partial class OceanRuntime : Node
 
 	internal void UnregisterSeaFloorDepthInput(ISeaFloorDepthInputSnapshotSource input) =>
 		_seaFloorDepthInputs.Unregister(input);
+
+	internal void RegisterFoamInput(
+		IOceanFoamInputSnapshotSource input) =>
+		_foamInputs.Register(input);
+
+	internal void UnregisterFoamInput(
+		IOceanFoamInputSnapshotSource input) =>
+		_foamInputs.Unregister(input);
 
 	internal bool LodScaleOverrideEnabled
 	{
@@ -730,6 +742,7 @@ public partial class OceanRuntime : Node
 
 		_animatedWaveInputs.CaptureMainThread();
 		_seaFloorDepthInputs.CaptureMainThread();
+		_foamInputs.CaptureMainThread();
 
 
 		_surfaceFieldResolution =
@@ -900,6 +913,10 @@ public partial class OceanRuntime : Node
 						_seaFloorDepthInputs.CopyLatest(
 							_seaFloorDepthRenderScratch);
 
+					int initialFoamInputCount =
+						_foamInputs.CopyLatest(
+							_foamInputRenderScratch);
+
 
 					composer.ComposeFft(
 						initialFocusXZ,
@@ -940,7 +957,10 @@ public partial class OceanRuntime : Node
 						0.0f,
 						composer.LodLayout,
 						initialFoamState,
-						initialDepthInputCount > 0);
+						initialDepthInputCount > 0,
+						_foamInputRenderScratch.AsSpan(
+							0,
+							initialFoamInputCount));
 
 
 					PublishOceanFoamRenderState(
@@ -1157,6 +1177,7 @@ public partial class OceanRuntime : Node
 
 		_animatedWaveInputs.CaptureMainThread();
 		_seaFloorDepthInputs.CaptureMainThread();
+		_foamInputs.CaptureMainThread();
 
 
 		//
@@ -1383,6 +1404,10 @@ public partial class OceanRuntime : Node
 			_seaFloorDepthInputs.CopyLatest(
 				_seaFloorDepthRenderScratch);
 
+		int foamInputCount =
+			_foamInputs.CopyLatest(
+				_foamInputRenderScratch);
+
 
 		_animatedWaveComposer.ComposeFft(
 			focusXZ,
@@ -1408,7 +1433,10 @@ public partial class OceanRuntime : Node
 			simulationTime,
 			_animatedWaveComposer.LodLayout,
 			foamState,
-			seaFloorDepthInputCount > 0);
+			seaFloorDepthInputCount > 0,
+			_foamInputRenderScratch.AsSpan(
+				0,
+				foamInputCount));
 
 
 		PublishOceanFoamRenderState(
