@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://c6qklvoyb3tm6"]
+
+[ext_resource type="Terrain3DMaterial" uid="uid://ctfl2fkdf7q1a" path="res://Terrain/Resources/terrain_material.tres" id="1_2wpi5"]
+[ext_resource type="Terrain3DAssets" uid="uid://diiasgm1ro36c" path="res://Terrain/Resources/terrain_assets.tres" id="2_xj1b4"]
+
+[node name="TerrainWorld" type="Node3D" unique_id=1067553851]
+
+[node name="Terrain3D" type="Terrain3D" parent="." unique_id=286477999]
+debug_level = 2
+data_directory = "res://Terrain/Data/MainWorld"
+material = ExtResource("1_2wpi5")
+assets = ExtResource("2_xj1b4")
+top_level = true
+metadata/_edit_lock_ = true

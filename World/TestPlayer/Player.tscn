@@ -1,0 +1,52 @@
+[gd_scene load_steps=6 format=3 uid="uid://hjeufk1g44jx"]
+
+[ext_resource type="Script" path="res://World/TestPlayer/PlayerLocomotion.cs" id="1_locomotion"]
+[ext_resource type="Script" uid="uid://bscv4di4u45to" path="res://World/TestPlayer/CameraManager.gd" id="2_camera"]
+[ext_resource type="Script" path="res://World/TestPlayer/PlayerIntent.cs" id="3_intent"]
+[ext_resource type="Script" path="res://World/TestPlayer/KinematicCharacterMotor.cs" id="4_motor"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.35
+height = 1.8
+
+[node name="Player" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_locomotion")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="PlayerIntent" type="Node" parent="."]
+script = ExtResource("3_intent")
+
+[node name="KinematicCharacterMotor" type="Node" parent="."]
+script = ExtResource("4_motor")
+
+[node name="CameraManager" type="Node3D" parent="."]
+script = ExtResource("2_camera")
+
+[node name="Arm" type="SpringArm3D" parent="CameraManager"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 0.906308, 0.422618, 0, -0.422618, 0.906308, 0, 1.6, 0)
+spring_length = 0.0
+
+[node name="Camera3D" type="Camera3D" parent="CameraManager/Arm"]
+unique_name_in_owner = true
+current = true
+near = 0.05
+far = 16384.0
+
+[node name="DebugHud" type="CanvasLayer" parent="."]
+
+[node name="DebugLabel" type="Label" parent="DebugHud"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 740.0
+offset_bottom = 230.0
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 18
+text = "FPC contacts"

@@ -1,0 +1,71 @@
+[gd_scene format=3 uid="uid://bytb0p01hxkuc"]
+
+[ext_resource type="Script" uid="uid://bjxrluaswmuod" path="res://Ocean/Runtime/OceanRuntime.cs" id="1_tytsl"]
+[ext_resource type="Texture2D" uid="uid://gagv28gs1idd" path="res://Ocean/Textures/Water/WaveNormals.png" id="2_k0sup"]
+[ext_resource type="Texture2D" uid="uid://b3t3tmnsrs04g" path="res://Ocean/Textures/Water/caustics.png" id="3_i381e"]
+[ext_resource type="Script" uid="uid://dl4jqx10hld4r" path="res://Ocean/Rendering/OceanCausticsSettings.cs" id="4_pykh3"]
+[ext_resource type="Script" uid="uid://cjxswiblxafe1" path="res://Ocean/Waves/Foam/OceanFoamSettings.cs" id="5_hsu7j"]
+[ext_resource type="Script" uid="uid://b3rpa8s0aiagb" path="res://Ocean/Rendering/Underwater/OceanUnderwaterController.cs" id="7_kjii1"]
+[ext_resource type="Script" uid="uid://bwyoy820f1p5p" path="res://Ocean/Lighting/OceanSceneLightingBridge.cs" id="8_ponip"]
+[ext_resource type="Script" uid="uid://ctsgt3vl0q6gf" path="res://Ocean/Rendering/AnimatedWaveSurfaceRenderer.cs" id="9_q873w"]
+[ext_resource type="Texture2D" uid="uid://cpipatgad7rww" path="res://Ocean/Textures/Water/Foam2.png" id="10_e58pr"]
+
+[sub_resource type="Resource" id="Resource_caustics"]
+script = ExtResource("4_pykh3")
+Texture = ExtResource("3_i381e")
+TextureAverage = 0.1
+Strength = 0.7
+FocalDepth = 6.0
+DepthOfField = 2.0
+DistortionTexture = ExtResource("2_k0sup")
+DistortionStrength = 0.25
+
+[sub_resource type="Resource" id="Resource_foam"]
+script = ExtResource("5_hsu7j")
+FadeRate = 0.8
+WaveFoamStrength = 0.0
+WaveFoamCoverage = 0.55
+ShorelineFoamStrength = 0.0
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_diagnostic"]
+sky_top_color = Color(0.2, 0.43, 0.72, 1)
+sky_horizon_color = Color(0.69, 0.79, 0.9, 1)
+ground_bottom_color = Color(0.1, 0.13, 0.17, 1)
+ground_horizon_color = Color(0.55, 0.64, 0.72, 1)
+sun_angle_max = 8.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky_diagnostic"]
+sky_material = SubResource("ProceduralSkyMaterial_diagnostic")
+
+[sub_resource type="Environment" id="Environment_diagnostic_sky"]
+background_mode = 2
+sky = SubResource("Sky_diagnostic")
+ambient_light_source = 3
+reflected_light_source = 2
+
+[node name="OceanRuntime" type="Node" unique_id=1570357355]
+script = ExtResource("1_tytsl")
+Caustics = SubResource("Resource_caustics")
+Foam = SubResource("Resource_foam")
+
+[node name="OceanUnderwaterController" type="Node" parent="." unique_id=822443981]
+script = ExtResource("7_kjii1")
+
+[node name="DiagnosticEnvironment" type="WorldEnvironment" parent="." unique_id=1659707573]
+environment = SubResource("Environment_diagnostic_sky")
+
+[node name="DiagnosticSun" type="DirectionalLight3D" parent="." unique_id=580536801]
+transform = Transform3D(0.8660254, 0.35355338, -0.35355338, 0, 0.70710677, 0.70710677, 0.5, -0.6123724, 0.6123724, 0, 0, 0)
+
+[node name="OceanSceneLightingBridge" type="Node" parent="." unique_id=1343526258]
+script = ExtResource("8_ponip")
+PrimarySunPath = NodePath("../DiagnosticSun")
+
+[node name="AnimatedWaveSurfaceRenderer" type="Node3D" parent="." unique_id=2135674035]
+script = ExtResource("9_q873w")
+SpatialLodIndex = 0
+LayoutMode = 1
+VisualNormalMap = ExtResource("2_k0sup")
+VisualNormalStrength = 0.1
+FoamTexture = ExtResource("10_e58pr")

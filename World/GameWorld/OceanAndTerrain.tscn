@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://b4conwkj4icwm"]
+
+[ext_resource type="PackedScene" uid="uid://c6qklvoyb3tm6" path="res://World/Terrain/TerrainWorld.tscn" id="2_sfscx"]
+[ext_resource type="PackedScene" uid="uid://bytb0p01hxkuc" path="res://World/Ocean/OceanRuntimeScene.tscn" id="3_ow10j"]
+[ext_resource type="PackedScene" uid="uid://hjeufk1g44jx" path="res://World/TestPlayer/Player.tscn" id="4_player"]
+
+[node name="OceanAndTerrain" type="Node3D" unique_id=341177939]
+
+[node name="TerrainWorld" parent="." unique_id=1067553851 instance=ExtResource("2_sfscx")]
+
+[node name="OceanRuntime" parent="." unique_id=1570357355 instance=ExtResource("3_ow10j")]
+
+[node name="Player" parent="." unique_id=1476355919 instance=ExtResource("4_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 32, 0)
+
+[editable path="TerrainWorld"]

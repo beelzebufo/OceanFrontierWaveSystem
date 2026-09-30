@@ -1,4 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+/Terrain/Textures/
+addons/terrain_3d/
+demo/
 commit_and_push.bat
