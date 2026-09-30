@@ -9,6 +9,7 @@ public partial class KinematicCharacterMotor : Node
     [Export(PropertyHint.Range, "0.001,0.1,0.001")] public float CollisionMargin { get; set; } = 0.01f;
     [Export(PropertyHint.Range, "1,89,1")] public float MaxWalkAngle { get; set; } = 45f;
     [Export(PropertyHint.Range, "0.05,0.6,0.01")] public float StepHeight { get; set; } = 0.35f;
+    [Export(PropertyHint.Range, "0.01,0.5,0.01")] public float StepUpDepth { get; set; } = 0.10f;
     [Export(PropertyHint.Range, "0.05,0.8,0.01")] public float SnapDownDistance { get; set; } = 0.35f;
     [Export] public Vector3 Up { get; set; } = Vector3.Up;
 
@@ -75,7 +76,7 @@ public partial class KinematicCharacterMotor : Node
             {
                 stepTried = true;
                 Vector3 forward = next - up * next.Dot(up);
-                if (TryStep(simulated, forward, up, walkDot, out Transform3D landing))
+                if (TryStep(simulated, forward, walkMotion, up, walkDot, out Transform3D landing))
                 {
                     simulated = landing;
                     Contacts.ClearGround();
@@ -169,11 +170,11 @@ public partial class KinematicCharacterMotor : Node
         return false;
     }
 
-    private bool TryStep(Transform3D from, Vector3 forward, Vector3 up,
+    private bool TryStep(Transform3D from, Vector3 forward, Vector3 walkMotion, Vector3 up,
         float walkDot, out Transform3D landing)
     {
         landing = from;
-        if (forward.LengthSquared() < 0.000025f)
+        if (forward.LengthSquared() < 0.00000001f)
         {
             Contacts.StepStatus = "too little forward motion";
             return false;
@@ -188,6 +189,20 @@ public partial class KinematicCharacterMotor : Node
         if ((raised.Origin - from.Origin).Dot(up) < StepHeight - 0.005f)
         {
             Contacts.StepStatus = "overhead blocked";
+            return false;
+        }
+
+        // Probe a fixed minimum depth from the raised pose. This only tests
+        // clearance; the actual move below still uses this tick's remainder.
+        Vector3 walk = walkMotion - up * walkMotion.Dot(up);
+        Vector3 direction = walk.LengthSquared() > 0.000001f
+            ? walk.Normalized() : forward.Normalized();
+        Vector3 clearance = direction * StepUpDepth;
+        Vector3 clearTravel = Test(raised, clearance, _probeResult, false)
+            ? _probeResult.GetTravel() : clearance;
+        if (clearTravel.Dot(direction) + 0.0001f < StepUpDepth)
+        {
+            Contacts.StepStatus = "minimum forward clearance blocked";
             return false;
         }
 
@@ -212,6 +227,13 @@ public partial class KinematicCharacterMotor : Node
         landing = advanced;
         landing.Origin += _probeResult.GetTravel();
         float height = (landing.Origin - from.Origin).Dot(up);
+        // A tiny frame remainder can find the old floor beside a riser.
+        // That is a valid floor contact, but it is not a step landing.
+        if (height < CollisionMargin * 2f && height >= -CollisionMargin)
+        {
+            Contacts.StepStatus = "no raised landing";
+            return false;
+        }
         if (height < -SnapDownDistance - 0.005f || height > StepHeight + 0.005f)
         {
             Contacts.StepStatus = "landing outside step range";

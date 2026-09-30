@@ -1,9 +1,10 @@
-[gd_scene load_steps=6 format=3 uid="uid://hjeufk1g44jx"]
+[gd_scene load_steps=7 format=3 uid="uid://hjeufk1g44jx"]
 
 [ext_resource type="Script" path="res://World/TestPlayer/PlayerLocomotion.cs" id="1_locomotion"]
 [ext_resource type="Script" uid="uid://bscv4di4u45to" path="res://World/TestPlayer/CameraManager.gd" id="2_camera"]
 [ext_resource type="Script" path="res://World/TestPlayer/PlayerIntent.cs" id="3_intent"]
 [ext_resource type="Script" path="res://World/TestPlayer/KinematicCharacterMotor.cs" id="4_motor"]
+[ext_resource type="Script" uid="uid://c0rb2f27xmqj7" path="res://World/TestPlayer/CharacterDiagnosticConsole.cs" id="5_console"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -23,6 +24,9 @@ script = ExtResource("3_intent")
 
 [node name="KinematicCharacterMotor" type="Node" parent="."]
 script = ExtResource("4_motor")
+
+[node name="DiagnosticConsole" type="Node" parent="."]
+script = ExtResource("5_console")
 
 [node name="CameraManager" type="Node3D" parent="."]
 script = ExtResource("2_camera")
@@ -50,3 +54,14 @@ theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 2
 theme_override_font_sizes/font_size = 18
 text = "FPC contacts"
+
+[node name="EventLabel" type="Label" parent="DebugHud"]
+offset_left = 16.0
+offset_top = 250.0
+offset_right = 950.0
+offset_bottom = 500.0
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 15
+text = "Events (newest first)"

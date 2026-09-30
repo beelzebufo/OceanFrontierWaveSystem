@@ -1,4 +1,4 @@
-[gd_scene load_steps=36 format=3]
+[gd_scene load_steps=38 format=3]
 
 [ext_resource type="PackedScene" path="res://World/TestPlayer/Player.tscn" id="1_player"]
 
@@ -104,6 +104,12 @@ size = Vector3(2, 1.2, 2)
 
 [sub_resource type="BoxMesh" id="deep_drop_mesh"]
 size = Vector3(2, 1.2, 2)
+
+[sub_resource type="BoxShape3D" id="narrow_step_shape"]
+size = Vector3(0.22, 0.24, 2)
+
+[sub_resource type="BoxMesh" id="narrow_step_mesh"]
+size = Vector3(0.22, 0.24, 2)
 
 [node name="FpcDiagnostic" type="Node3D"]
 
@@ -258,3 +264,13 @@ shape = SubResource("deep_drop_shape")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="DeepDrop"]
 mesh = SubResource("deep_drop_mesh")
 surface_material_override/0 = SubResource("platform_material")
+
+[node name="NarrowStepDepthProbe" type="StaticBody3D" parent="."]
+position = Vector3(7.75, 0.12, -14)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="NarrowStepDepthProbe"]
+shape = SubResource("narrow_step_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="NarrowStepDepthProbe"]
+mesh = SubResource("narrow_step_mesh")
+surface_material_override/0 = SubResource("step_material")

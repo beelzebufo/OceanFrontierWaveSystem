@@ -5,6 +5,7 @@ public partial class PlayerLocomotion : CharacterBody3D
     [Export] public PlayerIntent Intent { get; set; }
     [Export] public KinematicCharacterMotor Motor { get; set; }
     [Export] public Label DebugLabel { get; set; }
+    [Export] public CharacterDiagnosticConsole DiagnosticConsole { get; set; }
     [Export(PropertyHint.Range, "0.1,30,0.1")] public float WalkSpeed { get; set; } = 8f;
     [Export(PropertyHint.Range, "0.1,100,0.1")] public float Gravity { get; set; } = 24f;
 
@@ -15,6 +16,7 @@ public partial class PlayerLocomotion : CharacterBody3D
         Intent ??= GetNode<PlayerIntent>("PlayerIntent");
         Motor ??= GetNode<KinematicCharacterMotor>("KinematicCharacterMotor");
         DebugLabel ??= GetNode<Label>("DebugHud/DebugLabel");
+        DiagnosticConsole ??= GetNode<CharacterDiagnosticConsole>("DiagnosticConsole");
     }
 
     public override void _PhysicsProcess(double delta)
@@ -22,6 +24,7 @@ public partial class PlayerLocomotion : CharacterBody3D
         float dt = (float)delta;
         Vector3 up = Motor.Up.Normalized();
         CharacterContactState previous = Motor.Contacts;
+        bool wasStable = previous.IsStable;
         Vector3 horizontal = Intent.ReadWorldDirection() * WalkSpeed;
         if (previous.IsStable && horizontal.LengthSquared() > 0f)
             horizontal = horizontal.Slide(previous.GroundNormal).Normalized() * WalkSpeed;
@@ -45,6 +48,8 @@ public partial class PlayerLocomotion : CharacterBody3D
         CharacterContactState contact = Motor.Contacts;
         if (contact.IsStable && _verticalSpeed < 0f || contact.HasCeiling && _verticalSpeed > 0f)
             _verticalSpeed = 0f;
+
+        DiagnosticConsole?.Observe(contact, wasStable, Engine.GetPhysicsFrames());
 
         if (DebugLabel != null)
             DebugLabel.Text = $"Grounded: {contact.IsGrounded}  Walkable: {contact.IsWalkable}\n" +
