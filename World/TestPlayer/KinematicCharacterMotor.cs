@@ -23,9 +23,6 @@ public partial class KinematicCharacterMotor : Node
     private readonly PhysicsTestMotionResult3D _probeResult = new();
     private readonly Vector3[] _planes = new Vector3[32];
     private int _planeCount;
-    private Vector3 _carryBlockNormal;
-    private float _carryBlockLimit;
-    private Rid _carryBlockPlatform;
 
     public override void _Ready()
     {
@@ -47,10 +44,15 @@ public partial class KinematicCharacterMotor : Node
 
         GroundMotion.BeginTick();
         Vector3 carry = GroundMotion.ComputeCarryMotion(simulated.Origin);
-        if (_carryBlockPlatform != GroundMotion.PlatformRid ||
-            (!_carryBlockNormal.IsZeroApprox() && !hadCeiling &&
-             carry.Dot(_carryBlockNormal) > 0.00001f))
-            _carryBlockNormal = Vector3.Zero;
+        Vector3 carryBlockNormal = Vector3.Zero;
+        float carryBlockLimit = 0f;
+        if (hadCeiling && GroundMotion.PlatformRid != default)
+        {
+            // The platform can pause while overlapping the capsule. Rebuild a
+            // guard from this tick's starting pose even with zero carry.
+            carryBlockNormal = -up;
+            carryBlockLimit = simulated.Origin.Dot(carryBlockNormal);
+        }
         if (carry.LengthSquared() > 0.00000001f)
         {
             Vector3 beforeCarry = simulated.Origin;
@@ -59,45 +61,50 @@ public partial class KinematicCharacterMotor : Node
             _carryExclusions.Add(GroundMotion.PlatformRid);
             _query.ExcludeBodies = _carryExclusions;
             Vector3 traveled;
+            bool carryHit;
             try
             {
-                traveled = Test(simulated, carry, _probeResult, false)
-                    ? _probeResult.GetTravel() : carry;
+                carryHit = Test(simulated, carry, _probeResult, false);
+                traveled = carryHit ? _probeResult.GetTravel() : carry;
             }
             finally
             {
                 _query.ExcludeBodies = _noExclusions;
                 _carryExclusions.Clear();
             }
+            // At skin contact Jolt can alternate between a ceiling hit and a
+            // no-hit carry. The previous final ceiling contact guards that
+            // single upward tick; a downward return is never constrained.
+            bool ceilingNoHitUp = !carryHit && hadCeiling && carry.Dot(up) > 0.00001f;
+            if (ceilingNoHitUp)
+                traveled = Vector3.Zero;
             simulated.Origin += traveled;
             GroundMotion.RecordCarry(carry, traveled);
-            if (GroundMotion.CarryBlocked)
+            if (carryHit || hadCeiling)
             {
-                Vector3 blocker = Vector3.Zero;
                 float mostOpposing = 0f;
-                for (int i = 0; i < _probeResult.GetCollisionCount(); i++)
+                for (int i = 0; carryHit && i < _probeResult.GetCollisionCount(); i++)
                 {
                     Vector3 normal = _probeResult.GetCollisionNormal(i).Normalized();
                     float dot = normal.Dot(carry.Normalized());
                     if (dot < mostOpposing)
                     {
                         mostOpposing = dot;
-                        blocker = normal;
+                        carryBlockNormal = normal;
                     }
                 }
-                if (blocker.IsZeroApprox())
-                    blocker = -carry.Normalized();
-                if (_carryBlockNormal.IsZeroApprox() ||
-                    (!hadCeiling && _carryBlockNormal.Dot(blocker) < 0.9f))
+                if (hadCeiling)
+                    carryBlockNormal = -up;
+                if (GroundMotion.CarryBlocked && carryBlockNormal.IsZeroApprox())
+                    carryBlockNormal = -carry.Normalized();
+                // Preserve the actual permitted part of the carry. Only later
+                // recovery/movement in this tick is constrained by this plane.
+                if (!carryBlockNormal.IsZeroApprox())
                 {
-                    _carryBlockNormal = blocker;
-                    _carryBlockLimit = beforeCarry.Dot(blocker);
-                    _carryBlockPlatform = GroundMotion.PlatformRid;
+                    Vector3 safeCarryOrigin = beforeCarry + traveled;
+                    carryBlockLimit = safeCarryOrigin.Dot(carryBlockNormal);
                 }
-                else if (_carryBlockNormal.Dot(blocker) >= 0.9f)
-                    _carryBlockLimit = Mathf.Max(_carryBlockLimit, beforeCarry.Dot(blocker));
             }
-            ConstrainCarryBlock(ref simulated);
         }
 
         // Godot performs depenetration inside BodyTestMotion. With zero motion we
@@ -123,7 +130,7 @@ public partial class KinematicCharacterMotor : Node
 
         // The moving support may now overlap the capsule. Its recovery must
         // not undo a carry collision with a wall or ceiling.
-        ConstrainCarryBlock(ref simulated);
+        ConstrainCarryBlock(ref simulated, carryBlockNormal, carryBlockLimit);
 
         Vector3 remaining = requestedMotion;
         bool stepTried = false;
@@ -161,7 +168,7 @@ public partial class KinematicCharacterMotor : Node
             remaining = next;
         }
 
-        ConstrainCarryBlock(ref simulated);
+        ConstrainCarryBlock(ref simulated, carryBlockNormal, carryBlockLimit);
         if (!stepAccepted)
         {
             // Earlier sweep/recovery contacts can refer to a floor that is no
@@ -188,13 +195,14 @@ public partial class KinematicCharacterMotor : Node
         Body.GlobalTransform = simulated;
     }
 
-    private void ConstrainCarryBlock(ref Transform3D simulated)
+    private static void ConstrainCarryBlock(ref Transform3D simulated,
+        Vector3 normal, float limit)
     {
-        if (_carryBlockNormal.IsZeroApprox())
+        if (normal.IsZeroApprox())
             return;
-        float across = simulated.Origin.Dot(_carryBlockNormal) - _carryBlockLimit;
+        float across = simulated.Origin.Dot(normal) - limit;
         if (across < 0f)
-            simulated.Origin -= _carryBlockNormal * across;
+            simulated.Origin -= normal * across;
     }
 
     private bool Test(Transform3D from, Vector3 motion,
@@ -252,6 +260,7 @@ public partial class KinematicCharacterMotor : Node
         float walkDot, out Transform3D landing)
     {
         landing = from;
+        Contacts.StepForwardRequested = forward.Length();
         if (forward.LengthSquared() < 0.00000001f)
         {
             Contacts.StepStatus = "too little forward motion";
@@ -261,10 +270,13 @@ public partial class KinematicCharacterMotor : Node
         // Candidate queries never alter the actual body or the main bounce
         // result. A rejected candidate returns to the original wall slide.
         Vector3 rise = up * StepHeight;
+        Contacts.StepRiseRequested = StepHeight;
         Transform3D raised = from;
         raised.Origin += Test(from, rise, _probeResult, false)
             ? _probeResult.GetTravel() : rise;
-        if ((raised.Origin - from.Origin).Dot(up) < StepHeight - 0.005f)
+        float riseTravelled = (raised.Origin - from.Origin).Dot(up);
+        Contacts.StepRiseTravelled = riseTravelled;
+        if (riseTravelled < StepHeight - 0.005f)
         {
             Contacts.StepStatus = "overhead blocked";
             return false;
@@ -276,9 +288,12 @@ public partial class KinematicCharacterMotor : Node
         Vector3 direction = walk.LengthSquared() > 0.000001f
             ? walk.Normalized() : forward.Normalized();
         Vector3 clearance = direction * StepUpDepth;
+        Contacts.StepClearanceRequested = StepUpDepth;
         Vector3 clearTravel = Test(raised, clearance, _probeResult, false)
             ? _probeResult.GetTravel() : clearance;
-        if (clearTravel.Dot(direction) + 0.0001f < StepUpDepth)
+        float clearanceTravelled = clearTravel.Dot(direction);
+        Contacts.StepClearanceTravelled = clearanceTravelled;
+        if (clearanceTravelled + 0.0001f < StepUpDepth)
         {
             Contacts.StepStatus = "minimum forward clearance blocked";
             return false;
@@ -287,8 +302,9 @@ public partial class KinematicCharacterMotor : Node
         Transform3D advanced = raised;
         advanced.Origin += Test(raised, forward, _probeResult, false)
             ? _probeResult.GetTravel() : forward;
-        if ((advanced.Origin - raised.Origin).Dot(forward.Normalized()) <
-            forward.Length() - 0.005f)
+        float forwardTravelled = (advanced.Origin - raised.Origin).Dot(forward.Normalized());
+        Contacts.StepForwardTravelled = forwardTravelled;
+        if (forwardTravelled < forward.Length() - 0.005f)
         {
             Contacts.StepStatus = "forward blocked";
             return false;
@@ -305,6 +321,7 @@ public partial class KinematicCharacterMotor : Node
         landing = advanced;
         landing.Origin += _probeResult.GetTravel();
         float height = (landing.Origin - from.Origin).Dot(up);
+        Contacts.StepLandingDelta = height;
         // A tiny frame remainder can find the old floor beside a riser.
         // That is a valid floor contact, but it is not a step landing.
         if (height < CollisionMargin * 2f && height >= -CollisionMargin)

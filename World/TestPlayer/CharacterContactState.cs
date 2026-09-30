@@ -28,6 +28,13 @@ public sealed class CharacterContactState
     public int ContactCount { get; private set; }
     public bool SteppedUp { get; internal set; }
     public float StepRise { get; internal set; }
+    public float StepRiseRequested { get; internal set; }
+    public float StepRiseTravelled { get; internal set; }
+    public float StepClearanceRequested { get; internal set; }
+    public float StepClearanceTravelled { get; internal set; }
+    public float StepForwardRequested { get; internal set; }
+    public float StepForwardTravelled { get; internal set; }
+    public float StepLandingDelta { get; internal set; }
     public string StepStatus { get; internal set; } = "not tried";
     public bool SnappedDown { get; internal set; }
     public float SnapDistance { get; internal set; }
@@ -42,6 +49,9 @@ public sealed class CharacterContactState
         BounceCount = RecoveryCount = ContactCount = 0;
         SteppedUp = SnappedDown = false;
         StepRise = SnapDistance = 0f;
+        StepRiseRequested = StepRiseTravelled = 0f;
+        StepClearanceRequested = StepClearanceTravelled = 0f;
+        StepForwardRequested = StepForwardTravelled = StepLandingDelta = 0f;
         StepStatus = SnapStatus = "not tried";
     }
 

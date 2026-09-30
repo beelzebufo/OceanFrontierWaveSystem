@@ -23,10 +23,14 @@ public partial class CharacterDiagnosticConsole : Node
         string prefix = $"#{frame} ";
         if (contact.StepStatus != "not tried")
         {
+            string probes = $"up={contact.StepRiseTravelled:F3}/{contact.StepRiseRequested:F3} " +
+                $"clr={contact.StepClearanceTravelled:F3}/{contact.StepClearanceRequested:F3} " +
+                $"fwd={contact.StepForwardTravelled:F3}/{contact.StepForwardRequested:F3} " +
+                $"land={contact.StepLandingDelta:+0.000;-0.000;0.000}";
             if (contact.SteppedUp)
-                Add($"{prefix}STEP accepted rise={contact.StepRise:F3} | G={contact.SlopeAngle:F1}° | B{contact.BounceCount} R{contact.RecoveryCount}");
+                Add($"{prefix}STEP accepted {probes} | G={contact.SlopeAngle:F1}° B{contact.BounceCount} R{contact.RecoveryCount}");
             else
-                Add($"{prefix}STEP rejected: {contact.StepStatus} | B{contact.BounceCount} R{contact.RecoveryCount}");
+                Add($"{prefix}STEP rejected: {contact.StepStatus} | {probes} B{contact.BounceCount} R{contact.RecoveryCount}");
         }
 
         if (contact.SnappedDown)
