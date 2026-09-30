@@ -1,55 +1,47 @@
-[gd_scene load_steps=38 format=3]
+[gd_scene format=3 uid="uid://cuef2bx6be4nk"]
 
-[ext_resource type="PackedScene" path="res://World/TestPlayer/Player.tscn" id="1_player"]
+[ext_resource type="PackedScene" uid="uid://hjeufk1g44jx" path="res://World/TestPlayer/Player.tscn" id="1_player"]
+[ext_resource type="Script" uid="uid://dk0e43siihs4k" path="res://World/TestPlayer/DiagnosticMovingPlatform.cs" id="2_moving"]
 
 [sub_resource type="BoxShape3D" id="floor_shape"]
 size = Vector3(32, 1, 32)
 
+[sub_resource type="BoxMesh" id="floor_mesh"]
+size = Vector3(32, 1, 32)
+
+[sub_resource type="StandardMaterial3D" id="floor_material"]
+albedo_color = Color(0.22, 0.32, 0.28, 1)
+
 [sub_resource type="BoxShape3D" id="wall_shape"]
 size = Vector3(0.5, 3, 8)
 
+[sub_resource type="BoxMesh" id="wall_mesh"]
+size = Vector3(0.5, 3, 8)
+
+[sub_resource type="StandardMaterial3D" id="obstacle_material"]
+albedo_color = Color(0.7, 0.52, 0.28, 1)
+
 [sub_resource type="BoxShape3D" id="corner_shape"]
+size = Vector3(8, 3, 0.5)
+
+[sub_resource type="BoxMesh" id="corner_mesh"]
 size = Vector3(8, 3, 0.5)
 
 [sub_resource type="BoxShape3D" id="ramp_shape"]
 size = Vector3(6, 0.3, 3)
 
-[sub_resource type="BoxShape3D" id="steep_shape"]
-size = Vector3(4, 0.3, 3)
-
-[sub_resource type="BoxMesh" id="floor_mesh"]
-size = Vector3(32, 1, 32)
-
-[sub_resource type="BoxMesh" id="wall_mesh"]
-size = Vector3(0.5, 3, 8)
-
-[sub_resource type="BoxMesh" id="corner_mesh"]
-size = Vector3(8, 3, 0.5)
-
 [sub_resource type="BoxMesh" id="ramp_mesh"]
 size = Vector3(6, 0.3, 3)
+
+[sub_resource type="BoxShape3D" id="steep_shape"]
+size = Vector3(4, 0.3, 3)
 
 [sub_resource type="BoxMesh" id="steep_mesh"]
 size = Vector3(4, 0.3, 3)
 
-[sub_resource type="StandardMaterial3D" id="floor_material"]
-albedo_color = Color(0.22, 0.32, 0.28, 1)
-
-[sub_resource type="StandardMaterial3D" id="obstacle_material"]
-albedo_color = Color(0.7, 0.52, 0.28, 1)
-
 [sub_resource type="Environment" id="Environment_default"]
 background_mode = 1
 background_color = Color(0.23, 0.32, 0.4, 1)
-
-[sub_resource type="StandardMaterial3D" id="step_material"]
-albedo_color = Color(0.22, 0.55, 0.82, 1)
-
-[sub_resource type="StandardMaterial3D" id="blocked_material"]
-albedo_color = Color(0.82, 0.22, 0.18, 1)
-
-[sub_resource type="StandardMaterial3D" id="platform_material"]
-albedo_color = Color(0.8, 0.72, 0.2, 1)
 
 [sub_resource type="BoxShape3D" id="low_shape"]
 size = Vector3(1.5, 0.25, 2)
@@ -57,11 +49,17 @@ size = Vector3(1.5, 0.25, 2)
 [sub_resource type="BoxMesh" id="low_mesh"]
 size = Vector3(1.5, 0.25, 2)
 
+[sub_resource type="StandardMaterial3D" id="step_material"]
+albedo_color = Color(0.22, 0.55, 0.82, 1)
+
 [sub_resource type="BoxShape3D" id="high_shape"]
 size = Vector3(1.5, 0.55, 2)
 
 [sub_resource type="BoxMesh" id="high_mesh"]
 size = Vector3(1.5, 0.55, 2)
+
+[sub_resource type="StandardMaterial3D" id="blocked_material"]
+albedo_color = Color(0.82, 0.22, 0.18, 1)
 
 [sub_resource type="BoxShape3D" id="ceiling_step_shape"]
 size = Vector3(1.5, 0.25, 2)
@@ -99,6 +97,9 @@ size = Vector3(2, 0.15, 2)
 [sub_resource type="BoxMesh" id="short_drop_mesh"]
 size = Vector3(2, 0.15, 2)
 
+[sub_resource type="StandardMaterial3D" id="platform_material"]
+albedo_color = Color(0.8, 0.72, 0.2, 1)
+
 [sub_resource type="BoxShape3D" id="deep_drop_shape"]
 size = Vector3(2, 1.2, 2)
 
@@ -111,166 +112,256 @@ size = Vector3(0.22, 0.24, 2)
 [sub_resource type="BoxMesh" id="narrow_step_mesh"]
 size = Vector3(0.22, 0.24, 2)
 
-[node name="FpcDiagnostic" type="Node3D"]
+[sub_resource type="BoxShape3D" id="moving_shape"]
+size = Vector3(3, 0.3, 3)
 
-[node name="Player" parent="." instance=ExtResource("1_player")]
+[sub_resource type="BoxMesh" id="moving_mesh"]
+size = Vector3(3, 0.3, 3)
+
+[sub_resource type="BoxShape3D" id="rotating_shape"]
+size = Vector3(4, 0.3, 4)
+
+[sub_resource type="BoxMesh" id="rotating_mesh"]
+size = Vector3(4, 0.3, 4)
+
+[sub_resource type="BoxShape3D" id="elevator_ceiling_shape"]
+size = Vector3(3, 0.3, 3)
+
+[sub_resource type="BoxMesh" id="elevator_ceiling_mesh"]
+size = Vector3(3, 0.3, 3)
+
+[node name="FpcDiagnostic" type="Node3D" unique_id=970551262]
+
+[node name="Player" parent="." unique_id=429729524 instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
 
-[node name="Floor" type="StaticBody3D" parent="."]
+[node name="Floor" type="StaticBody3D" parent="." unique_id=485599896]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
-position = Vector3(0, -0.5, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=1672466963]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 shape = SubResource("floor_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
-position = Vector3(0, -0.5, 0)
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=1898426140]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 mesh = SubResource("floor_mesh")
 surface_material_override/0 = SubResource("floor_material")
 
-[node name="Wall" type="StaticBody3D" parent="."]
-position = Vector3(3, 1.5, 0)
+[node name="Wall" type="StaticBody3D" parent="." unique_id=1023727722]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1.5, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Wall"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Wall" unique_id=2119655537]
 shape = SubResource("wall_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Wall"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Wall" unique_id=1368261734]
 mesh = SubResource("wall_mesh")
 surface_material_override/0 = SubResource("obstacle_material")
 
-[node name="CornerWall" type="StaticBody3D" parent="."]
-position = Vector3(0, 1.5, -4)
+[node name="CornerWall" type="StaticBody3D" parent="." unique_id=812946096]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -4)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="CornerWall"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CornerWall" unique_id=276658855]
 shape = SubResource("corner_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="CornerWall"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CornerWall" unique_id=1756798554]
 mesh = SubResource("corner_mesh")
 surface_material_override/0 = SubResource("obstacle_material")
 
-[node name="WalkableRamp" type="StaticBody3D" parent="."]
-position = Vector3(-7, 1.2, 0)
-rotation = Vector3(0, 0, -0.436332)
+[node name="WalkableRamp" type="StaticBody3D" parent="." unique_id=813885045]
+transform = Transform3D(0.90630794, 0.42261797, 0, -0.42261797, 0.90630794, 0, 0, 0, 1, -7, 1.2, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="WalkableRamp"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WalkableRamp" unique_id=291309634]
 shape = SubResource("ramp_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="WalkableRamp"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WalkableRamp" unique_id=1105611477]
 mesh = SubResource("ramp_mesh")
 surface_material_override/0 = SubResource("obstacle_material")
 
-[node name="SteepRamp" type="StaticBody3D" parent="."]
-position = Vector3(-7, 1.1, 7)
-rotation = Vector3(0, 0, -1.0472)
+[node name="SteepRamp" type="StaticBody3D" parent="." unique_id=1771673472]
+transform = Transform3D(0.4999979, 0.86602664, 0, -0.86602664, 0.4999979, 0, 0, 0, 1, -7, 1.1, 7)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="SteepRamp"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SteepRamp" unique_id=2094567049]
 shape = SubResource("steep_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="SteepRamp"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="SteepRamp" unique_id=1297841024]
 mesh = SubResource("steep_mesh")
 surface_material_override/0 = SubResource("obstacle_material")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
-rotation = Vector3(-0.8, 0.5, 0)
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1141342681]
+transform = Transform3D(0.87758255, -0.34391883, 0.334019, 0, 0.6967067, 0.7173561, -0.47942555, -0.6295392, 0.61141765, 0, 0, 0)
 
-[node name="Environment" type="WorldEnvironment" parent="."]
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=1691389206]
 environment = SubResource("Environment_default")
 
-[node name="LowStep" type="StaticBody3D" parent="."]
-position = Vector3(7.75, 0.125, 5)
+[node name="LowStep" type="StaticBody3D" parent="." unique_id=970443940]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.75, 0.125, 5)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="LowStep"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="LowStep" unique_id=671613771]
 shape = SubResource("low_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="LowStep"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="LowStep" unique_id=1776346783]
 mesh = SubResource("low_mesh")
 surface_material_override/0 = SubResource("step_material")
 
-[node name="HighStep" type="StaticBody3D" parent="."]
-position = Vector3(7.75, 0.275, 9)
+[node name="HighStep" type="StaticBody3D" parent="." unique_id=1715358196]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.75, 0.275, 9)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="HighStep"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="HighStep" unique_id=598327800]
 shape = SubResource("high_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="HighStep"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="HighStep" unique_id=1225144264]
 mesh = SubResource("high_mesh")
 surface_material_override/0 = SubResource("blocked_material")
 
-[node name="CeilingStep" type="StaticBody3D" parent="."]
-position = Vector3(7.75, 0.125, 13)
+[node name="CeilingStep" type="StaticBody3D" parent="." unique_id=1423763658]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.75, 0.125, 13)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="CeilingStep"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CeilingStep" unique_id=435712133]
 shape = SubResource("ceiling_step_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="CeilingStep"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CeilingStep" unique_id=637738946]
 mesh = SubResource("ceiling_step_mesh")
 surface_material_override/0 = SubResource("step_material")
 
-[node name="Ceiling" type="StaticBody3D" parent="."]
-position = Vector3(7.9, 2.07, 13)
+[node name="Ceiling" type="StaticBody3D" parent="." unique_id=1433834238]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.9, 2.07, 13)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Ceiling"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ceiling" unique_id=1898557934]
 shape = SubResource("ceiling_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Ceiling"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ceiling" unique_id=1490343725]
 mesh = SubResource("ceiling_mesh")
 surface_material_override/0 = SubResource("blocked_material")
 
-[node name="Stair1" type="StaticBody3D" parent="."]
-position = Vector3(6.5, 0.11, -10)
+[node name="Stair1" type="StaticBody3D" parent="." unique_id=2000100822]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.5, 0.11, -10)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair1"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair1" unique_id=889190877]
 shape = SubResource("stair_1_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair1"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair1" unique_id=1799436155]
 mesh = SubResource("stair_1_mesh")
 surface_material_override/0 = SubResource("step_material")
 
-[node name="Stair2" type="StaticBody3D" parent="."]
-position = Vector3(7.5, 0.22, -10)
+[node name="Stair2" type="StaticBody3D" parent="." unique_id=2057896409]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 0.22, -10)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair2"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair2" unique_id=979339552]
 shape = SubResource("stair_2_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair2"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair2" unique_id=901231430]
 mesh = SubResource("stair_2_mesh")
 surface_material_override/0 = SubResource("step_material")
 
-[node name="Stair3" type="StaticBody3D" parent="."]
-position = Vector3(8.5, 0.33, -10)
+[node name="Stair3" type="StaticBody3D" parent="." unique_id=1183288480]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.5, 0.33, -10)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair3"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Stair3" unique_id=501907220]
 shape = SubResource("stair_3_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair3"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Stair3" unique_id=1390125166]
 mesh = SubResource("stair_3_mesh")
 surface_material_override/0 = SubResource("step_material")
 
-[node name="ShortDrop" type="StaticBody3D" parent="."]
-position = Vector3(-1, 0.075, 11)
+[node name="ShortDrop" type="StaticBody3D" parent="." unique_id=1117126228]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.075, 11)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="ShortDrop"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ShortDrop" unique_id=1684781156]
 shape = SubResource("short_drop_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="ShortDrop"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="ShortDrop" unique_id=318752199]
 mesh = SubResource("short_drop_mesh")
 surface_material_override/0 = SubResource("platform_material")
 
-[node name="DeepDrop" type="StaticBody3D" parent="."]
-position = Vector3(-1, 0.6, 14)
+[node name="DeepDrop" type="StaticBody3D" parent="." unique_id=566014767]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.6, 14)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="DeepDrop"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="DeepDrop" unique_id=1363838979]
 shape = SubResource("deep_drop_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="DeepDrop"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="DeepDrop" unique_id=1100244465]
 mesh = SubResource("deep_drop_mesh")
 surface_material_override/0 = SubResource("platform_material")
 
-[node name="NarrowStepDepthProbe" type="StaticBody3D" parent="."]
-position = Vector3(7.75, 0.12, -14)
+[node name="NarrowStepDepthProbe" type="StaticBody3D" parent="." unique_id=1305960815]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.75, 0.12, -14)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="NarrowStepDepthProbe"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="NarrowStepDepthProbe" unique_id=1393418351]
 shape = SubResource("narrow_step_shape")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="NarrowStepDepthProbe"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="NarrowStepDepthProbe" unique_id=754116585]
 mesh = SubResource("narrow_step_mesh")
 surface_material_override/0 = SubResource("step_material")
+
+[node name="TranslatingPlatform" type="AnimatableBody3D" parent="." unique_id=129817881]
+process_physics_priority = -10
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11, 1, -11)
+sync_to_physics = false
+script = ExtResource("2_moving")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TranslatingPlatform" unique_id=1834115213]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.70562434, 0)
+shape = SubResource("moving_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TranslatingPlatform" unique_id=85647280]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.6915531, 0)
+mesh = SubResource("moving_mesh")
+surface_material_override/0 = SubResource("platform_material")
+
+[node name="RotatingPlatform" type="AnimatableBody3D" parent="." unique_id=641149163]
+process_physics_priority = -10
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -12, 1, -5)
+sync_to_physics = false
+script = ExtResource("2_moving")
+Mode = 1
+Rate = 0.7
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RotatingPlatform" unique_id=1837759033]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.70657897, 0)
+shape = SubResource("rotating_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="RotatingPlatform" unique_id=569817172]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.70549536, 0)
+mesh = SubResource("rotating_mesh")
+surface_material_override/0 = SubResource("platform_material")
+
+[node name="Elevator" type="AnimatableBody3D" parent="." unique_id=973822815]
+process_physics_priority = -10
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 1, 0)
+sync_to_physics = false
+script = ExtResource("2_moving")
+Mode = 2
+Amplitude = 0.6
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Elevator" unique_id=1594830883]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.64813733, 0)
+shape = SubResource("moving_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Elevator" unique_id=1837297203]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.64813733, 0)
+mesh = SubResource("moving_mesh")
+surface_material_override/0 = SubResource("platform_material")
+
+[node name="CeilingElevator" type="AnimatableBody3D" parent="." unique_id=683914418]
+process_physics_priority = -10
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 1, -14)
+sync_to_physics = false
+script = ExtResource("2_moving")
+Mode = 2
+Amplitude = 0.8
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CeilingElevator" unique_id=1001837392]
+shape = SubResource("moving_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CeilingElevator" unique_id=903134308]
+mesh = SubResource("moving_mesh")
+surface_material_override/0 = SubResource("platform_material")
+
+[node name="ElevatorLowCeiling" type="StaticBody3D" parent="." unique_id=1721668258]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 3.45, -14)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ElevatorLowCeiling" unique_id=1990159022]
+shape = SubResource("elevator_ceiling_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="ElevatorLowCeiling" unique_id=209709448]
+mesh = SubResource("elevator_ceiling_mesh")
+surface_material_override/0 = SubResource("blocked_material")

@@ -9,6 +9,7 @@ public partial class CharacterDiagnosticConsole : Node
     private int _next;
     private int _count;
     private Label _output;
+    private bool _carryWasBlocked;
 
     public override void _Ready()
     {
@@ -16,7 +17,8 @@ public partial class CharacterDiagnosticConsole : Node
         _output.Text = "Events (newest first)";
     }
 
-    public void Observe(CharacterContactState contact, bool wasStable, ulong frame)
+    public void Observe(CharacterContactState contact, bool wasStable,
+        CharacterGroundMotionTracker groundMotion, ulong frame)
     {
         string prefix = $"#{frame} ";
         if (contact.StepStatus != "not tried")
@@ -36,6 +38,12 @@ public partial class CharacterDiagnosticConsole : Node
             Add($"{prefix}GROUND acquired G={contact.SlopeAngle:F1}°");
         else if (wasStable && !contact.IsStable)
             Add($"{prefix}GROUND lost");
+
+        if (groundMotion.Transition != null)
+            Add($"{prefix}PLATFORM {groundMotion.Transition}");
+        if (groundMotion.CarryBlocked && !_carryWasBlocked)
+            Add($"{prefix}PLATFORM carry blocked={groundMotion.CarryTravelled:F3}/{groundMotion.CarryRequested:F3}");
+        _carryWasBlocked = groundMotion.CarryBlocked;
     }
 
     private void Add(string message)

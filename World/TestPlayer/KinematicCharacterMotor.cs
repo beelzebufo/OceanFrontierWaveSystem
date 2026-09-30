@@ -14,28 +14,91 @@ public partial class KinematicCharacterMotor : Node
     [Export] public Vector3 Up { get; set; } = Vector3.Up;
 
     public CharacterContactState Contacts { get; } = new();
+    public CharacterGroundMotionTracker GroundMotion { get; } = new();
 
     private readonly PhysicsTestMotionParameters3D _query = new();
+    private readonly Godot.Collections.Array<Rid> _carryExclusions = new();
+    private readonly Godot.Collections.Array<Rid> _noExclusions = new();
     private readonly PhysicsTestMotionResult3D _result = new();
     private readonly PhysicsTestMotionResult3D _probeResult = new();
     private readonly Vector3[] _planes = new Vector3[32];
     private int _planeCount;
+    private Vector3 _carryBlockNormal;
+    private float _carryBlockLimit;
+    private Rid _carryBlockPlatform;
 
     public override void _Ready()
     {
         Body ??= GetParent<CharacterBody3D>();
         _query.RecoveryAsCollision = true;
         _query.CollideSeparationRay = false;
+        _query.ExcludeBodies = _noExclusions;
     }
 
     public void Simulate(Vector3 requestedMotion, Vector3 walkMotion, bool allowGrounding = true)
     {
         bool wasStable = Contacts.IsStable;
+        bool hadCeiling = Contacts.HasCeiling;
         Contacts.Reset();
         _planeCount = 0;
         Vector3 up = Up.Normalized();
         float walkDot = Mathf.Cos(Mathf.DegToRad(MaxWalkAngle));
         Transform3D simulated = Body.GlobalTransform;
+
+        GroundMotion.BeginTick();
+        Vector3 carry = GroundMotion.ComputeCarryMotion(simulated.Origin);
+        if (_carryBlockPlatform != GroundMotion.PlatformRid ||
+            (!_carryBlockNormal.IsZeroApprox() && !hadCeiling &&
+             carry.Dot(_carryBlockNormal) > 0.00001f))
+            _carryBlockNormal = Vector3.Zero;
+        if (carry.LengthSquared() > 0.00000001f)
+        {
+            Vector3 beforeCarry = simulated.Origin;
+            // Ignore only the supporting body during carry. Other geometry
+            // still blocks the full capsule. Restore the query before recovery.
+            _carryExclusions.Add(GroundMotion.PlatformRid);
+            _query.ExcludeBodies = _carryExclusions;
+            Vector3 traveled;
+            try
+            {
+                traveled = Test(simulated, carry, _probeResult, false)
+                    ? _probeResult.GetTravel() : carry;
+            }
+            finally
+            {
+                _query.ExcludeBodies = _noExclusions;
+                _carryExclusions.Clear();
+            }
+            simulated.Origin += traveled;
+            GroundMotion.RecordCarry(carry, traveled);
+            if (GroundMotion.CarryBlocked)
+            {
+                Vector3 blocker = Vector3.Zero;
+                float mostOpposing = 0f;
+                for (int i = 0; i < _probeResult.GetCollisionCount(); i++)
+                {
+                    Vector3 normal = _probeResult.GetCollisionNormal(i).Normalized();
+                    float dot = normal.Dot(carry.Normalized());
+                    if (dot < mostOpposing)
+                    {
+                        mostOpposing = dot;
+                        blocker = normal;
+                    }
+                }
+                if (blocker.IsZeroApprox())
+                    blocker = -carry.Normalized();
+                if (_carryBlockNormal.IsZeroApprox() ||
+                    (!hadCeiling && _carryBlockNormal.Dot(blocker) < 0.9f))
+                {
+                    _carryBlockNormal = blocker;
+                    _carryBlockLimit = beforeCarry.Dot(blocker);
+                    _carryBlockPlatform = GroundMotion.PlatformRid;
+                }
+                else if (_carryBlockNormal.Dot(blocker) >= 0.9f)
+                    _carryBlockLimit = Mathf.Max(_carryBlockLimit, beforeCarry.Dot(blocker));
+            }
+            ConstrainCarryBlock(ref simulated);
+        }
 
         // Godot performs depenetration inside BodyTestMotion. With zero motion we
         // expose that recovery explicitly and keep every intermediate pose local.
@@ -57,6 +120,10 @@ public partial class KinematicCharacterMotor : Node
             simulated.Origin += recovery;
             Contacts.RecoveryCount++;
         }
+
+        // The moving support may now overlap the capsule. Its recovery must
+        // not undo a carry collision with a wall or ceiling.
+        ConstrainCarryBlock(ref simulated);
 
         Vector3 remaining = requestedMotion;
         bool stepTried = false;
@@ -94,6 +161,7 @@ public partial class KinematicCharacterMotor : Node
             remaining = next;
         }
 
+        ConstrainCarryBlock(ref simulated);
         if (!stepAccepted)
         {
             // Earlier sweep/recovery contacts can refer to a floor that is no
@@ -115,8 +183,18 @@ public partial class KinematicCharacterMotor : Node
             }
         }
 
+        GroundMotion.UpdateAttachment(Contacts, simulated.Origin);
         // One scene/physics-body transform update after all virtual substeps.
         Body.GlobalTransform = simulated;
+    }
+
+    private void ConstrainCarryBlock(ref Transform3D simulated)
+    {
+        if (_carryBlockNormal.IsZeroApprox())
+            return;
+        float across = simulated.Origin.Dot(_carryBlockNormal) - _carryBlockLimit;
+        if (across < 0f)
+            simulated.Origin -= _carryBlockNormal * across;
     }
 
     private bool Test(Transform3D from, Vector3 motion,

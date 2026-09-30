@@ -49,7 +49,7 @@ public partial class PlayerLocomotion : CharacterBody3D
         if (contact.IsStable && _verticalSpeed < 0f || contact.HasCeiling && _verticalSpeed > 0f)
             _verticalSpeed = 0f;
 
-        DiagnosticConsole?.Observe(contact, wasStable, Engine.GetPhysicsFrames());
+        DiagnosticConsole?.Observe(contact, wasStable, Motor.GroundMotion, Engine.GetPhysicsFrames());
 
         if (DebugLabel != null)
             DebugLabel.Text = $"Grounded: {contact.IsGrounded}  Walkable: {contact.IsWalkable}\n" +
@@ -58,6 +58,7 @@ public partial class PlayerLocomotion : CharacterBody3D
                 $"Contacts: {contact.ContactCount}  Bounces: {contact.BounceCount}  Recovery: {contact.RecoveryCount}\n" +
                 $"Collider RID: {contact.GroundColliderRid}  ID: {contact.GroundColliderObjectId}\n" +
                 $"Step: {contact.StepStatus}  Rise: {contact.StepRise:F3} m\n" +
-                $"Snap: {contact.SnapStatus}  Drop: {contact.SnapDistance:F3} m";
+                $"Snap: {contact.SnapStatus}  Drop: {contact.SnapDistance:F3} m\n" +
+                $"Platform carry: {Motor.GroundMotion.CarryTravelled:F3}/{Motor.GroundMotion.CarryRequested:F3} m  Blocked: {Motor.GroundMotion.CarryBlocked}";
     }
 }
