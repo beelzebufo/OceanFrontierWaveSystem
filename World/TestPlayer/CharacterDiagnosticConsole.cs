@@ -19,6 +19,7 @@ public partial class CharacterDiagnosticConsole : Node
     }
 
     public void Observe(CharacterContactState contact, bool wasStable,
+        bool wasSupportContinuity,
         CharacterGroundMotionTracker groundMotion, ulong frame, PlayerLocomotion locomotion)
     {
         string prefix = $"#{frame} ";
@@ -54,6 +55,16 @@ public partial class CharacterDiagnosticConsole : Node
         }
         else
             _lastEdgeOutcome = null;
+
+        if (!wasSupportContinuity && contact.SupportContinuityActive)
+            Add($"{prefix}SUPPORT continuity enter drop={contact.SupportContinuityCandidateDrop:F3} " +
+                $"applied={contact.SupportContinuityAppliedDrop:F3} G={contact.SupportContinuitySlope:F1}°");
+        else if (wasSupportContinuity && !contact.SupportContinuityActive)
+            Add(contact.IsStable
+                ? $"{prefix}SUPPORT continuity exit → capsule contact G={contact.SlopeAngle:F1}°"
+                : locomotion.JumpAcceptedThisTick
+                    ? $"{prefix}SUPPORT continuity exit → jump"
+                    : $"{prefix}SUPPORT continuity lost → airborne ({contact.SnapStatus}; {contact.SnapSecondaryValidation})");
 
         if (!wasStable && contact.IsStable)
             Add($"{prefix}GROUND acquired G={contact.SlopeAngle:F1}°");

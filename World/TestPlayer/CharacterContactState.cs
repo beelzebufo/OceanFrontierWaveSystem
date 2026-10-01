@@ -51,6 +51,11 @@ public sealed class CharacterContactState
     public float SnapSecondaryDrop { get; internal set; }
     public Vector3 SnapSecondaryRecovery { get; internal set; }
     public string SnapSecondaryValidation { get; internal set; } = "not tried";
+    public bool SupportContinuityActive { get; private set; }
+    public float SupportContinuityCandidateDrop { get; private set; }
+    public float SupportContinuityAppliedDrop { get; private set; }
+    public Vector3 SupportContinuityNormal { get; private set; }
+    public float SupportContinuitySlope { get; private set; }
 
     private float _bestGroundDot;
 
@@ -71,6 +76,8 @@ public sealed class CharacterContactState
         SnapSecondaryRecovery = Vector3.Zero;
         SnapPrimarySlope = SnapPrimaryTravel = SnapSecondarySlope = SnapSecondaryDrop = 0f;
         SnapSecondaryAttempted = SnapSecondaryCandidateFound = false;
+        SupportContinuityCandidateDrop = SupportContinuityAppliedDrop = SupportContinuitySlope = 0f;
+        SupportContinuityNormal = Vector3.Zero;
     }
 
     // Movement contacts remain useful for wall/ceiling diagnostics. Ground data
@@ -78,6 +85,7 @@ public sealed class CharacterContactState
     internal void ClearGround()
     {
         IsGrounded = IsStable = false;
+        SupportContinuityActive = false;
         GroundNormal = Vector3.Up;
         GroundPoint = Vector3.Zero;
         SlopeAngle = 0f;
@@ -85,6 +93,27 @@ public sealed class CharacterContactState
         GroundColliderObjectId = 0;
         GroundColliderVelocity = Vector3.Zero;
         _bestGroundDot = -1f;
+    }
+
+    // Semantic support from a freshly validated static ray candidate. This is
+    // deliberately separate from Add(): the capsule has no walkable contact
+    // yet, so ContactCount and the steep edge contact remain unchanged.
+    internal void SetSupportContinuity(Vector3 normal, Vector3 point, Rid rid,
+        ulong objectId, float candidateDrop, float appliedDrop, Vector3 up)
+    {
+        float upDot = Mathf.Clamp(normal.Dot(up), -1f, 1f);
+        IsGrounded = IsStable = SupportContinuityActive = true;
+        GroundNormal = normal;
+        GroundPoint = point;
+        GroundColliderRid = rid;
+        GroundColliderObjectId = objectId;
+        GroundColliderVelocity = Vector3.Zero;
+        SlopeAngle = Mathf.RadToDeg(Mathf.Acos(upDot));
+        _bestGroundDot = upDot;
+        SupportContinuityCandidateDrop = candidateDrop;
+        SupportContinuityAppliedDrop = appliedDrop;
+        SupportContinuityNormal = normal;
+        SupportContinuitySlope = SlopeAngle;
     }
 
     internal CharacterContactKind Add(Vector3 normal, Vector3 point, Rid rid, ulong objectId,

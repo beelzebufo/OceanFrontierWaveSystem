@@ -53,6 +53,7 @@ public partial class PlayerLocomotion : CharacterBody3D
         Vector3 up = Motor.Up.Normalized();
         CharacterContactState previous = Motor.Contacts;
         bool wasStable = previous.IsStable;
+        bool wasSupportContinuity = previous.SupportContinuityActive;
         Vector3 previousGroundVelocity = previous.GroundColliderVelocity;
         Rid previousGroundRid = previous.GroundColliderRid;
         ulong previousGroundId = previous.GroundColliderObjectId;
@@ -172,12 +173,12 @@ public partial class PlayerLocomotion : CharacterBody3D
         }
 
         AirborneEnteredThisTick = wasStable && !contact.IsStable;
-        DiagnosticConsole?.Observe(contact, wasStable, Motor.GroundMotion,
+        DiagnosticConsole?.Observe(contact, wasStable, wasSupportContinuity, Motor.GroundMotion,
             Engine.GetPhysicsFrames(), this);
 
         if (DebugLabel != null)
             DebugLabel.Text = $"Grounded: {contact.IsGrounded}  Walkable: {contact.IsWalkable}\n" +
-                $"Normal: {contact.GroundNormal}  Slope: {contact.SlopeAngle:F1}°\n" +
+                $"Normal: {contact.GroundNormal}  Point: {contact.GroundPoint}  Slope: {contact.SlopeAngle:F1}°\n" +
                 $"Wall: {contact.HasWall}  Steep: {contact.HasUnwalkableSlope}  Ceiling: {contact.HasCeiling}\n" +
                 $"Contacts: {contact.ContactCount}  Bounces: {contact.BounceCount}  Recovery: {contact.RecoveryCount}\n" +
                 $"Collider RID: {contact.GroundColliderRid}  ID: {contact.GroundColliderObjectId}\n" +
@@ -186,6 +187,9 @@ public partial class PlayerLocomotion : CharacterBody3D
                 $"Snap source: {contact.SnapSource}  Primary: {contact.SnapPrimaryStatus} {contact.SnapPrimarySlope:F1}° {contact.SnapPrimaryNormal} travel={contact.SnapPrimaryTravel:F3}\n" +
                 $"Edge probe: {contact.SnapSecondaryAttempted} candidate={contact.SnapSecondaryCandidateFound} " +
                 $"{contact.SnapSecondarySlope:F1}° drop={contact.SnapSecondaryDrop:F3} validation={contact.SnapSecondaryValidation}\n" +
+                $"Support continuity: {contact.SupportContinuityActive} candidate={contact.SupportContinuityCandidateDrop:F3} " +
+                $"applied={contact.SupportContinuityAppliedDrop:F3} normal={contact.SupportContinuityNormal} " +
+                $"slope={contact.SupportContinuitySlope:F1}°\n" +
                 $"Platform carry: {Motor.GroundMotion.CarryTravelled:F3}/{Motor.GroundMotion.CarryRequested:F3} m  Blocked: {Motor.GroundMotion.CarryBlocked}\n" +
                 $"State: {(contact.IsStable ? "Grounded" : "Airborne")}  Velocity: {_velocity}  Up: {_velocity.Dot(up):F2}\n" +
                 $"Coyote: {_coyoteRemaining:F2}s  Buffer: {_jumpBufferRemaining:F2}s  Last ground v: {_lastGroundVelocity}\n" +

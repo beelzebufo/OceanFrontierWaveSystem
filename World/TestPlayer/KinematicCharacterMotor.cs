@@ -2,6 +2,29 @@ using Godot;
 
 public partial class KinematicCharacterMotor : Node
 {
+    private enum SnapOutcome { None, Primary, SupportContinuity }
+
+    private readonly struct StaticSupportCandidate
+    {
+        public readonly Vector3 Normal;
+        public readonly Vector3 Point;
+        public readonly Rid Rid;
+        public readonly ulong ObjectId;
+        public readonly float Drop;
+        public readonly float AppliedDrop;
+
+        public StaticSupportCandidate(Vector3 normal, Vector3 point, Rid rid,
+            ulong objectId, float drop, float appliedDrop)
+        {
+            Normal = normal;
+            Point = point;
+            Rid = rid;
+            ObjectId = objectId;
+            Drop = drop;
+            AppliedDrop = appliedDrop;
+        }
+    }
+
     [Export] public CharacterBody3D Body { get; set; }
     [Export(PropertyHint.Range, "1,12,1")] public int MaxBounces { get; set; } = 5;
     [Export(PropertyHint.Range, "1,8,1")] public int MaxRecoveryPasses { get; set; } = 3;
@@ -44,7 +67,9 @@ public partial class KinematicCharacterMotor : Node
         bool allowGrounding = true, bool allowPlatformCarry = true)
     {
         bool wasStable = Contacts.IsStable;
+        bool wasSupportContinuity = Contacts.SupportContinuityActive;
         bool hadCeiling = Contacts.HasCeiling;
+        Vector3 previousSupportPoint = Contacts.GroundPoint;
         Contacts.Reset();
         _planeCount = 0;
         Vector3 up = Up.Normalized();
@@ -191,12 +216,21 @@ public partial class KinematicCharacterMotor : Node
                 -_probeResult.GetTravel().Dot(up) <= CollisionMargin * 2f)
                 RecordContacts(_probeResult, up, walkDot);
 
-            if (wasStable && allowGrounding && !Contacts.IsStable &&
-                TrySnapDown(simulated, walkMotion, up, walkDot, out Transform3D snapped))
+            if (wasStable && allowGrounding && !Contacts.IsStable)
             {
-                simulated = snapped;
-                Contacts.ClearGround();
-                RecordContacts(_probeResult, up, walkDot);
+                SnapOutcome outcome = TrySnapDown(simulated, walkMotion, previousSupportPoint,
+                    wasSupportContinuity, up, walkDot,
+                    out Transform3D snapped, out StaticSupportCandidate support);
+                if (outcome != SnapOutcome.None)
+                {
+                    simulated = snapped;
+                    Contacts.ClearGround();
+                    if (outcome == SnapOutcome.Primary)
+                        RecordContacts(_probeResult, up, walkDot);
+                    else
+                        Contacts.SetSupportContinuity(support.Normal, support.Point,
+                            support.Rid, support.ObjectId, support.Drop, support.AppliedDrop, up);
+                }
             }
         }
 
@@ -353,17 +387,20 @@ public partial class KinematicCharacterMotor : Node
         return true;
     }
 
-    private bool TrySnapDown(Transform3D from, Vector3 walkMotion, Vector3 up, float walkDot,
-        out Transform3D snapped)
+    private SnapOutcome TrySnapDown(Transform3D from, Vector3 walkMotion,
+        Vector3 previousSupportPoint, bool wasSupportContinuity, Vector3 up,
+        float walkDot, out Transform3D snapped, out StaticSupportCandidate support)
     {
         snapped = from;
+        support = default;
         if (!Test(from, -up * SnapDownDistance, _probeResult, false))
         {
             Contacts.SnapPrimaryStatus = "no hit";
             Contacts.SnapStatus = "no ground in range";
-            return false;
+            return SnapOutcome.None;
         }
-        Contacts.SnapPrimaryTravel = -_probeResult.GetTravel().Dot(up);
+        Vector3 primaryTravel = _probeResult.GetTravel();
+        Contacts.SnapPrimaryTravel = -primaryTravel.Dot(up);
         float bestPrimaryDot = -1f;
         for (int i = 0; i < _probeResult.GetCollisionCount(); i++)
         {
@@ -380,7 +417,19 @@ public partial class KinematicCharacterMotor : Node
         {
             Contacts.SnapPrimaryStatus = "unwalkable";
             Contacts.SnapStatus = "unwalkable ground";
-            return TryEdgeSupport(from, walkMotion, up, walkDot, out snapped);
+            Vector3 planarWalk = walkMotion.Slide(up);
+            Vector3 sideNormal = Contacts.SnapPrimaryNormal.Slide(up);
+            if (!wasSupportContinuity &&
+                (planarWalk.LengthSquared() < 0.000001f ||
+                 sideNormal.LengthSquared() < 0.000001f ||
+                 sideNormal.Normalized().Dot(planarWalk.Normalized()) <= 0.1f))
+            {
+                Contacts.SnapSecondaryValidation = "not a trailing edge";
+                return SnapOutcome.None;
+            }
+            return TryEdgeSupport(from, walkMotion, primaryTravel,
+                previousSupportPoint, up, walkDot,
+                out snapped, out support);
         }
         Contacts.SnapPrimaryStatus = "walkable";
         float distance = -_probeResult.GetTravel().Dot(up);
@@ -388,20 +437,22 @@ public partial class KinematicCharacterMotor : Node
             distance > SnapDownDistance + 0.005f)
         {
             Contacts.SnapStatus = "outside useful snap range";
-            return false;
+            return SnapOutcome.None;
         }
-        snapped.Origin += _probeResult.GetTravel();
+        snapped.Origin += primaryTravel;
         Contacts.SnappedDown = true;
         Contacts.SnapDistance = distance;
         Contacts.SnapStatus = "accepted";
         Contacts.SnapSource = "primary";
-        return true;
+        return SnapOutcome.Primary;
     }
 
-    private bool TryEdgeSupport(Transform3D from, Vector3 walkMotion, Vector3 up,
-        float walkDot, out Transform3D snapped)
+    private SnapOutcome TryEdgeSupport(Transform3D from, Vector3 walkMotion,
+        Vector3 primaryTravel, Vector3 previousSupportPoint, Vector3 up, float walkDot,
+        out Transform3D snapped, out StaticSupportCandidate support)
     {
         snapped = from;
+        support = default;
         Contacts.SnapSecondaryAttempted = true;
         Vector3 planarWalk = walkMotion - up * walkMotion.Dot(up);
         Vector3 forward = planarWalk.LengthSquared() > 0.000001f
@@ -412,6 +463,11 @@ public partial class KinematicCharacterMotor : Node
         float maxDrop = SnapDownDistance + 0.005f;
         float bestDrop = float.PositiveInfinity;
         Vector3 bestNormal = Vector3.Zero;
+        Vector3 bestPoint = Vector3.Zero;
+        Rid bestRid = default;
+        ulong bestObjectId = 0;
+        bool sawMovingCandidate = false;
+        bool sawTooDeepCandidate = false;
 
         // The second sample is a short look ahead, not a player displacement.
         for (int sample = 0; sample < 2; sample++)
@@ -431,80 +487,75 @@ public partial class KinematicCharacterMotor : Node
             float drop = (from.Origin - point).Dot(up) - CollisionMargin;
             if (drop <= CollisionMargin * 1.5f || drop > maxDrop || drop >= bestDrop)
                 continue;
+            // The capsule can slide partway down a rounded upper edge while
+            // still classed stable. Keep the full level change bounded by the
+            // last confirmed support, not just the current capsule height.
+            if ((previousSupportPoint - point).Dot(up) > maxDrop)
+            {
+                sawTooDeepCandidate = true;
+                continue;
+            }
+            Rid rid = (Rid)hit["rid"];
+            ulong objectId = (ulong)(long)hit["collider_id"];
+            // Server-owned terrain bodies can have no ObjectId. Physics mode
+            // still proves they are static. AnimatableBody3D derives from
+            // StaticBody3D, so explicitly exclude it and every moving type.
+            GodotObject collider = objectId == 0 ? null : GodotObject.InstanceFromId(objectId);
+            if (PhysicsServer3D.BodyGetMode(rid) != PhysicsServer3D.BodyMode.Static ||
+                collider is AnimatableBody3D or RigidBody3D or CharacterBody3D)
+            {
+                sawMovingCandidate = true;
+                continue;
+            }
             bestDrop = drop;
             bestNormal = normal;
+            bestPoint = point;
+            bestRid = rid;
+            bestObjectId = objectId;
         }
 
         if (bestNormal.IsZeroApprox())
         {
-            Contacts.SnapSecondaryValidation = "no walkable candidate";
-            return false;
+            Contacts.SnapSecondaryValidation = sawTooDeepCandidate
+                ? "support level beyond snap range"
+                : sawMovingCandidate ? "moving support excluded" : "no walkable candidate";
+            return SnapOutcome.None;
         }
         Contacts.SnapSecondaryCandidateFound = true;
         Contacts.SnapSecondaryNormal = bestNormal;
         Contacts.SnapSecondarySlope = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(bestNormal.Dot(up), -1f, 1f)));
         Contacts.SnapSecondaryDrop = bestDrop;
 
-        // A ray supplies only a candidate. Jolt's full-capsule recovery may
-        // nudge it out of a rounded ledge by a few skin widths. The adjusted
-        // pose must still be reached by an unobstructed full-capsule sweep.
-        Transform3D candidate = from;
-        candidate.Origin -= up * bestDrop;
-        if (Test(candidate, Vector3.Zero, _validationResult))
+        // The ray classifies support only. Jolt's primary full-capsule sweep
+        // supplies the allowed downward travel. Its lateral recovery is never
+        // applied to the player, even when the final floor pose is blocked.
+        float safeDown = Mathf.Clamp(-primaryTravel.Dot(up), 0f, bestDrop);
+        if (safeDown > 0.0001f)
         {
-            float deepest = 0f;
-            for (int i = 0; i < _validationResult.GetCollisionCount(); i++)
-                deepest = Mathf.Max(deepest, _validationResult.GetCollisionDepth(i));
-            Vector3 recovery = _validationResult.GetTravel();
-            Contacts.SnapSecondaryRecovery = recovery;
-            Vector3 lateralRecovery = recovery.Slide(up);
-            // Keep Jolt's ledge depenetration within a few skin widths. A
-            // larger shift would turn a support sample into a side teleport.
-            if (recovery.Length() > CollisionMargin * 4f ||
-                lateralRecovery.Length() > CollisionMargin * 3.5f ||
-                Mathf.Abs(recovery.Dot(up)) > CollisionMargin * 2.5f ||
-                (!planarWalk.IsZeroApprox() && lateralRecovery.Length() > CollisionMargin * 0.5f &&
-                 lateralRecovery.Dot(planarWalk.Normalized()) < lateralRecovery.Length() * 0.5f) ||
-                deepest > CollisionMargin * 1.5f)
+            Transform3D increment = from;
+            increment.Origin -= up * safeDown;
+            if (Test(increment, Vector3.Zero, _validationResult))
             {
-                Contacts.SnapSecondaryValidation = "full capsule overlap";
-                return false;
+                float deepest = 0f;
+                for (int i = 0; i < _validationResult.GetCollisionCount(); i++)
+                    deepest = Mathf.Max(deepest, _validationResult.GetCollisionDepth(i));
+                Contacts.SnapSecondaryRecovery = _validationResult.GetTravel();
+                if (_validationResult.GetTravel().Length() > CollisionMargin * 2f ||
+                    deepest > CollisionMargin * 1.5f)
+                    safeDown = 0f;
             }
-            candidate.Origin += recovery;
-        }
-        float actualDrop = (from.Origin - candidate.Origin).Dot(up);
-        if (actualDrop <= CollisionMargin * 1.5f || actualDrop > maxDrop)
-        {
-            Contacts.SnapSecondaryValidation = "recovery outside snap range";
-            return false;
-        }
-        Vector3 validatedMotion = candidate.Origin - from.Origin;
-        if (Test(from, validatedMotion, _validationResult, false) &&
-            (_validationResult.GetTravel() - validatedMotion).Length() > 0.005f)
-        {
-            Contacts.SnapSecondaryValidation = "full capsule path blocked";
-            return false;
-        }
-        if (Test(candidate, Vector3.Zero, _validationResult) &&
-            _validationResult.GetTravel().Length() > CollisionMargin * 0.5f)
-        {
-            Contacts.SnapSecondaryValidation = "final capsule overlap";
-            return false;
-        }
-        if (!Test(candidate, -up * CollisionMargin * 3f, _probeResult, false) ||
-            !HasWalkableContact(_probeResult, up, walkDot))
-        {
-            Contacts.SnapSecondaryValidation = "no capsule support";
-            return false;
+            if (safeDown > 0f)
+                snapped = increment;
         }
 
-        snapped = candidate;
-        Contacts.SnappedDown = true;
-        Contacts.SnapDistance = actualDrop;
-        Contacts.SnapStatus = "edge fallback accepted";
-        Contacts.SnapSource = "edge fallback";
-        Contacts.SnapSecondaryValidation = "accepted";
-        return true;
+        support = new StaticSupportCandidate(bestNormal, bestPoint, bestRid,
+            bestObjectId, bestDrop, safeDown);
+        Contacts.SnapStatus = "support continuity";
+        Contacts.SnapSource = "support continuity";
+        Contacts.SnapDistance = safeDown;
+        Contacts.SnapSecondaryValidation = safeDown > 0f
+            ? "support continuity + safe vertical travel" : "support continuity (hold height)";
+        return SnapOutcome.SupportContinuity;
     }
 
     private static bool HasWalkableContact(PhysicsTestMotionResult3D result,
