@@ -39,6 +39,18 @@ public sealed class CharacterContactState
     public bool SnappedDown { get; internal set; }
     public float SnapDistance { get; internal set; }
     public string SnapStatus { get; internal set; } = "not tried";
+    public string SnapSource { get; internal set; } = "none";
+    public string SnapPrimaryStatus { get; internal set; } = "not tried";
+    public Vector3 SnapPrimaryNormal { get; internal set; }
+    public float SnapPrimarySlope { get; internal set; }
+    public float SnapPrimaryTravel { get; internal set; }
+    public bool SnapSecondaryAttempted { get; internal set; }
+    public bool SnapSecondaryCandidateFound { get; internal set; }
+    public Vector3 SnapSecondaryNormal { get; internal set; }
+    public float SnapSecondarySlope { get; internal set; }
+    public float SnapSecondaryDrop { get; internal set; }
+    public Vector3 SnapSecondaryRecovery { get; internal set; }
+    public string SnapSecondaryValidation { get; internal set; } = "not tried";
 
     private float _bestGroundDot;
 
@@ -53,6 +65,12 @@ public sealed class CharacterContactState
         StepClearanceRequested = StepClearanceTravelled = 0f;
         StepForwardRequested = StepForwardTravelled = StepLandingDelta = 0f;
         StepStatus = SnapStatus = "not tried";
+        SnapSource = "none";
+        SnapPrimaryStatus = SnapSecondaryValidation = "not tried";
+        SnapPrimaryNormal = SnapSecondaryNormal = Vector3.Zero;
+        SnapSecondaryRecovery = Vector3.Zero;
+        SnapPrimarySlope = SnapPrimaryTravel = SnapSecondarySlope = SnapSecondaryDrop = 0f;
+        SnapSecondaryAttempted = SnapSecondaryCandidateFound = false;
     }
 
     // Movement contacts remain useful for wall/ceiling diagnostics. Ground data

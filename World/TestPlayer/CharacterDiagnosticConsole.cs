@@ -10,6 +10,7 @@ public partial class CharacterDiagnosticConsole : Node
     private int _count;
     private Label _output;
     private bool _carryWasBlocked;
+    private string _lastEdgeOutcome;
 
     public override void _Ready()
     {
@@ -33,10 +34,26 @@ public partial class CharacterDiagnosticConsole : Node
                 Add($"{prefix}STEP rejected: {contact.StepStatus} | {probes} B{contact.BounceCount} R{contact.RecoveryCount}");
         }
 
-        if (contact.SnappedDown)
+        if (contact.SnappedDown && contact.SnapSource == "primary")
             Add($"{prefix}SNAP accepted drop={contact.SnapDistance:F3} | G={contact.SlopeAngle:F1}°");
         else if (wasStable && !contact.IsStable && contact.SnapStatus != "not tried")
             Add($"{prefix}SNAP rejected: {contact.SnapStatus}");
+
+        if (contact.SnapSecondaryAttempted)
+        {
+            string outcome = contact.SnapSecondaryValidation;
+            if (outcome != _lastEdgeOutcome)
+            {
+                string candidate = contact.SnapSecondaryCandidateFound
+                    ? $"candidate={contact.SnapSecondarySlope:F1}° drop={contact.SnapSecondaryDrop:F3}"
+                    : "candidate=none";
+                Add($"{prefix}SNAP edge-fallback {outcome} primary={contact.SnapPrimarySlope:F1}° " +
+                    $"travel={contact.SnapPrimaryTravel:F3} {candidate} recovery={contact.SnapSecondaryRecovery}");
+            }
+            _lastEdgeOutcome = outcome;
+        }
+        else
+            _lastEdgeOutcome = null;
 
         if (!wasStable && contact.IsStable)
             Add($"{prefix}GROUND acquired G={contact.SlopeAngle:F1}°");

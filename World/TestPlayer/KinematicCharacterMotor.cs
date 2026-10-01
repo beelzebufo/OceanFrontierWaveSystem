@@ -21,6 +21,9 @@ public partial class KinematicCharacterMotor : Node
     private readonly Godot.Collections.Array<Rid> _noExclusions = new();
     private readonly PhysicsTestMotionResult3D _result = new();
     private readonly PhysicsTestMotionResult3D _probeResult = new();
+    private readonly PhysicsTestMotionResult3D _validationResult = new();
+    private readonly PhysicsRayQueryParameters3D _supportRay = new();
+    private readonly Godot.Collections.Array<Rid> _supportExclusions = new();
     private readonly Vector3[] _planes = new Vector3[32];
     private int _planeCount;
 
@@ -30,6 +33,11 @@ public partial class KinematicCharacterMotor : Node
         _query.RecoveryAsCollision = true;
         _query.CollideSeparationRay = false;
         _query.ExcludeBodies = _noExclusions;
+        _supportExclusions.Add(Body.GetRid());
+        _supportRay.Exclude = _supportExclusions;
+        _supportRay.CollideWithBodies = true;
+        _supportRay.CollideWithAreas = false;
+        _supportRay.HitBackFaces = false;
     }
 
     public void Simulate(Vector3 requestedMotion, Vector3 walkMotion,
@@ -184,7 +192,7 @@ public partial class KinematicCharacterMotor : Node
                 RecordContacts(_probeResult, up, walkDot);
 
             if (wasStable && allowGrounding && !Contacts.IsStable &&
-                TrySnapDown(simulated, up, walkDot, out Transform3D snapped))
+                TrySnapDown(simulated, walkMotion, up, walkDot, out Transform3D snapped))
             {
                 simulated = snapped;
                 Contacts.ClearGround();
@@ -345,20 +353,36 @@ public partial class KinematicCharacterMotor : Node
         return true;
     }
 
-    private bool TrySnapDown(Transform3D from, Vector3 up, float walkDot,
+    private bool TrySnapDown(Transform3D from, Vector3 walkMotion, Vector3 up, float walkDot,
         out Transform3D snapped)
     {
         snapped = from;
         if (!Test(from, -up * SnapDownDistance, _probeResult, false))
         {
+            Contacts.SnapPrimaryStatus = "no hit";
             Contacts.SnapStatus = "no ground in range";
             return false;
         }
+        Contacts.SnapPrimaryTravel = -_probeResult.GetTravel().Dot(up);
+        float bestPrimaryDot = -1f;
+        for (int i = 0; i < _probeResult.GetCollisionCount(); i++)
+        {
+            Vector3 normal = _probeResult.GetCollisionNormal(i).Normalized();
+            float dot = normal.Dot(up);
+            if (dot > bestPrimaryDot)
+            {
+                bestPrimaryDot = dot;
+                Contacts.SnapPrimaryNormal = normal;
+                Contacts.SnapPrimarySlope = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(dot, -1f, 1f)));
+            }
+        }
         if (!HasWalkableContact(_probeResult, up, walkDot))
         {
+            Contacts.SnapPrimaryStatus = "unwalkable";
             Contacts.SnapStatus = "unwalkable ground";
-            return false;
+            return TryEdgeSupport(from, walkMotion, up, walkDot, out snapped);
         }
+        Contacts.SnapPrimaryStatus = "walkable";
         float distance = -_probeResult.GetTravel().Dot(up);
         if (distance < CollisionMargin * 1.5f ||
             distance > SnapDownDistance + 0.005f)
@@ -370,6 +394,116 @@ public partial class KinematicCharacterMotor : Node
         Contacts.SnappedDown = true;
         Contacts.SnapDistance = distance;
         Contacts.SnapStatus = "accepted";
+        Contacts.SnapSource = "primary";
+        return true;
+    }
+
+    private bool TryEdgeSupport(Transform3D from, Vector3 walkMotion, Vector3 up,
+        float walkDot, out Transform3D snapped)
+    {
+        snapped = from;
+        Contacts.SnapSecondaryAttempted = true;
+        Vector3 planarWalk = walkMotion - up * walkMotion.Dot(up);
+        Vector3 forward = planarWalk.LengthSquared() > 0.000001f
+            ? planarWalk.Normalized() * 0.12f : Vector3.Zero;
+        PhysicsDirectSpaceState3D space = Body.GetWorld3D().DirectSpaceState;
+        _supportRay.CollisionMask = Body.CollisionMask;
+        const float startHeight = 0.05f;
+        float maxDrop = SnapDownDistance + 0.005f;
+        float bestDrop = float.PositiveInfinity;
+        Vector3 bestNormal = Vector3.Zero;
+
+        // The second sample is a short look ahead, not a player displacement.
+        for (int sample = 0; sample < 2; sample++)
+        {
+            if (sample == 1 && forward.IsZeroApprox())
+                break;
+            Vector3 offset = sample == 0 ? Vector3.Zero : forward;
+            _supportRay.From = from.Origin + offset + up * startHeight;
+            _supportRay.To = from.Origin + offset - up * (maxDrop + CollisionMargin);
+            Godot.Collections.Dictionary hit = space.IntersectRay(_supportRay);
+            if (hit.Count == 0)
+                continue;
+            Vector3 normal = ((Vector3)hit["normal"]).Normalized();
+            if (normal.Dot(up) < walkDot)
+                continue;
+            Vector3 point = (Vector3)hit["position"];
+            float drop = (from.Origin - point).Dot(up) - CollisionMargin;
+            if (drop <= CollisionMargin * 1.5f || drop > maxDrop || drop >= bestDrop)
+                continue;
+            bestDrop = drop;
+            bestNormal = normal;
+        }
+
+        if (bestNormal.IsZeroApprox())
+        {
+            Contacts.SnapSecondaryValidation = "no walkable candidate";
+            return false;
+        }
+        Contacts.SnapSecondaryCandidateFound = true;
+        Contacts.SnapSecondaryNormal = bestNormal;
+        Contacts.SnapSecondarySlope = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(bestNormal.Dot(up), -1f, 1f)));
+        Contacts.SnapSecondaryDrop = bestDrop;
+
+        // A ray supplies only a candidate. Jolt's full-capsule recovery may
+        // nudge it out of a rounded ledge by a few skin widths. The adjusted
+        // pose must still be reached by an unobstructed full-capsule sweep.
+        Transform3D candidate = from;
+        candidate.Origin -= up * bestDrop;
+        if (Test(candidate, Vector3.Zero, _validationResult))
+        {
+            float deepest = 0f;
+            for (int i = 0; i < _validationResult.GetCollisionCount(); i++)
+                deepest = Mathf.Max(deepest, _validationResult.GetCollisionDepth(i));
+            Vector3 recovery = _validationResult.GetTravel();
+            Contacts.SnapSecondaryRecovery = recovery;
+            Vector3 lateralRecovery = recovery.Slide(up);
+            // Keep Jolt's ledge depenetration within a few skin widths. A
+            // larger shift would turn a support sample into a side teleport.
+            if (recovery.Length() > CollisionMargin * 4f ||
+                lateralRecovery.Length() > CollisionMargin * 3.5f ||
+                Mathf.Abs(recovery.Dot(up)) > CollisionMargin * 2.5f ||
+                (!planarWalk.IsZeroApprox() && lateralRecovery.Length() > CollisionMargin * 0.5f &&
+                 lateralRecovery.Dot(planarWalk.Normalized()) < lateralRecovery.Length() * 0.5f) ||
+                deepest > CollisionMargin * 1.5f)
+            {
+                Contacts.SnapSecondaryValidation = "full capsule overlap";
+                return false;
+            }
+            candidate.Origin += recovery;
+        }
+        float actualDrop = (from.Origin - candidate.Origin).Dot(up);
+        if (actualDrop <= CollisionMargin * 1.5f || actualDrop > maxDrop)
+        {
+            Contacts.SnapSecondaryValidation = "recovery outside snap range";
+            return false;
+        }
+        Vector3 validatedMotion = candidate.Origin - from.Origin;
+        if (Test(from, validatedMotion, _validationResult, false) &&
+            (_validationResult.GetTravel() - validatedMotion).Length() > 0.005f)
+        {
+            Contacts.SnapSecondaryValidation = "full capsule path blocked";
+            return false;
+        }
+        if (Test(candidate, Vector3.Zero, _validationResult) &&
+            _validationResult.GetTravel().Length() > CollisionMargin * 0.5f)
+        {
+            Contacts.SnapSecondaryValidation = "final capsule overlap";
+            return false;
+        }
+        if (!Test(candidate, -up * CollisionMargin * 3f, _probeResult, false) ||
+            !HasWalkableContact(_probeResult, up, walkDot))
+        {
+            Contacts.SnapSecondaryValidation = "no capsule support";
+            return false;
+        }
+
+        snapped = candidate;
+        Contacts.SnappedDown = true;
+        Contacts.SnapDistance = actualDrop;
+        Contacts.SnapStatus = "edge fallback accepted";
+        Contacts.SnapSource = "edge fallback";
+        Contacts.SnapSecondaryValidation = "accepted";
         return true;
     }
 

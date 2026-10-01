@@ -183,6 +183,9 @@ public partial class PlayerLocomotion : CharacterBody3D
                 $"Collider RID: {contact.GroundColliderRid}  ID: {contact.GroundColliderObjectId}\n" +
                 $"Step: {contact.StepStatus}  Rise: {contact.StepRise:F3} m\n" +
                 $"Snap: {contact.SnapStatus}  Drop: {contact.SnapDistance:F3} m\n" +
+                $"Snap source: {contact.SnapSource}  Primary: {contact.SnapPrimaryStatus} {contact.SnapPrimarySlope:F1}° {contact.SnapPrimaryNormal} travel={contact.SnapPrimaryTravel:F3}\n" +
+                $"Edge probe: {contact.SnapSecondaryAttempted} candidate={contact.SnapSecondaryCandidateFound} " +
+                $"{contact.SnapSecondarySlope:F1}° drop={contact.SnapSecondaryDrop:F3} validation={contact.SnapSecondaryValidation}\n" +
                 $"Platform carry: {Motor.GroundMotion.CarryTravelled:F3}/{Motor.GroundMotion.CarryRequested:F3} m  Blocked: {Motor.GroundMotion.CarryBlocked}\n" +
                 $"State: {(contact.IsStable ? "Grounded" : "Airborne")}  Velocity: {_velocity}  Up: {_velocity.Dot(up):F2}\n" +
                 $"Coyote: {_coyoteRemaining:F2}s  Buffer: {_jumpBufferRemaining:F2}s  Last ground v: {_lastGroundVelocity}\n" +
