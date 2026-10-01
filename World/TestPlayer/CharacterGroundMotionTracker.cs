@@ -15,12 +15,14 @@ public sealed class CharacterGroundMotionTracker
     public float CarryRequested { get; private set; }
     public float CarryTravelled { get; private set; }
     public bool CarryBlocked { get; private set; }
+    public Quaternion RotationDelta { get; private set; } = Quaternion.Identity;
 
     public void BeginTick()
     {
         Transition = null;
         CarryRequested = CarryTravelled = 0f;
         CarryBlocked = false;
+        RotationDelta = Quaternion.Identity;
         if (_platform != null && !GodotObject.IsInstanceValid(_platform))
             Clear("detach " + _name + " (invalid)");
     }
@@ -29,7 +31,11 @@ public sealed class CharacterGroundMotionTracker
     {
         if (_platform == null)
             return Vector3.Zero;
+        Transform3D previous = _platformTransform;
         _platformTransform = _platform.GlobalTransform;
+        Quaternion before = previous.Basis.Orthonormalized().GetRotationQuaternion();
+        Quaternion after = _platformTransform.Basis.Orthonormalized().GetRotationQuaternion();
+        RotationDelta = (after * before.Inverse()).Normalized();
         return _platformTransform * _playerLocalOrigin - playerWorldOrigin;
     }
 
@@ -62,6 +68,7 @@ public sealed class CharacterGroundMotionTracker
             _platform = candidate;
             _objectId = candidateId;
             _rid = candidateRid;
+            RotationDelta = Quaternion.Identity;
         }
 
         _platformTransform = candidate.GlobalTransform;
@@ -89,5 +96,6 @@ public sealed class CharacterGroundMotionTracker
         _name = null;
         _platformTransform = Transform3D.Identity;
         _playerLocalOrigin = Vector3.Zero;
+        RotationDelta = Quaternion.Identity;
     }
 }
