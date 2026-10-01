@@ -32,7 +32,8 @@ public partial class KinematicCharacterMotor : Node
         _query.ExcludeBodies = _noExclusions;
     }
 
-    public void Simulate(Vector3 requestedMotion, Vector3 walkMotion, bool allowGrounding = true)
+    public void Simulate(Vector3 requestedMotion, Vector3 walkMotion,
+        bool allowGrounding = true, bool allowPlatformCarry = true)
     {
         bool wasStable = Contacts.IsStable;
         bool hadCeiling = Contacts.HasCeiling;
@@ -43,7 +44,8 @@ public partial class KinematicCharacterMotor : Node
         Transform3D simulated = Body.GlobalTransform;
 
         GroundMotion.BeginTick();
-        Vector3 carry = GroundMotion.ComputeCarryMotion(simulated.Origin);
+        Vector3 carry = allowPlatformCarry
+            ? GroundMotion.ComputeCarryMotion(simulated.Origin) : Vector3.Zero;
         Vector3 carryBlockNormal = Vector3.Zero;
         float carryBlockLimit = 0f;
         if (hadCeiling && GroundMotion.PlatformRid != default)

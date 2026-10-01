@@ -18,7 +18,7 @@ public partial class CharacterDiagnosticConsole : Node
     }
 
     public void Observe(CharacterContactState contact, bool wasStable,
-        CharacterGroundMotionTracker groundMotion, ulong frame)
+        CharacterGroundMotionTracker groundMotion, ulong frame, PlayerLocomotion locomotion)
     {
         string prefix = $"#{frame} ";
         if (contact.StepStatus != "not tried")
@@ -48,6 +48,23 @@ public partial class CharacterDiagnosticConsole : Node
         if (groundMotion.CarryBlocked && !_carryWasBlocked)
             Add($"{prefix}PLATFORM carry blocked={groundMotion.CarryTravelled:F3}/{groundMotion.CarryRequested:F3}");
         _carryWasBlocked = groundMotion.CarryBlocked;
+
+        if (locomotion.JumpBufferedThisTick)
+            Add($"{prefix}JUMP buffered {locomotion.JumpBufferRemaining:F2}s");
+        if (locomotion.JumpAcceptedThisTick)
+        {
+            Add($"{prefix}JUMP accepted v={locomotion.JumpLaunchVelocity}");
+            if (locomotion.CoyoteJumpThisTick)
+                Add($"{prefix}JUMP coyote from RID {locomotion.LastGroundRid}");
+        }
+        if (locomotion.GroundVelocityTransferredThisTick)
+            Add($"{prefix}GROUND VELOCITY TRANSFER={locomotion.TransferredGroundVelocity} " +
+                $"speed={locomotion.TransferredGroundVelocity.Length():F2}");
+        if (locomotion.AirborneEnteredThisTick)
+            Add($"{prefix}AIRBORNE entered");
+        if (locomotion.LandedThisTick)
+            Add($"{prefix}LAND speed={locomotion.LandingPreImpactVerticalSpeed:F2} " +
+                $"G={contact.SlopeAngle:F1}° RID={contact.GroundColliderRid} ID={contact.GroundColliderObjectId}");
     }
 
     private void Add(string message)

@@ -3,10 +3,25 @@ using Godot;
 public partial class PlayerIntent : Node
 {
     [Export] public Camera3D Camera { get; set; }
+    private bool _jumpPressed;
 
     public override void _Ready()
     {
         Camera ??= GetNode<Camera3D>("../CameraManager/Arm/Camera3D");
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventKey key && key.Pressed && !key.Echo &&
+            (key.Keycode == Key.Space || key.PhysicalKeycode == Key.Space))
+            _jumpPressed = true;
+    }
+
+    public bool ConsumeJumpPressed()
+    {
+        bool pressed = _jumpPressed;
+        _jumpPressed = false;
+        return pressed;
     }
 
     public Vector3 ReadWorldDirection()

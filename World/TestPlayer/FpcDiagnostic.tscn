@@ -130,6 +130,18 @@ size = Vector3(3, 0.3, 3)
 [sub_resource type="BoxMesh" id="elevator_ceiling_mesh"]
 size = Vector3(3, 0.3, 3)
 
+[sub_resource type="BoxShape3D" id="coyote_ledge_shape"]
+size = Vector3(2, 0.3, 2)
+
+[sub_resource type="BoxMesh" id="coyote_ledge_mesh"]
+size = Vector3(2, 0.3, 2)
+
+[sub_resource type="BoxShape3D" id="jump_ceiling_shape"]
+size = Vector3(3, 0.3, 3)
+
+[sub_resource type="BoxMesh" id="jump_ceiling_mesh"]
+size = Vector3(3, 0.3, 3)
+
 [node name="FpcDiagnostic" type="Node3D" unique_id=970551262]
 
 [node name="Player" parent="." unique_id=429729524 instance=ExtResource("1_player")]
@@ -364,4 +376,24 @@ shape = SubResource("elevator_ceiling_shape")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="ElevatorLowCeiling" unique_id=209709448]
 mesh = SubResource("elevator_ceiling_mesh")
+surface_material_override/0 = SubResource("blocked_material")
+
+[node name="CoyoteLedge" type="StaticBody3D" parent="."]
+position = Vector3(-1, 1, -12)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CoyoteLedge"]
+shape = SubResource("coyote_ledge_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CoyoteLedge"]
+mesh = SubResource("coyote_ledge_mesh")
+surface_material_override/0 = SubResource("platform_material")
+
+[node name="JumpCeiling" type="StaticBody3D" parent="."]
+position = Vector3(0, 2.35, 6)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="JumpCeiling"]
+shape = SubResource("jump_ceiling_shape")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="JumpCeiling"]
+mesh = SubResource("jump_ceiling_mesh")
 surface_material_override/0 = SubResource("blocked_material")
