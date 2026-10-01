@@ -3,6 +3,7 @@ using Godot;
 public partial class KinematicCharacterMotor : Node
 {
     private enum SnapOutcome { None, Primary, SupportContinuity }
+    private enum StepOutcome { None, Landing, SupportedProgress }
 
     private readonly struct StaticSupportCandidate
     {
@@ -185,11 +186,18 @@ public partial class KinematicCharacterMotor : Node
             {
                 stepTried = true;
                 Vector3 forward = next - up * next.Dot(up);
-                if (TryStep(simulated, forward, walkMotion, up, walkDot, out Transform3D landing))
+                StepOutcome step = TryStep(simulated, forward, walkMotion, previousSupportPoint,
+                    up, walkDot, out Transform3D landing, out StaticSupportCandidate stepSupport);
+                if (step != StepOutcome.None)
                 {
                     simulated = landing;
                     Contacts.ClearGround();
-                    RecordContacts(_probeResult, up, walkDot);
+                    if (step == StepOutcome.Landing)
+                        RecordContacts(_probeResult, up, walkDot);
+                    else
+                        Contacts.SetSupportContinuity(stepSupport.Normal, stepSupport.Point,
+                            stepSupport.Rid, stepSupport.ObjectId, stepSupport.Drop,
+                            stepSupport.AppliedDrop, up);
                     stepAccepted = true;
                     break;
                 }
@@ -300,15 +308,17 @@ public partial class KinematicCharacterMotor : Node
         return false;
     }
 
-    private bool TryStep(Transform3D from, Vector3 forward, Vector3 walkMotion, Vector3 up,
-        float walkDot, out Transform3D landing)
+    private StepOutcome TryStep(Transform3D from, Vector3 forward, Vector3 walkMotion,
+        Vector3 previousSupportPoint, Vector3 up, float walkDot,
+        out Transform3D landing, out StaticSupportCandidate support)
     {
         landing = from;
+        support = default;
         Contacts.StepForwardRequested = forward.Length();
         if (forward.LengthSquared() < 0.00000001f)
         {
             Contacts.StepStatus = "too little forward motion";
-            return false;
+            return StepOutcome.None;
         }
 
         // Candidate queries never alter the actual body or the main bounce
@@ -323,7 +333,7 @@ public partial class KinematicCharacterMotor : Node
         if (riseTravelled < StepHeight - 0.005f)
         {
             Contacts.StepStatus = "overhead blocked";
-            return false;
+            return StepOutcome.None;
         }
 
         // Probe a fixed minimum depth from the raised pose. This only tests
@@ -340,7 +350,7 @@ public partial class KinematicCharacterMotor : Node
         if (clearanceTravelled + 0.0001f < StepUpDepth)
         {
             Contacts.StepStatus = "minimum forward clearance blocked";
-            return false;
+            return StepOutcome.None;
         }
 
         Transform3D advanced = raised;
@@ -351,15 +361,19 @@ public partial class KinematicCharacterMotor : Node
         if (forwardTravelled < forward.Length() - 0.005f)
         {
             Contacts.StepStatus = "forward blocked";
-            return false;
+            return StepOutcome.None;
         }
 
         Vector3 descent = -up * (StepHeight + SnapDownDistance);
         if (!Test(advanced, descent, _probeResult, false) ||
             !HasWalkableContact(_probeResult, up, walkDot))
         {
+            if (TrySupportedStepProgress(from, raised, advanced, direction,
+                walkMotion, previousSupportPoint, descent, up, walkDot,
+                out landing, out support))
+                return StepOutcome.SupportedProgress;
             Contacts.StepStatus = "no walkable landing";
-            return false;
+            return StepOutcome.None;
         }
 
         landing = advanced;
@@ -371,12 +385,12 @@ public partial class KinematicCharacterMotor : Node
         if (height < CollisionMargin * 2f && height >= -CollisionMargin)
         {
             Contacts.StepStatus = "no raised landing";
-            return false;
+            return StepOutcome.None;
         }
         if (height < -SnapDownDistance - 0.005f || height > StepHeight + 0.005f)
         {
             Contacts.StepStatus = "landing outside step range";
-            return false;
+            return StepOutcome.None;
         }
         Contacts.SteppedUp = true;
         Contacts.StepRise = height;
@@ -384,6 +398,48 @@ public partial class KinematicCharacterMotor : Node
         Contacts.SnappedDown = true;
         Contacts.SnapDistance = (advanced.Origin - landing.Origin).Dot(up);
         Contacts.SnapStatus = "step landing";
+        return StepOutcome.Landing;
+    }
+
+    private bool TrySupportedStepProgress(Transform3D from, Transform3D raised,
+        Transform3D advanced, Vector3 direction, Vector3 walkMotion,
+        Vector3 previousSupportPoint, Vector3 descent, Vector3 up, float walkDot,
+        out Transform3D landing, out StaticSupportCandidate support)
+    {
+        landing = from;
+        support = default;
+        // The fixed-depth lookahead only supplies a target tread height. The
+        // committed horizontal travel remains this tick's actual remainder.
+        Transform3D lookahead = raised;
+        lookahead.Origin += direction * StepUpDepth;
+        if (!Test(lookahead, descent, _validationResult, false) ||
+            !HasWalkableContact(_validationResult, up, walkDot))
+            return false;
+
+        Vector3 futureOrigin = lookahead.Origin + _validationResult.GetTravel();
+        float rise = (futureOrigin - from.Origin).Dot(up);
+        if (rise <= CollisionMargin * 2f || rise > StepHeight + 0.005f)
+            return false;
+
+        Transform3D candidate = advanced;
+        candidate.Origin += up * (futureOrigin - candidate.Origin).Dot(up);
+        Vector3 down = candidate.Origin - advanced.Origin;
+        if (down.Dot(up) >= 0f)
+            return false;
+        if (Test(advanced, down, _validationResult, false) &&
+            _validationResult.GetTravel().DistanceTo(down) > CollisionMargin * 0.5f)
+            return false;
+
+        // This is a progress pose, not an upper-tread landing. A fresh ray at
+        // the final pose must confirm the same static tread as last tick.
+        if (TryEdgeSupport(candidate, walkMotion, Vector3.Zero, previousSupportPoint,
+                true, up, walkDot, out landing, out support) != SnapOutcome.SupportContinuity)
+            return false;
+
+        Contacts.SteppedUp = true;
+        Contacts.StepRise = (landing.Origin - from.Origin).Dot(up);
+        Contacts.StepLandingDelta = Contacts.StepRise;
+        Contacts.StepStatus = "supported progress";
         return true;
     }
 
@@ -428,16 +484,23 @@ public partial class KinematicCharacterMotor : Node
                 return SnapOutcome.None;
             }
             return TryEdgeSupport(from, walkMotion, primaryTravel,
-                previousSupportPoint, up, walkDot,
+                previousSupportPoint, false, up, walkDot,
                 out snapped, out support);
         }
         Contacts.SnapPrimaryStatus = "walkable";
         float distance = -_probeResult.GetTravel().Dot(up);
-        if (distance < CollisionMargin * 1.5f ||
-            distance > SnapDownDistance + 0.005f)
+        if (distance < 0f || distance > SnapDownDistance + 0.005f)
         {
             Contacts.SnapStatus = "outside useful snap range";
             return SnapOutcome.None;
+        }
+        if (distance < CollisionMargin * 1.5f)
+        {
+            // The fresh full-capsule sweep already found walkable support.
+            // Keep the pose to avoid applying skin-sized recovery every tick.
+            Contacts.SnapStatus = "primary contact support";
+            Contacts.SnapSource = "primary";
+            return SnapOutcome.Primary;
         }
         snapped.Origin += primaryTravel;
         Contacts.SnappedDown = true;
@@ -448,7 +511,8 @@ public partial class KinematicCharacterMotor : Node
     }
 
     private SnapOutcome TryEdgeSupport(Transform3D from, Vector3 walkMotion,
-        Vector3 primaryTravel, Vector3 previousSupportPoint, Vector3 up, float walkDot,
+        Vector3 primaryTravel, Vector3 previousSupportPoint, bool requireSameLevel,
+        Vector3 up, float walkDot,
         out Transform3D snapped, out StaticSupportCandidate support)
     {
         snapped = from;
@@ -486,6 +550,9 @@ public partial class KinematicCharacterMotor : Node
             Vector3 point = (Vector3)hit["position"];
             float drop = (from.Origin - point).Dot(up) - CollisionMargin;
             if (drop <= CollisionMargin * 1.5f || drop > maxDrop || drop >= bestDrop)
+                continue;
+            if (requireSameLevel &&
+                Mathf.Abs((point - previousSupportPoint).Dot(up)) > CollisionMargin)
                 continue;
             // The capsule can slide partway down a rounded upper edge while
             // still classed stable. Keep the full level change bounded by the
