@@ -39,6 +39,7 @@ public partial class PlayerViewMotionController : Node
 {
 	public enum Channel
 	{
+		Stair,
 		Bob,
 		Strafe,
 		LookSway,
@@ -67,6 +68,9 @@ public partial class PlayerViewMotionController : Node
 	[Export(PropertyHint.Range, "0,3.14,0.01")] public float BobRotationPhaseOffset { get; set; } = 0.25f;
 	[Export(PropertyHint.Range, "0.001,0.5,0.001")] public float BobFadeTime { get; set; } = 0.08f;
 	[Export(PropertyHint.Range, "0,1,0.01")] public float BobMinimumSpeed { get; set; } = 0.05f;
+	[Export] public bool StairSmoothingEnabled { get; set; } = true;
+	[Export(PropertyHint.Range, "0.1,10,0.1")] public float StairSmoothingSpeed { get; set; } = 1.5f;
+	[Export(PropertyHint.Range, "0,1,0.01")] public float StairMaxOffset { get; set; } = 0.4f;
 
 	public ViewMotionPhysicsSnapshot LatestPhysicsSnapshot { get; private set; }
 	public ViewMotionFrame CurrentFrame => _frame;
@@ -84,6 +88,12 @@ public partial class PlayerViewMotionController : Node
 	public Vector3 BobPosition { get; private set; }
 	// Euler radians, in ViewMotionRotation's local space.
 	public Vector3 BobRotation { get; private set; }
+	public float StairOffsetCurrent => _currentStairOffset;
+	public float StairOffsetPrevious => _previousStairOffset;
+	public float StairRenderOffset { get; private set; }
+	public float LastStairRootRise { get; private set; }
+	public bool StairSmoothingActive => !Mathf.IsZeroApprox(_previousStairOffset) ||
+		!Mathf.IsZeroApprox(_currentStairOffset);
 
 	private readonly Contribution[] _channels = new Contribution[(int)Channel.Count];
 	private readonly ViewSpring3 _positionSpring = new();
@@ -96,6 +106,9 @@ public partial class PlayerViewMotionController : Node
 	private double _previousBobDistance;
 	private double _currentBobDistance;
 	private bool _bobActive;
+	private float _previousStairOffset;
+	private float _currentStairOffset;
+	private Vector3 _lastPhysicsRootOrigin;
 
 	public override void _Ready()
 	{
@@ -120,6 +133,7 @@ public partial class PlayerViewMotionController : Node
 		LatestPhysicsSnapshot = new ViewMotionPhysicsSnapshot(Engine.GetPhysicsFrames(),
 			contact.IsStable, Locomotion.LocomotionVelocity, contact.GroundNormal,
 			jumped, jumpSpeed, landed, landingSpeed);
+		UpdateStairOffset((float)delta, contact, up);
 		// Integrate only player locomotion, never the platform carry or root delta.
 		Vector3 velocity = Locomotion.LocomotionVelocity;
 		Vector3 planarVelocity = velocity - up * velocity.Dot(up);
@@ -155,6 +169,7 @@ public partial class PlayerViewMotionController : Node
 		_pendingLandingSpeed = 0f;
 
 		_frame = ViewMotionFrame.Identity;
+		UpdateRenderStairOffset();
 		UpdateBob((float)delta);
 		// Enum order is the composition order. Each source submits only its
 		// channel; rotation bases multiply in that fixed order after mouse pitch.
@@ -180,6 +195,41 @@ public partial class PlayerViewMotionController : Node
 	// camera motion never enter this conversion.
 	public Vector3 GetYawLocalVelocity()
 		=> new Basis(Motor.Up.Normalized(), View.Yaw).Inverse() * LatestPhysicsSnapshot.Velocity;
+
+	private void UpdateStairOffset(float delta, CharacterContactState contact, Vector3 up)
+	{
+		_previousStairOffset = _currentStairOffset;
+		Vector3 currentOrigin = Locomotion.GlobalPosition;
+		float rootRise = (currentOrigin - _lastPhysicsRootOrigin).Dot(up);
+		_lastPhysicsRootOrigin = currentOrigin;
+		LastStairRootRise = 0f;
+
+		if (!StairSmoothingEnabled)
+		{
+			_previousStairOffset = _currentStairOffset = 0f;
+			return;
+		}
+
+		float maxOffset = Mathf.Max(0f, StairMaxOffset);
+		_currentStairOffset = Mathf.Clamp(Mathf.MoveToward(_currentStairOffset, 0f,
+			Mathf.Max(0f, StairSmoothingSpeed) * delta), -maxOffset, 0f);
+		const float minimumRise = 0.005f;
+		const float carryEpsilon = 0.0001f;
+		if (!contact.SteppedUp || rootRise <= minimumRise ||
+			Motor.GroundMotion.CarryRequested > carryEpsilon ||
+			Motor.GroundMotion.CarryTravelled > carryEpsilon)
+			return;
+
+		LastStairRootRise = rootRise;
+		_currentStairOffset = Mathf.Clamp(_currentStairOffset - rootRise, -maxOffset, 0f);
+	}
+
+	private void UpdateRenderStairOffset()
+	{
+		float alpha = Mathf.Clamp((float)Engine.GetPhysicsInterpolationFraction(), 0f, 1f);
+		StairRenderOffset = Mathf.Lerp(_previousStairOffset, _currentStairOffset, alpha);
+		AddPosition(Channel.Stair, new Vector3(0f, StairRenderOffset, 0f));
+	}
 
 	private void UpdateBob(float delta)
 	{
@@ -227,6 +277,9 @@ public partial class PlayerViewMotionController : Node
 		_bobActive = false;
 		BobPhase = BobWeight = BobPlanarSpeed = 0f;
 		BobPosition = BobRotation = Vector3.Zero;
+		_previousStairOffset = _currentStairOffset = 0f;
+		StairRenderOffset = LastStairRootRise = 0f;
+		_lastPhysicsRootOrigin = Locomotion.GlobalPosition;
 		ViewMotionPosition.Position = Vector3.Zero;
 		ViewMotionRotation.Basis = Basis.Identity;
 	}
