@@ -2,12 +2,12 @@ using Godot;
 
 public partial class PlayerIntent : Node
 {
-    [Export] public Camera3D Camera { get; set; }
+    [Export] public PlayerViewController View { get; set; }
     private bool _jumpPressed;
 
     public override void _Ready()
     {
-        Camera ??= GetNode<Camera3D>("../CameraManager/Arm/Camera3D");
+        View ??= GetNode<PlayerViewController>("../PlayerViewController");
     }
 
     public override void _Input(InputEvent @event)
@@ -33,12 +33,11 @@ public partial class PlayerIntent : Node
         if (Input.IsKeyPressed(Key.D)) axes.X += 1f;
         axes = axes.Normalized();
 
-        if (Camera == null)
+        if (View == null)
             return Vector3.Zero;
-        Vector3 forward = -Camera.GlobalBasis.Z;
-        forward.Y = 0f;
-        Vector3 right = Camera.GlobalBasis.X;
-        right.Y = 0f;
-        return (right.Normalized() * axes.X - forward.Normalized() * axes.Y).Normalized();
+        Vector3 up = View.Motor.Up.Normalized();
+        Vector3 forward = View.GetPlanarForward(up);
+        Vector3 right = View.GetPlanarRight(up);
+        return (right * axes.X - forward * axes.Y).Normalized();
     }
 }
