@@ -1,10 +1,11 @@
-[gd_scene load_steps=7 format=3 uid="uid://hjeufk1g44jx"]
+[gd_scene load_steps=8 format=3 uid="uid://hjeufk1g44jx"]
 
 [ext_resource type="Script" path="res://World/TestPlayer/PlayerLocomotion.cs" id="1_locomotion"]
 [ext_resource type="Script" uid="uid://bajysxsvasb2m" path="res://World/TestPlayer/PlayerViewController.cs" id="2_view"]
 [ext_resource type="Script" path="res://World/TestPlayer/PlayerIntent.cs" id="3_intent"]
 [ext_resource type="Script" path="res://World/TestPlayer/KinematicCharacterMotor.cs" id="4_motor"]
 [ext_resource type="Script" uid="uid://c0rb2f27xmqj7" path="res://World/TestPlayer/CharacterDiagnosticConsole.cs" id="5_console"]
+[ext_resource type="Script" uid="uid://ddieqlpog6n7b" path="res://World/TestPlayer/PlayerViewMotionController.cs" id="6_view_motion"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -30,7 +31,13 @@ script = ExtResource("5_console")
 
 [node name="PlayerViewController" type="Node" parent="."]
 process_physics_priority = 10
+process_priority = 0
 script = ExtResource("2_view")
+
+[node name="PlayerViewMotionController" type="Node" parent="."]
+process_physics_priority = 20
+process_priority = 20
+script = ExtResource("6_view_motion")
 
 [node name="ViewRoot" type="Node3D" parent="."]
 top_level = true
@@ -40,11 +47,13 @@ top_level = true
 [node name="ViewAnchor" type="Node3D" parent="ViewRoot/FacingYaw"]
 position = Vector3(0, 1.6, 0)
 
-[node name="PitchPivot" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor"]
+[node name="ViewMotionPosition" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor"]
 
-[node name="ViewMotion" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/PitchPivot"]
+[node name="PitchPivot" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition"]
 
-[node name="Camera3D" type="Camera3D" parent="ViewRoot/FacingYaw/ViewAnchor/PitchPivot/ViewMotion"]
+[node name="ViewMotionRotation" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot"]
+
+[node name="Camera3D" type="Camera3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation"]
 unique_name_in_owner = true
 current = true
 near = 0.05

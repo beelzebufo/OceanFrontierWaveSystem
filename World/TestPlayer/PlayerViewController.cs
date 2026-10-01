@@ -1,6 +1,6 @@
 using Godot;
 
-// View angles and presentation position. Procedural camera motion belongs under ViewMotion.
+// View angles and interpolated position. Procedural offsets have a separate writer.
 public partial class PlayerViewController : Node
 {
     [Export] public KinematicCharacterMotor Motor { get; set; }
@@ -41,7 +41,7 @@ public partial class PlayerViewController : Node
         Motor ??= GetNode<KinematicCharacterMotor>("../KinematicCharacterMotor");
         ViewRoot ??= GetNode<Node3D>("../ViewRoot");
         FacingYaw ??= GetNode<Node3D>("../ViewRoot/FacingYaw");
-        PitchPivot ??= GetNode<Node3D>("../ViewRoot/FacingYaw/ViewAnchor/PitchPivot");
+        PitchPivot ??= GetNode<Node3D>("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot");
         DebugLabel ??= GetNode<Label>("../DebugHud/ViewDebugLabel");
         ResetViewInterpolation();
         Input.MouseMode = Input.MouseModeEnum.Captured;
