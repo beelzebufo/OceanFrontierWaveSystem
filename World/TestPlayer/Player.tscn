@@ -29,18 +29,22 @@ script = ExtResource("4_motor")
 script = ExtResource("5_console")
 
 [node name="PlayerViewController" type="Node" parent="."]
+process_physics_priority = 10
 script = ExtResource("2_view")
 
-[node name="FacingYaw" type="Node3D" parent="."]
+[node name="ViewRoot" type="Node3D" parent="."]
+top_level = true
 
-[node name="ViewAnchor" type="Node3D" parent="FacingYaw"]
+[node name="FacingYaw" type="Node3D" parent="ViewRoot"]
+
+[node name="ViewAnchor" type="Node3D" parent="ViewRoot/FacingYaw"]
 position = Vector3(0, 1.6, 0)
 
-[node name="PitchPivot" type="Node3D" parent="FacingYaw/ViewAnchor"]
+[node name="PitchPivot" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor"]
 
-[node name="ViewMotion" type="Node3D" parent="FacingYaw/ViewAnchor/PitchPivot"]
+[node name="ViewMotion" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/PitchPivot"]
 
-[node name="Camera3D" type="Camera3D" parent="FacingYaw/ViewAnchor/PitchPivot/ViewMotion"]
+[node name="Camera3D" type="Camera3D" parent="ViewRoot/FacingYaw/ViewAnchor/PitchPivot/ViewMotion"]
 unique_name_in_owner = true
 current = true
 near = 0.05
@@ -71,10 +75,10 @@ theme_override_font_sizes/font_size = 15
 text = "Events (newest first)"
 
 [node name="ViewDebugLabel" type="Label" parent="DebugHud"]
-offset_left = 16.0
-offset_top = 610.0
-offset_right = 950.0
-offset_bottom = 640.0
+offset_left = 760.0
+offset_top = 16.0
+offset_right = 1150.0
+offset_bottom = 140.0
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 1)
 theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 2
