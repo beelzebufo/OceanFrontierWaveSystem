@@ -34,12 +34,12 @@ public struct ViewMotionFrame
 	public static ViewMotionFrame Identity => new() { Rotation = Basis.Identity };
 }
 
-// One compositor owns both procedural transforms. No production sources are active yet.
+// One compositor owns both procedural transforms.
 public partial class PlayerViewMotionController : Node
 {
 	public enum Channel
 	{
-		Base,
+		Bob,
 		Strafe,
 		LookSway,
 		JumpFallLanding,
@@ -60,6 +60,13 @@ public partial class PlayerViewMotionController : Node
 	[Export] public PlayerViewController View { get; set; }
 	[Export] public Node3D ViewMotionPosition { get; set; }
 	[Export] public Node3D ViewMotionRotation { get; set; }
+	// One step advances half a bob cycle; two steps cover 2 * BobStepLength.
+	[Export(PropertyHint.Range, "0.1,2,0.01")] public float BobStepLength { get; set; } = 0.75f;
+	[Export] public Vector3 BobPositionAmplitude { get; set; } = new(0.004f, 0.014f, 0.001f);
+	[Export] public Vector3 BobRotationAmplitudeDegrees { get; set; } = new(0.15f, 0.08f, 0.18f);
+	[Export(PropertyHint.Range, "0,3.14,0.01")] public float BobRotationPhaseOffset { get; set; } = 0.25f;
+	[Export(PropertyHint.Range, "0.001,0.5,0.001")] public float BobFadeTime { get; set; } = 0.08f;
+	[Export(PropertyHint.Range, "0,1,0.01")] public float BobMinimumSpeed { get; set; } = 0.05f;
 
 	public ViewMotionPhysicsSnapshot LatestPhysicsSnapshot { get; private set; }
 	public ViewMotionFrame CurrentFrame => _frame;
@@ -71,6 +78,12 @@ public partial class PlayerViewMotionController : Node
 	public float LastRenderJumpSpeed { get; private set; }
 	public int LastRenderLandingCount { get; private set; }
 	public float LastRenderLandingSpeed { get; private set; }
+	public float BobPhase { get; private set; }
+	public float BobWeight { get; private set; }
+	public float BobPlanarSpeed { get; private set; }
+	public Vector3 BobPosition { get; private set; }
+	// Euler radians, in ViewMotionRotation's local space.
+	public Vector3 BobRotation { get; private set; }
 
 	private readonly Contribution[] _channels = new Contribution[(int)Channel.Count];
 	private readonly ViewSpring3 _positionSpring = new();
@@ -80,6 +93,9 @@ public partial class PlayerViewMotionController : Node
 	private float _pendingJumpSpeed;
 	private int _pendingLandingCount;
 	private float _pendingLandingSpeed;
+	private double _previousBobDistance;
+	private double _currentBobDistance;
+	private bool _bobActive;
 
 	public override void _Ready()
 	{
@@ -104,6 +120,14 @@ public partial class PlayerViewMotionController : Node
 		LatestPhysicsSnapshot = new ViewMotionPhysicsSnapshot(Engine.GetPhysicsFrames(),
 			contact.IsStable, Locomotion.LocomotionVelocity, contact.GroundNormal,
 			jumped, jumpSpeed, landed, landingSpeed);
+		// Integrate only player locomotion, never the platform carry or root delta.
+		Vector3 velocity = Locomotion.LocomotionVelocity;
+		Vector3 planarVelocity = velocity - up * velocity.Dot(up);
+		BobPlanarSpeed = contact.IsStable ? planarVelocity.Length() : 0f;
+		_bobActive = contact.IsStable && BobPlanarSpeed > BobMinimumSpeed;
+		_previousBobDistance = _currentBobDistance;
+		if (_bobActive)
+			_currentBobDistance += BobPlanarSpeed * delta;
 
 		// Counts retain multiple events when several physics ticks precede a render.
 		if (jumped)
@@ -131,6 +155,7 @@ public partial class PlayerViewMotionController : Node
 		_pendingLandingSpeed = 0f;
 
 		_frame = ViewMotionFrame.Identity;
+		UpdateBob((float)delta);
 		// Enum order is the composition order. Each source submits only its
 		// channel; rotation bases multiply in that fixed order after mouse pitch.
 		for (int i = 0; i < _channels.Length; i++)
@@ -156,6 +181,35 @@ public partial class PlayerViewMotionController : Node
 	public Vector3 GetYawLocalVelocity()
 		=> new Basis(Motor.Up.Normalized(), View.Yaw).Inverse() * LatestPhysicsSnapshot.Velocity;
 
+	private void UpdateBob(float delta)
+	{
+		// Physics owns distance. Interpolation keeps constant-speed phase smooth
+		// when several render frames occur between physics ticks.
+		double alpha = Mathf.Clamp((float)Engine.GetPhysicsInterpolationFraction(), 0f, 1f);
+		double distance = _previousBobDistance + (_currentBobDistance - _previousBobDistance) * alpha;
+		double radiansPerMeter = Math.Tau / (2.0 * Math.Max(BobStepLength, 0.001f));
+		BobPhase = (float)((distance * radiansPerMeter) % Math.Tau);
+		if (delta > 0f && float.IsFinite(delta))
+		{
+			float fadeTime = Mathf.Max(BobFadeTime, 0.001f);
+			float blend = 1f - (float)Math.Exp(-delta / fadeTime);
+			BobWeight += ((_bobActive ? 1f : 0f) - BobWeight) * blend;
+		}
+
+		float fundamental = Mathf.Cos(BobPhase);
+		float secondHarmonic = Mathf.Cos(BobPhase * 2f);
+		BobPosition = new Vector3(fundamental * BobPositionAmplitude.X,
+			secondHarmonic * BobPositionAmplitude.Y,
+			fundamental * BobPositionAmplitude.Z) * BobWeight;
+		float rotationPhase = BobPhase + BobRotationPhaseOffset;
+		BobRotation = new Vector3(
+			Mathf.Cos(BobPhase * 2f + BobRotationPhaseOffset) * Mathf.DegToRad(BobRotationAmplitudeDegrees.X),
+			Mathf.Cos(rotationPhase) * Mathf.DegToRad(BobRotationAmplitudeDegrees.Y),
+			Mathf.Cos(rotationPhase) * Mathf.DegToRad(BobRotationAmplitudeDegrees.Z)) * BobWeight;
+		AddPosition(Channel.Bob, BobPosition);
+		AddRotation(Channel.Bob, BobRotation);
+	}
+
 	public void ResetMotion()
 	{
 		Array.Clear(_channels, 0, _channels.Length);
@@ -169,6 +223,10 @@ public partial class PlayerViewMotionController : Node
 		LastRenderJumpCount = LastRenderLandingCount = 0;
 		LastRenderJumpSpeed = 0f;
 		LastRenderLandingSpeed = 0f;
+		_previousBobDistance = _currentBobDistance = 0.0;
+		_bobActive = false;
+		BobPhase = BobWeight = BobPlanarSpeed = 0f;
+		BobPosition = BobRotation = Vector3.Zero;
 		ViewMotionPosition.Position = Vector3.Zero;
 		ViewMotionRotation.Basis = Basis.Identity;
 	}
