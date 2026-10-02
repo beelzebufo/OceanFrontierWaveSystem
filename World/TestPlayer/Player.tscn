@@ -9,6 +9,7 @@
 [ext_resource type="Script" uid="uid://dax8bgihmj2vj" path="res://World/TestPlayer/CharacterProximitySensor.cs" id="7_proximity"]
 [ext_resource type="Script" uid="uid://6g7cs7vr20m4" path="res://World/TestPlayer/CameraObstructionGuard.cs" id="8_camera_guard"]
 [ext_resource type="Script" uid="uid://bdj4m7p6c83sy" path="res://World/TestPlayer/CharacterNearWallAwareness.cs" id="9_near_wall"]
+[ext_resource type="Script" uid="uid://da74kh6y9p2tc" path="res://World/TestPlayer/CharacterHandContactProbes.cs" id="10_hand_probes"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -16,6 +17,12 @@ height = 1.8
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_proximity"]
 radius = 0.45
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_left_hand"]
+radius = 0.055
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_right_hand"]
+radius = 0.055
 
 [node name="Player" type="CharacterBody3D" unique_id=1170638230]
 collision_layer = 2
@@ -63,6 +70,22 @@ CameraGuardEnabled = true
 [node name="CharacterNearWallAwareness" type="Node" parent="."]
 process_physics_priority = 11
 script = ExtResource("9_near_wall")
+
+[node name="CharacterHandContactProbes" type="Node3D" parent="."]
+process_physics_priority = 12
+script = ExtResource("10_hand_probes")
+
+[node name="LeftHandProbe" type="ShapeCast3D" parent="CharacterHandContactProbes"]
+enabled = false
+shape = SubResource("SphereShape3D_left_hand")
+target_position = Vector3(0, 0, -0.65)
+max_results = 8
+
+[node name="RightHandProbe" type="ShapeCast3D" parent="CharacterHandContactProbes"]
+enabled = false
+shape = SubResource("SphereShape3D_right_hand")
+target_position = Vector3(0, 0, -0.65)
+max_results = 8
 
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true
