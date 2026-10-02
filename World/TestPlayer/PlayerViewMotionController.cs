@@ -71,6 +71,15 @@ public partial class PlayerViewMotionController : Node
 	[Export] public bool StairSmoothingEnabled { get; set; } = true;
 	[Export(PropertyHint.Range, "0.1,10,0.1")] public float StairSmoothingSpeed { get; set; } = 1.5f;
 	[Export(PropertyHint.Range, "0,1,0.01")] public float StairMaxOffset { get; set; } = 0.4f;
+	[Export] public bool StrafeSwayEnabled { get; set; } = true;
+	[Export(PropertyHint.Range, "0.1,20,0.1")] public float StrafeReferenceSpeed { get; set; } = 5f;
+	[Export] public Vector3 StrafePositionAmplitude { get; set; } = Vector3.Zero;
+	[Export] public Vector3 StrafeRotationAmplitudeDegrees { get; set; } = new(0.15f, 0f, 0.35f);
+	[Export] public bool LookSwayEnabled { get; set; } = true;
+	[Export(PropertyHint.Range, "30,1080,10")]
+	public float LookSwayReferenceAngularSpeedDegrees { get; set; } = 360f;
+	[Export] public Vector3 LookSwayPositionAmplitude { get; set; } = Vector3.Zero;
+	[Export] public Vector3 LookSwayRotationAmplitudeDegrees { get; set; } = new(0.20f, 0.30f, 0.08f);
 
 	public ViewMotionPhysicsSnapshot LatestPhysicsSnapshot { get; private set; }
 	public ViewMotionFrame CurrentFrame => _frame;
@@ -88,6 +97,17 @@ public partial class PlayerViewMotionController : Node
 	public Vector3 BobPosition { get; private set; }
 	// Euler radians, in ViewMotionRotation's local space.
 	public Vector3 BobRotation { get; private set; }
+	public Vector3 StrafeLocalVelocity { get; private set; }
+	public Vector3 StrafeTargetPosition { get; private set; }
+	// Target and current rotations are Euler radians in ViewMotionRotation space.
+	public Vector3 StrafeTargetRotation { get; private set; }
+	public Vector3 StrafePosition { get; private set; }
+	public Vector3 StrafeRotation { get; private set; }
+	public Vector2 LookAngularRate { get; private set; }
+	public Vector3 LookTargetPosition { get; private set; }
+	public Vector3 LookTargetRotation { get; private set; }
+	public Vector3 LookPosition { get; private set; }
+	public Vector3 LookRotation { get; private set; }
 	public float StairOffsetCurrent => _currentStairOffset;
 	public float StairOffsetPrevious => _previousStairOffset;
 	public float StairRenderOffset { get; private set; }
@@ -96,8 +116,10 @@ public partial class PlayerViewMotionController : Node
 		!Mathf.IsZeroApprox(_currentStairOffset);
 
 	private readonly Contribution[] _channels = new Contribution[(int)Channel.Count];
-	private readonly ViewSpring3 _positionSpring = new();
-	private readonly ViewSpring3 _rotationSpring = new();
+	private readonly ViewSpring3 _strafePositionSpring = new();
+	private readonly ViewSpring3 _strafeRotationSpring = new();
+	private readonly ViewSpring3 _lookPositionSpring = new();
+	private readonly ViewSpring3 _lookRotationSpring = new();
 	private ViewMotionFrame _frame = ViewMotionFrame.Identity;
 	private int _pendingJumpCount;
 	private float _pendingJumpSpeed;
@@ -171,6 +193,8 @@ public partial class PlayerViewMotionController : Node
 		_frame = ViewMotionFrame.Identity;
 		UpdateRenderStairOffset();
 		UpdateBob((float)delta);
+		UpdateStrafeSway((float)delta);
+		UpdateLookSway((float)delta);
 		// Enum order is the composition order. Each source submits only its
 		// channel; rotation bases multiply in that fixed order after mouse pitch.
 		for (int i = 0; i < _channels.Length; i++)
@@ -260,12 +284,76 @@ public partial class PlayerViewMotionController : Node
 		AddRotation(Channel.Bob, BobRotation);
 	}
 
+	private void UpdateStrafeSway(float delta)
+	{
+		StrafeLocalVelocity = GetYawLocalVelocity();
+		float inverseReference = 1f / Mathf.Max(StrafeReferenceSpeed, 0.001f);
+		float lateral = StrafeSwayEnabled
+			? Mathf.Clamp(StrafeLocalVelocity.X * inverseReference, -1f, 1f) : 0f;
+		// Godot's yaw-local forward points along -Z; D is +X, A is -X.
+		float forward = StrafeSwayEnabled
+			? Mathf.Clamp(-StrafeLocalVelocity.Z * inverseReference, -1f, 1f) : 0f;
+		StrafeTargetPosition = new Vector3(lateral * StrafePositionAmplitude.X,
+			-Mathf.Abs(lateral) * StrafePositionAmplitude.Y,
+			-forward * StrafePositionAmplitude.Z);
+		StrafeTargetRotation = new Vector3(
+			Mathf.DegToRad(forward * StrafeRotationAmplitudeDegrees.X),
+			Mathf.DegToRad(-lateral * StrafeRotationAmplitudeDegrees.Y),
+			Mathf.DegToRad(-lateral * StrafeRotationAmplitudeDegrees.Z));
+		_strafePositionSpring.SetTarget(StrafeTargetPosition);
+		_strafeRotationSpring.SetTarget(StrafeTargetRotation);
+		StrafePosition = EvaluateSwaySpring(_strafePositionSpring, delta);
+		StrafeRotation = EvaluateSwaySpring(_strafeRotationSpring, delta);
+		AddPosition(Channel.Strafe, StrafePosition);
+		AddRotation(Channel.Strafe, StrafeRotation);
+	}
+
+	private void UpdateLookSway(float delta)
+	{
+		// LookDelta contains applied radians from View's earlier process cycle.
+		bool validDelta = float.IsFinite(delta) && delta >= 1f / 1000f;
+		LookAngularRate = validDelta ? View.LookDelta / delta : Vector2.Zero;
+		float reference = Mathf.DegToRad(Mathf.Max(
+			LookSwayReferenceAngularSpeedDegrees, 1f));
+		float yaw = LookSwayEnabled
+			? Mathf.Clamp(LookAngularRate.X / reference, -1f, 1f) : 0f;
+		float pitch = LookSwayEnabled
+			? Mathf.Clamp(LookAngularRate.Y / reference, -1f, 1f) : 0f;
+		LookTargetPosition = new Vector3(-yaw * LookSwayPositionAmplitude.X,
+			-pitch * LookSwayPositionAmplitude.Y,
+			-Mathf.Abs(yaw) * LookSwayPositionAmplitude.Z);
+		LookTargetRotation = new Vector3(
+			Mathf.DegToRad(-pitch * LookSwayRotationAmplitudeDegrees.X),
+			Mathf.DegToRad(-yaw * LookSwayRotationAmplitudeDegrees.Y),
+			Mathf.DegToRad(-yaw * LookSwayRotationAmplitudeDegrees.Z));
+		_lookPositionSpring.SetTarget(LookTargetPosition);
+		_lookRotationSpring.SetTarget(LookTargetRotation);
+		LookPosition = EvaluateSwaySpring(_lookPositionSpring, delta);
+		LookRotation = EvaluateSwaySpring(_lookRotationSpring, delta);
+		AddPosition(Channel.LookSway, LookPosition);
+		AddRotation(Channel.LookSway, LookRotation);
+	}
+
+	private static Vector3 EvaluateSwaySpring(ViewSpring3 spring, float delta)
+	{
+		Vector3 value = spring.Evaluate(delta);
+		if (spring.Target == Vector3.Zero && value.LengthSquared() < 0.000000000001f &&
+			spring.Velocity.LengthSquared() < 0.000000000001f)
+		{
+			spring.Reset();
+			return Vector3.Zero;
+		}
+		return value;
+	}
+
 	public void ResetMotion()
 	{
 		Array.Clear(_channels, 0, _channels.Length);
 		_frame = ViewMotionFrame.Identity;
-		_positionSpring.Reset();
-		_rotationSpring.Reset();
+		_strafePositionSpring.Reset();
+		_strafeRotationSpring.Reset();
+		_lookPositionSpring.Reset();
+		_lookRotationSpring.Reset();
 		LatestPhysicsSnapshot = default;
 		_pendingJumpCount = _pendingLandingCount = 0;
 		_pendingJumpSpeed = 0f;
@@ -277,6 +365,11 @@ public partial class PlayerViewMotionController : Node
 		_bobActive = false;
 		BobPhase = BobWeight = BobPlanarSpeed = 0f;
 		BobPosition = BobRotation = Vector3.Zero;
+		StrafeLocalVelocity = StrafeTargetPosition = StrafeTargetRotation = Vector3.Zero;
+		StrafePosition = StrafeRotation = Vector3.Zero;
+		LookAngularRate = Vector2.Zero;
+		LookTargetPosition = LookTargetRotation = Vector3.Zero;
+		LookPosition = LookRotation = Vector3.Zero;
 		_previousStairOffset = _currentStairOffset = 0f;
 		StairRenderOffset = LastStairRootRise = 0f;
 		_lastPhysicsRootOrigin = Locomotion.GlobalPosition;

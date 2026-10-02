@@ -7,6 +7,7 @@ public partial class PlayerViewController : Node
 	[Export] public Node3D ViewRoot { get; set; }
 	[Export] public Node3D FacingYaw { get; set; }
 	[Export] public Node3D PitchPivot { get; set; }
+	[Export] public Camera3D Camera { get; set; }
 	[Export] public Label DebugLabel { get; set; }
 	[Export(PropertyHint.Range, "0.0001,0.01,0.0001")]
 	public float MouseSensitivity { get; set; } = 0.002f;
@@ -26,6 +27,10 @@ public partial class PlayerViewController : Node
 	public float Pitch { get; private set; } = Mathf.DegToRad(25f);
 	// Applied radians from the most recent process cycle; clamped pitch is reflected.
 	public Vector2 LookDelta { get; private set; }
+	public Vector3 AuthoritativeAimForward => -PitchPivot.GlobalBasis.Z.Normalized();
+	public Vector3 VisualCameraForward => -Camera.GlobalBasis.Z.Normalized();
+	public float AimVisualDivergenceDegrees => Mathf.RadToDeg(
+		AuthoritativeAimForward.AngleTo(VisualCameraForward));
 
 	private Vector2 _pendingLookDelta;
 	private float _inputYaw;
@@ -42,6 +47,8 @@ public partial class PlayerViewController : Node
 		ViewRoot ??= GetNode<Node3D>("../ViewRoot");
 		FacingYaw ??= GetNode<Node3D>("../ViewRoot/FacingYaw");
 		PitchPivot ??= GetNode<Node3D>("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot");
+		Camera ??= GetNode<Camera3D>(
+			"../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation/Camera3D");
 		DebugLabel ??= GetNode<Label>("../DebugHud/ViewDebugLabel");
 		ResetViewInterpolation();
 		Input.MouseMode = Input.MouseModeEnum.Captured;
@@ -106,7 +113,10 @@ public partial class PlayerViewController : Node
 				$"Root up·Up: {rootUpDot:F3}\n" +
 				$"PhysicsPos: {FormatPosition(physicsPosition)}\n" +
 				$"ViewPos: {FormatPosition(viewPosition)}\n" +
-				$"Interp α: {alpha:F2}  Lag: {physicsPosition.DistanceTo(viewPosition):F3} m";
+				$"Interp α: {alpha:F2}  Lag: {physicsPosition.DistanceTo(viewPosition):F3} m\n" +
+				$"Aim↔Cam: {AimVisualDivergenceDegrees:F2}°  " +
+				$"Aim: {FormatPosition(AuthoritativeAimForward)}  " +
+				$"Cam: {FormatPosition(VisualCameraForward)}";
 		}
 	}
 
