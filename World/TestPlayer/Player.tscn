@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://ddieqlpog6n7b" path="res://World/TestPlayer/PlayerViewMotionController.cs" id="6_view_motion"]
 [ext_resource type="Script" uid="uid://dax8bgihmj2vj" path="res://World/TestPlayer/CharacterProximitySensor.cs" id="7_proximity"]
 [ext_resource type="Script" uid="uid://6g7cs7vr20m4" path="res://World/TestPlayer/CameraObstructionGuard.cs" id="8_camera_guard"]
+[ext_resource type="Script" uid="uid://bdj4m7p6c83sy" path="res://World/TestPlayer/CharacterNearWallAwareness.cs" id="9_near_wall"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -58,6 +59,10 @@ script = ExtResource("7_proximity")
 [node name="CameraObstructionGuard" type="Node" parent="." unique_id=433090193]
 script = ExtResource("8_camera_guard")
 CameraGuardEnabled = true
+
+[node name="CharacterNearWallAwareness" type="Node" parent="."]
+process_physics_priority = 11
+script = ExtResource("9_near_wall")
 
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true

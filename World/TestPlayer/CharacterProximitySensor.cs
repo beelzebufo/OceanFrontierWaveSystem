@@ -29,6 +29,7 @@ public partial class CharacterProximitySensor : ShapeCast3D
     [Export] public uint CollisionMaskOverride { get; set; }
 
     public ulong PhysicsTick { get; private set; }
+    public ulong InvalidationSerial { get; private set; }
     public int ContactCount { get; private set; }
     public Vector3 PhysicsNeutralEyePosition { get; private set; }
     public Vector3 SensorWorldPosition { get; private set; }
@@ -103,5 +104,6 @@ public partial class CharacterProximitySensor : ShapeCast3D
     {
         ContactCount = 0;
         PhysicsTick = 0;
+        InvalidationSerial++;
     }
 }
