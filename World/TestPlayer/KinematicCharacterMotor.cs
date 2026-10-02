@@ -26,6 +26,22 @@ public partial class KinematicCharacterMotor : Node
         }
     }
 
+    private readonly struct StepTreadCandidate
+    {
+        public readonly Vector3 Normal;
+        public readonly Vector3 Point;
+        public readonly Rid Rid;
+        public readonly ulong ObjectId;
+
+        public StepTreadCandidate(Vector3 normal, Vector3 point, Rid rid, ulong objectId)
+        {
+            Normal = normal;
+            Point = point;
+            Rid = rid;
+            ObjectId = objectId;
+        }
+    }
+
     [Export] public CharacterBody3D Body { get; set; }
     [Export(PropertyHint.Range, "1,12,1")] public int MaxBounces { get; set; } = 5;
     [Export(PropertyHint.Range, "1,8,1")] public int MaxRecoveryPasses { get; set; } = 3;
@@ -35,10 +51,19 @@ public partial class KinematicCharacterMotor : Node
     [Export(PropertyHint.Range, "0.05,0.6,0.01")] public float StepHeight { get; set; } = 0.35f;
     [Export(PropertyHint.Range, "0.01,0.5,0.01")] public float StepUpDepth { get; set; } = 0.10f;
     [Export(PropertyHint.Range, "0.05,0.8,0.01")] public float SnapDownDistance { get; set; } = 0.35f;
+    [Export] public bool UseFullMotionStepCandidate { get; set; } = false;
     [Export] public Vector3 Up { get; set; } = Vector3.Up;
 
     public CharacterContactState Contacts { get; } = new();
     public CharacterGroundMotionTracker GroundMotion { get; } = new();
+    public bool FullStepCandidateTried { get; private set; }
+    public bool FullStepCandidateAccepted { get; private set; }
+    public bool FullStepTreadFallbackTried { get; private set; }
+    public bool FullStepTreadValidated { get; private set; }
+    public float FullStepNormalProgress { get; private set; }
+    public float FullStepCandidateProgress { get; private set; }
+    public float FullStepCandidateRise { get; private set; }
+    public string FullStepCandidateStatus { get; private set; } = "not tried";
 
     private readonly PhysicsTestMotionParameters3D _query = new();
     private readonly Godot.Collections.Array<Rid> _carryExclusions = new();
@@ -46,7 +71,18 @@ public partial class KinematicCharacterMotor : Node
     private readonly PhysicsTestMotionResult3D _result = new();
     private readonly PhysicsTestMotionResult3D _probeResult = new();
     private readonly PhysicsTestMotionResult3D _validationResult = new();
+    private readonly PhysicsTestMotionResult3D _fullStepUpResult = new();
+    private readonly PhysicsTestMotionResult3D _fullStepClearanceResult = new();
+    private readonly PhysicsTestMotionResult3D _fullStepForwardResult = new();
+    private readonly PhysicsTestMotionResult3D _fullStepDownResult = new();
+    private readonly PhysicsTestMotionResult3D _fullStepValidationResult = new();
     private readonly PhysicsRayQueryParameters3D _supportRay = new();
+    private readonly PhysicsRayQueryParameters3D _stepTreadRay = new();
+    private StepTreadCandidate _activeStepTread;
+    private Vector3 _activeStepEdge;
+    private Vector3 _activeStepDirection;
+    private bool _hasActiveStepTread;
+    private float _capsuleRadius;
     private readonly Godot.Collections.Array<Rid> _supportExclusions = new();
     private readonly Vector3[] _planes = new Vector3[32];
     private int _planeCount;
@@ -54,6 +90,8 @@ public partial class KinematicCharacterMotor : Node
     public override void _Ready()
     {
         Body ??= GetParent<CharacterBody3D>();
+        if (Body.GetNodeOrNull<CollisionShape3D>("CollisionShape3D")?.Shape is CapsuleShape3D capsule)
+            _capsuleRadius = capsule.Radius;
         _query.RecoveryAsCollision = true;
         _query.CollideSeparationRay = false;
         _query.ExcludeBodies = _noExclusions;
@@ -62,16 +100,26 @@ public partial class KinematicCharacterMotor : Node
         _supportRay.CollideWithBodies = true;
         _supportRay.CollideWithAreas = false;
         _supportRay.HitBackFaces = false;
+        _stepTreadRay.Exclude = _supportExclusions;
+        _stepTreadRay.CollideWithBodies = true;
+        _stepTreadRay.CollideWithAreas = false;
+        _stepTreadRay.HitBackFaces = false;
     }
 
     public void Simulate(Vector3 requestedMotion, Vector3 walkMotion,
         bool allowGrounding = true, bool allowPlatformCarry = true)
     {
         bool wasStable = Contacts.IsStable;
+        bool hadStepTread = _hasActiveStepTread && wasStable;
+        bool maintainedStepTread = false;
         bool wasSupportContinuity = Contacts.SupportContinuityActive;
         bool hadCeiling = Contacts.HasCeiling;
         Vector3 previousSupportPoint = Contacts.GroundPoint;
         Contacts.Reset();
+        FullStepCandidateTried = FullStepCandidateAccepted = false;
+        FullStepTreadFallbackTried = FullStepTreadValidated = false;
+        FullStepNormalProgress = FullStepCandidateProgress = FullStepCandidateRise = 0f;
+        FullStepCandidateStatus = "not tried";
         _planeCount = 0;
         Vector3 up = Up.Normalized();
         float walkDot = Mathf.Cos(Mathf.DegToRad(MaxWalkAngle));
@@ -167,6 +215,16 @@ public partial class KinematicCharacterMotor : Node
         // The moving support may now overlap the capsule. Its recovery must
         // not undo a carry collision with a wall or ceiling.
         ConstrainCarryBlock(ref simulated, carryBlockNormal, carryBlockLimit);
+        Transform3D movementStart = simulated;
+        int preMovementRecoveryCount = Contacts.RecoveryCount;
+        Vector3 fullWalk = walkMotion - up * walkMotion.Dot(up);
+        bool fullCandidateValid = false;
+        bool fullForwardHit = false;
+        bool fullFinalHit = false;
+        bool fullUsedTread = false;
+        StepTreadCandidate fullTread = default;
+        Vector3 fullTreadEdge = Vector3.Zero;
+        Transform3D fullLanding = movementStart;
 
         Vector3 remaining = requestedMotion;
         bool stepTried = false;
@@ -179,10 +237,21 @@ public partial class KinematicCharacterMotor : Node
                 break;
             }
 
+            bool stepObstacle = !stepTried && wasStable && allowGrounding &&
+                IsStepObstacle(_result, walkMotion, up, walkDot);
+            if (UseFullMotionStepCandidate && stepObstacle &&
+                fullWalk.LengthSquared() > 0.000001f)
+            {
+                FullStepCandidateTried = true;
+                fullCandidateValid = TryFullMotionStep(movementStart, fullWalk, up, walkDot,
+                    carryBlockNormal, carryBlockLimit, out fullLanding, out fullForwardHit,
+                    out fullFinalHit, out fullUsedTread, out fullTread,
+                    out fullTreadEdge);
+            }
+
             simulated.Origin += _result.GetTravel();
             Vector3 next = _result.GetRemainder();
-            if (!stepTried && wasStable && allowGrounding &&
-                IsStepObstacle(_result, walkMotion, up, walkDot))
+            if (stepObstacle)
             {
                 stepTried = true;
                 Vector3 forward = next - up * next.Dot(up);
@@ -240,7 +309,66 @@ public partial class KinematicCharacterMotor : Node
                             support.Rid, support.ObjectId, support.Drop, support.AppliedDrop, up);
                 }
             }
+            if (hadStepTread && UseFullMotionStepCandidate && allowGrounding &&
+                !Contacts.IsStable && TryMaintainStepTread(simulated, up, walkDot,
+                    out StepTreadCandidate currentTread))
+            {
+                Contacts.SetStepTreadSupport(currentTread.Normal, currentTread.Point,
+                    currentTread.Rid, currentTread.ObjectId, up);
+                maintainedStepTread = true;
+            }
         }
+
+        if (FullStepCandidateTried)
+        {
+            Vector3 direction = fullWalk.Normalized();
+            FullStepNormalProgress = Mathf.Max(0f,
+                (simulated.Origin - movementStart.Origin).Dot(direction));
+            // Both routes start from movementStart. Vertical rise never counts
+            // as forward progress, and a margin avoids alternating winners.
+            if (!stepAccepted && fullCandidateValid &&
+                FullStepCandidateProgress > FullStepNormalProgress + CollisionMargin * 0.5f)
+            {
+                simulated = fullLanding;
+                Contacts.Reset();
+                Contacts.RecoveryCount = preMovementRecoveryCount;
+                _planeCount = 0;
+                if (fullForwardHit)
+                    RecordNonGroundContacts(_fullStepForwardResult, up, walkDot);
+                RecordContacts(_fullStepDownResult, up, walkDot);
+                if (fullFinalHit)
+                    RecordNonGroundContacts(_fullStepValidationResult, up, walkDot);
+                if (fullUsedTread)
+                    Contacts.SetStepTreadSupport(fullTread.Normal, fullTread.Point,
+                        fullTread.Rid, fullTread.ObjectId, up);
+                Contacts.SteppedUp = true;
+                Contacts.StepRise = FullStepCandidateRise;
+                Contacts.StepLandingDelta = FullStepCandidateRise;
+                Contacts.StepStatus = fullUsedTread
+                    ? "full candidate tread-ray accepted" : "full motion accepted";
+                Contacts.StepForwardRequested = fullWalk.Length();
+                Contacts.StepForwardTravelled = FullStepCandidateProgress;
+                Contacts.SnappedDown = true;
+                Contacts.SnapDistance = -_fullStepDownResult.GetTravel().Dot(up);
+                if (fullUsedTread)
+                {
+                    Contacts.SnapDistance = StepHeight - FullStepCandidateRise;
+                    _activeStepTread = fullTread;
+                    _activeStepEdge = fullTreadEdge;
+                    _activeStepDirection = direction;
+                    _hasActiveStepTread = true;
+                }
+                Contacts.SnapStatus = "step landing";
+                FullStepCandidateAccepted = true;
+                FullStepCandidateStatus = fullUsedTread ? "tread-ray accepted" : "accepted";
+            }
+            else if (fullCandidateValid)
+                FullStepCandidateStatus = stepAccepted
+                    ? "legacy step accepted" : "not better than normal";
+        }
+
+        if (!FullStepCandidateAccepted && !maintainedStepTread)
+            _hasActiveStepTread = false;
 
         GroundMotion.UpdateAttachment(Contacts, simulated.Origin);
         // One scene/physics-body transform update after all virtual substeps.
@@ -287,6 +415,19 @@ public partial class KinematicCharacterMotor : Node
         }
     }
 
+    private void RecordNonGroundContacts(PhysicsTestMotionResult3D result, Vector3 up, float walkDot)
+    {
+        // Intermediate raised-path floors must not outrank the final landing.
+        for (int i = 0; i < result.GetCollisionCount(); i++)
+        {
+            Vector3 normal = result.GetCollisionNormal(i).Normalized();
+            if (normal.IsZeroApprox() || normal.Dot(up) >= walkDot)
+                continue;
+            Contacts.Add(normal, result.GetCollisionPoint(i), result.GetColliderRid(i),
+                result.GetColliderId(i), result.GetColliderVelocity(i), up, walkDot);
+        }
+    }
+
     private static bool IsStepObstacle(PhysicsTestMotionResult3D hit, Vector3 walkMotion,
         Vector3 up, float walkDot)
     {
@@ -307,6 +448,209 @@ public partial class KinematicCharacterMotor : Node
         }
         return false;
     }
+
+    private bool TryFullMotionStep(Transform3D from, Vector3 fullWalk, Vector3 up,
+        float walkDot, Vector3 carryBlockNormal, float carryBlockLimit,
+        out Transform3D landing, out bool forwardHit, out bool finalHit,
+        out bool usedTread, out StepTreadCandidate tread, out Vector3 treadEdge)
+    {
+        landing = from;
+        forwardHit = false;
+        finalHit = false;
+        usedTread = false;
+        tread = default;
+        treadEdge = Vector3.Zero;
+        Vector3 direction = fullWalk.Normalized();
+        Vector3 upMotion = up * StepHeight;
+        bool upHit = Test(from, upMotion, _fullStepUpResult, false);
+        Vector3 upTravel = upHit ? _fullStepUpResult.GetTravel() : upMotion;
+        if (upTravel.Dot(up) < StepHeight - 0.005f)
+        {
+            FullStepCandidateStatus = "up blocked";
+            return false;
+        }
+        Transform3D raised = from;
+        raised.Origin += upTravel;
+        if (CrossesCarryBlock(raised, carryBlockNormal, carryBlockLimit))
+        {
+            FullStepCandidateStatus = "up blocked";
+            return false;
+        }
+
+        // A fixed lookahead checks clearance even when one tick's motion is
+        // shorter than StepUpDepth. It does not replace the full forward move.
+        Vector3 clearance = direction * StepUpDepth;
+        bool clearanceHit = Test(raised, clearance, _fullStepClearanceResult, false);
+        Vector3 clearanceTravel = clearanceHit
+            ? _fullStepClearanceResult.GetTravel() : clearance;
+        if (clearanceTravel.Dot(direction) + 0.0001f < StepUpDepth)
+        {
+            FullStepCandidateStatus = "forward blocked";
+            return false;
+        }
+
+        forwardHit = Test(raised, fullWalk, _fullStepForwardResult, false);
+        Vector3 forwardTravel = forwardHit ? _fullStepForwardResult.GetTravel() : fullWalk;
+        if (forwardTravel.Dot(direction) < fullWalk.Length() - 0.005f)
+        {
+            FullStepCandidateStatus = "forward blocked";
+            return false;
+        }
+        Transform3D advanced = raised;
+        advanced.Origin += forwardTravel;
+        if (CrossesCarryBlock(advanced, carryBlockNormal, carryBlockLimit))
+        {
+            FullStepCandidateStatus = "forward blocked";
+            return false;
+        }
+
+        Vector3 down = -up * (StepHeight + SnapDownDistance);
+        if (!Test(advanced, down, _fullStepDownResult, false))
+        {
+            FullStepCandidateStatus = "no landing";
+            return false;
+        }
+        bool walkableDown = HasWalkableContact(_fullStepDownResult, up, walkDot);
+        if (!walkableDown)
+        {
+            FullStepTreadFallbackTried = true;
+            if (!TryValidateStepTread(_fullStepDownResult, from, advanced, direction,
+                    up, walkDot, out tread, out landing, out treadEdge))
+                return false;
+            FullStepTreadValidated = true;
+            usedTread = true;
+        }
+        else
+        {
+            landing = advanced;
+            landing.Origin += _fullStepDownResult.GetTravel();
+        }
+        float rise = (landing.Origin - from.Origin).Dot(up);
+        if (rise <= CollisionMargin * 2f || rise > StepHeight + 0.005f ||
+            CrossesCarryBlock(landing, carryBlockNormal, carryBlockLimit))
+        {
+            FullStepCandidateStatus = "outside step range";
+            return false;
+        }
+
+        // Confirm the destination does not require substantial depenetration.
+        finalHit = Test(landing, Vector3.Zero, _fullStepValidationResult);
+        float deepestOverlap = 0f;
+        for (int i = 0; finalHit && i < _fullStepValidationResult.GetCollisionCount(); i++)
+            deepestOverlap = Mathf.Max(deepestOverlap,
+                _fullStepValidationResult.GetCollisionDepth(i));
+        if (finalHit &&
+            (_fullStepValidationResult.GetTravel().Length() > CollisionMargin * 2f ||
+             deepestOverlap > CollisionMargin * 1.5f))
+        {
+            FullStepCandidateStatus = "landing overlap";
+            return false;
+        }
+
+        FullStepCandidateProgress = Mathf.Max(0f,
+            (landing.Origin - from.Origin).Dot(direction));
+        FullStepCandidateRise = rise;
+        return true;
+    }
+
+    private bool TryValidateStepTread(PhysicsTestMotionResult3D downResult,
+        Transform3D from, Transform3D advanced, Vector3 direction, Vector3 up,
+        float walkDot, out StepTreadCandidate tread, out Transform3D landing,
+        out Vector3 treadEdge)
+    {
+        tread = default;
+        landing = from;
+        treadEdge = Vector3.Zero;
+        PhysicsDirectSpaceState3D space = Body.GetWorld3D().DirectSpaceState;
+        _stepTreadRay.CollisionMask = Body.CollisionMask;
+        for (int i = 0; i < downResult.GetCollisionCount(); i++)
+        {
+            Vector3 edgeNormal = downResult.GetCollisionNormal(i).Normalized();
+            if (edgeNormal.Dot(up) >= walkDot || edgeNormal.Dot(direction) >= -0.25f)
+                continue;
+            Vector3 edge = downResult.GetCollisionPoint(i);
+            Rid edgeRid = downResult.GetColliderRid(i);
+            // The first point is inside the new tread; the second proves usable depth.
+            Vector3 first = edge + direction * (CollisionMargin * 2f);
+            Vector3 second = first + direction * StepUpDepth;
+            if (!TryStepTreadRay(space, first, edge, direction, up, walkDot,
+                    edgeRid, out StepTreadCandidate firstHit) ||
+                !TryStepTreadRay(space, second, edge, direction, up, walkDot,
+                    edgeRid, out StepTreadCandidate secondHit) ||
+                Mathf.Abs((secondHit.Point - firstHit.Point).Dot(up)) > CollisionMargin * 2f)
+                continue;
+
+            Transform3D proposed = advanced;
+            proposed.Origin += up * (firstHit.Point + up * CollisionMargin - proposed.Origin).Dot(up);
+            float downToTread = (advanced.Origin - proposed.Origin).Dot(up);
+            float allowedDown = -downResult.GetTravel().Dot(up);
+            float rise = (proposed.Origin - from.Origin).Dot(up);
+            Vector3 sampleOffset = firstHit.Point - proposed.Origin;
+            sampleOffset -= up * sampleOffset.Dot(up);
+            if (downToTread <= 0f || downToTread > allowedDown + CollisionMargin * 0.5f ||
+                rise <= CollisionMargin * 2f || rise > StepHeight + 0.005f ||
+                _capsuleRadius <= 0f || sampleOffset.Length() > _capsuleRadius + CollisionMargin)
+                continue;
+            tread = firstHit;
+            landing = proposed;
+            treadEdge = edge;
+            return true;
+        }
+        FullStepCandidateStatus = "unwalkable landing";
+        return false;
+    }
+
+    private bool TryMaintainStepTread(Transform3D pose, Vector3 up, float walkDot,
+        out StepTreadCandidate tread)
+    {
+        tread = default;
+        Vector3 sample = _activeStepEdge + _activeStepDirection * (CollisionMargin * 2f);
+        Vector3 offset = sample - pose.Origin;
+        offset -= up * offset.Dot(up);
+        if (offset.Length() > _capsuleRadius + CollisionMargin)
+            return false;
+        PhysicsDirectSpaceState3D space = Body.GetWorld3D().DirectSpaceState;
+        _stepTreadRay.CollisionMask = Body.CollisionMask;
+        if (!TryStepTreadRay(space, sample, _activeStepEdge, _activeStepDirection,
+                up, walkDot, _activeStepTread.Rid, out tread) ||
+            Mathf.Abs((tread.Point - _activeStepTread.Point).Dot(up)) > CollisionMargin * 2f ||
+            Mathf.Abs((pose.Origin - tread.Point).Dot(up) - CollisionMargin) > CollisionMargin * 3f)
+            return false;
+        bool hit = Test(pose, Vector3.Zero, _fullStepValidationResult);
+        float deepest = 0f;
+        for (int i = 0; hit && i < _fullStepValidationResult.GetCollisionCount(); i++)
+            deepest = Mathf.Max(deepest, _fullStepValidationResult.GetCollisionDepth(i));
+        return !hit || (_fullStepValidationResult.GetTravel().Length() <= CollisionMargin * 2f &&
+            deepest <= CollisionMargin * 1.5f);
+    }
+
+    private bool TryStepTreadRay(PhysicsDirectSpaceState3D space, Vector3 sample,
+        Vector3 edge, Vector3 direction, Vector3 up, float walkDot, Rid edgeRid,
+        out StepTreadCandidate tread)
+    {
+        tread = default;
+        _stepTreadRay.From = sample + up * (StepHeight + CollisionMargin * 2f);
+        _stepTreadRay.To = sample - up * (StepHeight + SnapDownDistance + CollisionMargin * 2f);
+        Godot.Collections.Dictionary hit = space.IntersectRay(_stepTreadRay);
+        if (hit.Count == 0)
+            return false;
+        Vector3 point = (Vector3)hit["position"];
+        Vector3 normal = ((Vector3)hit["normal"]).Normalized();
+        Rid rid = (Rid)hit["rid"];
+        if (normal.Dot(up) < walkDot || (point - edge).Dot(direction) <= CollisionMargin ||
+            rid != edgeRid)
+            return false;
+        ulong objectId = (ulong)(long)hit["collider_id"];
+        GodotObject collider = objectId == 0 ? null : GodotObject.InstanceFromId(objectId);
+        if (PhysicsServer3D.BodyGetMode(rid) != PhysicsServer3D.BodyMode.Static ||
+            collider is AnimatableBody3D or RigidBody3D or CharacterBody3D)
+            return false;
+        tread = new StepTreadCandidate(normal, point, rid, objectId);
+        return true;
+    }
+
+    private static bool CrossesCarryBlock(Transform3D pose, Vector3 normal, float limit)
+        => !normal.IsZeroApprox() && pose.Origin.Dot(normal) < limit - 0.0001f;
 
     private StepOutcome TryStep(Transform3D from, Vector3 forward, Vector3 walkMotion,
         Vector3 previousSupportPoint, Vector3 up, float walkDot,

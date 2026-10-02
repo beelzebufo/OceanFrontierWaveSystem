@@ -1,9 +1,9 @@
-[gd_scene load_steps=8 format=3 uid="uid://hjeufk1g44jx"]
+[gd_scene format=3 uid="uid://hjeufk1g44jx"]
 
-[ext_resource type="Script" path="res://World/TestPlayer/PlayerLocomotion.cs" id="1_locomotion"]
+[ext_resource type="Script" uid="uid://8qct4pex1vc4" path="res://World/TestPlayer/PlayerLocomotion.cs" id="1_locomotion"]
 [ext_resource type="Script" uid="uid://bajysxsvasb2m" path="res://World/TestPlayer/PlayerViewController.cs" id="2_view"]
-[ext_resource type="Script" path="res://World/TestPlayer/PlayerIntent.cs" id="3_intent"]
-[ext_resource type="Script" path="res://World/TestPlayer/KinematicCharacterMotor.cs" id="4_motor"]
+[ext_resource type="Script" uid="uid://bqipmpy1jteck" path="res://World/TestPlayer/PlayerIntent.cs" id="3_intent"]
+[ext_resource type="Script" uid="uid://cjk2e104pmd5u" path="res://World/TestPlayer/KinematicCharacterMotor.cs" id="4_motor"]
 [ext_resource type="Script" uid="uid://c0rb2f27xmqj7" path="res://World/TestPlayer/CharacterDiagnosticConsole.cs" id="5_console"]
 [ext_resource type="Script" uid="uid://ddieqlpog6n7b" path="res://World/TestPlayer/PlayerViewMotionController.cs" id="6_view_motion"]
 
@@ -11,64 +11,59 @@
 radius = 0.35
 height = 1.8
 
-[node name="Player" type="CharacterBody3D"]
+[node name="Player" type="CharacterBody3D" unique_id=1170638230]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("1_locomotion")
 WalkSpeed = 2.8
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1159716463]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_body")
 
-[node name="PlayerIntent" type="Node" parent="."]
+[node name="PlayerIntent" type="Node" parent="." unique_id=1619648411]
 script = ExtResource("3_intent")
 
-[node name="KinematicCharacterMotor" type="Node" parent="."]
+[node name="KinematicCharacterMotor" type="Node" parent="." unique_id=413868798]
 script = ExtResource("4_motor")
+UseFullMotionStepCandidate = true
 
-[node name="DiagnosticConsole" type="Node" parent="."]
+[node name="DiagnosticConsole" type="Node" parent="." unique_id=1292021341]
 script = ExtResource("5_console")
 
-[node name="PlayerViewController" type="Node" parent="."]
+[node name="PlayerViewController" type="Node" parent="." unique_id=892616893]
 process_physics_priority = 10
-process_priority = 0
 script = ExtResource("2_view")
 
-[node name="PlayerViewMotionController" type="Node" parent="."]
-process_physics_priority = 20
+[node name="PlayerViewMotionController" type="Node" parent="." unique_id=1907242444]
 process_priority = 20
+process_physics_priority = 20
 script = ExtResource("6_view_motion")
 BobStepLength = 0.95
-BobPositionAmplitude = Vector3(0.008, 0.025, 0.002)
-BobRotationAmplitudeDegrees = Vector3(0.25, 0.1, 0.35)
-BobRotationPhaseOffset = 0.25
 BobFadeTime = 0.1
-BobMinimumSpeed = 0.05
+StairSmoothingSpeed = 1.0
 
-[node name="ViewRoot" type="Node3D" parent="."]
+[node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true
 
-[node name="FacingYaw" type="Node3D" parent="ViewRoot"]
+[node name="FacingYaw" type="Node3D" parent="ViewRoot" unique_id=302543854]
 
-[node name="ViewAnchor" type="Node3D" parent="ViewRoot/FacingYaw"]
-position = Vector3(0, 1.6, 0)
+[node name="ViewAnchor" type="Node3D" parent="ViewRoot/FacingYaw" unique_id=849469025]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
 
-[node name="ViewMotionPosition" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor"]
+[node name="ViewMotionPosition" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor" unique_id=884298328]
 
-[node name="PitchPivot" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition"]
+[node name="PitchPivot" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition" unique_id=1552370317]
 
-[node name="ViewMotionRotation" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot"]
+[node name="ViewMotionRotation" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot" unique_id=1443945524]
 
-[node name="Camera3D" type="Camera3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation"]
+[node name="Camera3D" type="Camera3D" parent="ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation" unique_id=648636728]
 unique_name_in_owner = true
 current = true
-near = 0.05
 far = 16384.0
 
-[node name="DebugHud" type="CanvasLayer" parent="."]
+[node name="DebugHud" type="CanvasLayer" parent="." unique_id=1841111037]
 
-[node name="DebugLabel" type="Label" parent="DebugHud"]
+[node name="DebugLabel" type="Label" parent="DebugHud" unique_id=673179488]
 offset_left = 16.0
 offset_top = 16.0
 offset_right = 740.0
@@ -79,7 +74,7 @@ theme_override_constants/shadow_offset_y = 2
 theme_override_font_sizes/font_size = 18
 text = "FPC contacts"
 
-[node name="EventLabel" type="Label" parent="DebugHud"]
+[node name="EventLabel" type="Label" parent="DebugHud" unique_id=1310074911]
 offset_left = 16.0
 offset_top = 350.0
 offset_right = 950.0
@@ -90,7 +85,7 @@ theme_override_constants/shadow_offset_y = 2
 theme_override_font_sizes/font_size = 15
 text = "Events (newest first)"
 
-[node name="ViewDebugLabel" type="Label" parent="DebugHud"]
+[node name="ViewDebugLabel" type="Label" parent="DebugHud" unique_id=573692824]
 offset_left = 760.0
 offset_top = 16.0
 offset_right = 1150.0

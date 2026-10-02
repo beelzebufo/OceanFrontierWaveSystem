@@ -116,6 +116,21 @@ public sealed class CharacterContactState
         SupportContinuitySlope = SlopeAngle;
     }
 
+    // A stair tread ray supplies semantic ground without inventing a capsule contact.
+    internal void SetStepTreadSupport(Vector3 normal, Vector3 point, Rid rid,
+        ulong objectId, Vector3 up)
+    {
+        float upDot = Mathf.Clamp(normal.Dot(up), -1f, 1f);
+        IsGrounded = IsStable = true;
+        GroundNormal = normal;
+        GroundPoint = point;
+        GroundColliderRid = rid;
+        GroundColliderObjectId = objectId;
+        GroundColliderVelocity = Vector3.Zero;
+        SlopeAngle = Mathf.RadToDeg(Mathf.Acos(upDot));
+        _bestGroundDot = upDot;
+    }
+
     internal CharacterContactKind Add(Vector3 normal, Vector3 point, Rid rid, ulong objectId,
         Vector3 colliderVelocity, Vector3 up, float minWalkDot)
     {
