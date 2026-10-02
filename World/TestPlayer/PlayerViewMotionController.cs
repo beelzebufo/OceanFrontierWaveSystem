@@ -59,6 +59,7 @@ public partial class PlayerViewMotionController : Node
 	[Export] public PlayerLocomotion Locomotion { get; set; }
 	[Export] public KinematicCharacterMotor Motor { get; set; }
 	[Export] public PlayerViewController View { get; set; }
+	[Export] public CameraObstructionGuard CameraGuard { get; set; }
 	[Export] public Node3D ViewMotionPosition { get; set; }
 	[Export] public Node3D ViewMotionRotation { get; set; }
 	// One step advances half a bob cycle; two steps cover 2 * BobStepLength.
@@ -83,6 +84,8 @@ public partial class PlayerViewMotionController : Node
 
 	public ViewMotionPhysicsSnapshot LatestPhysicsSnapshot { get; private set; }
 	public ViewMotionFrame CurrentFrame => _frame;
+	public Vector3 DesiredPresentationPosition { get; private set; }
+	public Vector3 SafePresentationPosition { get; private set; }
 	public int PendingJumpCount => _pendingJumpCount;
 	public float PendingJumpSpeed => _pendingJumpSpeed;
 	public int PendingLandingCount => _pendingLandingCount;
@@ -137,6 +140,7 @@ public partial class PlayerViewMotionController : Node
 		Locomotion ??= GetParent<PlayerLocomotion>();
 		Motor ??= GetNode<KinematicCharacterMotor>("../KinematicCharacterMotor");
 		View ??= GetNode<PlayerViewController>("../PlayerViewController");
+		CameraGuard ??= GetNodeOrNull<CameraObstructionGuard>("../CameraObstructionGuard");
 		ViewMotionPosition ??= GetNode<Node3D>("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition");
 		ViewMotionRotation ??= GetNode<Node3D>(
 			"../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation");
@@ -205,7 +209,10 @@ public partial class PlayerViewMotionController : Node
 				_frame.Rotation *= Basis.FromEuler(channel.RotationRadians);
 			_channels[i] = default;
 		}
-		ViewMotionPosition.Position = _frame.Position;
+		DesiredPresentationPosition = _frame.Position;
+		SafePresentationPosition = CameraGuard?.ConstrainLocalOffset(DesiredPresentationPosition)
+			?? DesiredPresentationPosition;
+		ViewMotionPosition.Position = SafePresentationPosition;
 		ViewMotionRotation.Basis = _frame.Rotation;
 	}
 
@@ -350,6 +357,8 @@ public partial class PlayerViewMotionController : Node
 	{
 		Array.Clear(_channels, 0, _channels.Length);
 		_frame = ViewMotionFrame.Identity;
+		DesiredPresentationPosition = SafePresentationPosition = Vector3.Zero;
+		CameraGuard?.ResetGuard();
 		_strafePositionSpring.Reset();
 		_strafeRotationSpring.Reset();
 		_lookPositionSpring.Reset();
