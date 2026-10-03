@@ -12,6 +12,7 @@
 [ext_resource type="Script" uid="uid://da74kh6y9p2tc" path="res://World/TestPlayer/CharacterHandContactProbes.cs" id="10_hand_probes"]
 [ext_resource type="Script" uid="uid://dfpc1gc2brace7" path="res://World/TestPlayer/CharacterHandBraceTargets.cs" id="11_brace_targets"]
 [ext_resource type="Script" uid="uid://1y5tvn342y3l" path="res://World/TestPlayer/PlayerLeanController.cs" id="12_lean"]
+[ext_resource type="Script" uid="uid://4afxjaobchh1" path="res://World/TestPlayer/CharacterHandRigAdapter.cs" id="13_hand_rig_adapter"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -101,6 +102,10 @@ max_results = 8
 process_priority = 30
 script = ExtResource("11_brace_targets")
 DebugVisualizeBraceTargets = true
+
+[node name="CharacterHandRigAdapter" type="Node" parent="."]
+process_priority = 40
+script = ExtResource("13_hand_rig_adapter")
 
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true
