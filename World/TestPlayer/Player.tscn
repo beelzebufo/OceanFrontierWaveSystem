@@ -11,6 +11,7 @@
 [ext_resource type="Script" uid="uid://bdj4m7p6c83sy" path="res://World/TestPlayer/CharacterNearWallAwareness.cs" id="9_near_wall"]
 [ext_resource type="Script" uid="uid://da74kh6y9p2tc" path="res://World/TestPlayer/CharacterHandContactProbes.cs" id="10_hand_probes"]
 [ext_resource type="Script" uid="uid://dfpc1gc2brace7" path="res://World/TestPlayer/CharacterHandBraceTargets.cs" id="11_brace_targets"]
+[ext_resource type="Script" uid="uid://1y5tvn342y3l" path="res://World/TestPlayer/PlayerLeanController.cs" id="12_lean"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -52,9 +53,17 @@ script = ExtResource("2_view")
 process_priority = 20
 process_physics_priority = 20
 script = ExtResource("6_view_motion")
-BobStepLength = 0.95
+BobStepLength = 0.85
 BobFadeTime = 0.1
 StairSmoothingSpeed = 1.0
+StrafePositionAmplitude = Vector3(1, 0, 1)
+StrafeRotationAmplitudeDegrees = Vector3(0.15, 0, 0.15)
+LookSwayReferenceAngularSpeedDegrees = 120.0
+LookSwayRotationAmplitudeDegrees = Vector3(1.5, 2, 0.5)
+
+[node name="PlayerLeanController" type="Node" parent="."]
+process_priority = 10
+script = ExtResource("12_lean")
 
 [node name="CharacterProximitySensor" type="ShapeCast3D" parent="." unique_id=783739546]
 process_physics_priority = 5
@@ -91,6 +100,7 @@ max_results = 8
 [node name="CharacterHandBraceTargets" type="Node" parent="."]
 process_priority = 30
 script = ExtResource("11_brace_targets")
+DebugVisualizeBraceTargets = true
 
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true

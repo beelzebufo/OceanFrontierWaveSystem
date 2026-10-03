@@ -60,6 +60,7 @@ public partial class PlayerViewMotionController : Node
 	[Export] public KinematicCharacterMotor Motor { get; set; }
 	[Export] public PlayerViewController View { get; set; }
 	[Export] public CameraObstructionGuard CameraGuard { get; set; }
+	[Export] public PlayerLeanController Lean { get; set; }
 	[Export] public Node3D ViewMotionPosition { get; set; }
 	[Export] public Node3D ViewMotionRotation { get; set; }
 	// One step advances half a bob cycle; two steps cover 2 * BobStepLength.
@@ -141,6 +142,7 @@ public partial class PlayerViewMotionController : Node
 		Motor ??= GetNode<KinematicCharacterMotor>("../KinematicCharacterMotor");
 		View ??= GetNode<PlayerViewController>("../PlayerViewController");
 		CameraGuard ??= GetNodeOrNull<CameraObstructionGuard>("../CameraObstructionGuard");
+		Lean ??= GetNodeOrNull<PlayerLeanController>("../PlayerLeanController");
 		ViewMotionPosition ??= GetNode<Node3D>("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition");
 		ViewMotionRotation ??= GetNode<Node3D>(
 			"../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation");
@@ -203,6 +205,8 @@ public partial class PlayerViewMotionController : Node
 		// channel; rotation bases multiply in that fixed order after mouse pitch.
 		for (int i = 0; i < _channels.Length; i++)
 		{
+			if (i == (int)Channel.Lean)
+				Lean?.ContributeAtLeanChannel(_frame.Position, (float)delta);
 			Contribution channel = _channels[i];
 			_frame.Position += channel.Position;
 			if (!channel.RotationRadians.IsZeroApprox())
@@ -359,6 +363,7 @@ public partial class PlayerViewMotionController : Node
 		_frame = ViewMotionFrame.Identity;
 		DesiredPresentationPosition = SafePresentationPosition = Vector3.Zero;
 		CameraGuard?.ResetGuard();
+		Lean?.ResetLean();
 		_strafePositionSpring.Reset();
 		_strafeRotationSpring.Reset();
 		_lookPositionSpring.Reset();

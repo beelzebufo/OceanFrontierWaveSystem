@@ -1,5 +1,19 @@
 using Godot;
 
+public readonly struct AdditionalCameraOffsetEvaluation
+{
+    public readonly float CoverageFraction;
+    public readonly float ContactFraction;
+    public readonly float FinalFraction;
+
+    public AdditionalCameraOffsetEvaluation(float coverageFraction, float contactFraction)
+    {
+        CoverageFraction = coverageFraction;
+        ContactFraction = contactFraction;
+        FinalFraction = coverageFraction * contactFraction;
+    }
+}
+
 // Render-rate position constraint over contacts cached by the physics sensor.
 public partial class CameraObstructionGuard : Node
 {
@@ -45,9 +59,8 @@ public partial class CameraObstructionGuard : Node
         CameraBlocked = BaseObstructed = CoverageExceeded = false;
         BlockingColliderRid = default;
         BlockingNormal = BlockingPoint = Vector3.Zero;
-        MinimumNearPlaneBoundingRadius = CalculateNearPlaneRadius();
-        EffectiveCameraClearance = Mathf.Max(Mathf.Max(CameraClearanceRadius, 0f),
-            MinimumNearPlaneBoundingRadius + Mathf.Max(CameraSafetyMargin, 0f));
+        EffectiveCameraClearance = CalculateEffectiveClearance(out float nearPlaneRadius);
+        MinimumNearPlaneBoundingRadius = nearPlaneRadius;
         ProximityContactCount = Sensor?.ContactCount ?? 0;
         if (!CameraGuardEnabled || Sensor == null)
             return SafeCameraOffset;
@@ -56,8 +69,7 @@ public partial class CameraObstructionGuard : Node
         float centerLag = Sensor.PhysicsNeutralEyePosition.DistanceTo(baseWorld);
         // Include render interpolation lag: the camera envelope must fit inside
         // the sphere actually sampled around the current physics eye.
-        MaxGuaranteedOffset = Mathf.Max(0f, Sensor.SensedRadius -
-            EffectiveCameraClearance - Mathf.Max(CameraSafetyMargin, 0f) - centerLag);
+        MaxGuaranteedOffset = CalculateGuaranteedOffset(EffectiveCameraClearance, centerLag);
         float desiredLength = DesiredCameraOffset.Length();
         if (Sensor.PhysicsTick == 0 || centerLag + EffectiveCameraClearance >= Sensor.SensedRadius)
         {
@@ -112,6 +124,78 @@ public partial class CameraObstructionGuard : Node
         SafeCameraOffset = CoverageLimitedCameraOffset * ContactSafeFraction;
         return SafeCameraOffset;
     }
+
+    // Pure, read-only check for an extra channel after earlier presentation
+    // offsets have already been composed. No ShapeCast or guard diagnostics change.
+    public AdditionalCameraOffsetEvaluation EvaluateAdditionalOffset(
+        Vector3 baseLocalOffset, Vector3 requestedAdditionalLocalOffset)
+    {
+        if (!baseLocalOffset.IsFinite() || !requestedAdditionalLocalOffset.IsFinite())
+            return new AdditionalCameraOffsetEvaluation(0f, 0f);
+        if (!CameraGuardEnabled || Sensor == null)
+            return new AdditionalCameraOffsetEvaluation(1f, 1f);
+
+        float clearance = CalculateEffectiveClearance(out _);
+        Vector3 baseWorld = ViewAnchor.GlobalPosition;
+        float centerLag = Sensor.PhysicsNeutralEyePosition.DistanceTo(baseWorld);
+        float radius = CalculateGuaranteedOffset(clearance, centerLag);
+        if (Sensor.PhysicsTick == 0 || !float.IsFinite(radius) ||
+            centerLag + clearance >= Sensor.SensedRadius ||
+            baseLocalOffset.LengthSquared() > radius * radius)
+            return new AdditionalCameraOffsetEvaluation(0f, 0f);
+
+        float coverage = CoverageAlongSegment(baseLocalOffset,
+            requestedAdditionalLocalOffset, radius);
+        Vector3 startWorld = baseWorld + ViewAnchor.GlobalBasis * baseLocalOffset;
+        Vector3 endWorld = startWorld + ViewAnchor.GlobalBasis *
+            (requestedAdditionalLocalOffset * coverage);
+        float contactFraction = 1f;
+        for (int i = 0; i < Sensor.ContactCount; i++)
+        {
+            CharacterProximityContact contact = Sensor.GetContact(i);
+            Vector3 normal = contact.Normal;
+            if (!normal.IsFinite() || normal.LengthSquared() < 0.000001f ||
+                !contact.Point.IsFinite())
+                continue;
+            float startDistance = (startWorld - contact.Point).Dot(normal);
+            float endDistance = (endWorld - contact.Point).Dot(normal);
+            if (!float.IsFinite(startDistance) || !float.IsFinite(endDistance))
+                continue;
+            if (startDistance < clearance)
+                return new AdditionalCameraOffsetEvaluation(coverage, 0f);
+            if (endDistance >= clearance)
+                continue;
+            float fraction = Mathf.Clamp((startDistance - clearance) /
+                (startDistance - endDistance), 0f, 1f);
+            contactFraction = Mathf.Min(contactFraction, fraction);
+        }
+        return new AdditionalCameraOffsetEvaluation(coverage, contactFraction);
+    }
+
+    private static float CoverageAlongSegment(Vector3 start, Vector3 addition, float radius)
+    {
+        float squared = addition.LengthSquared();
+        if (squared < 0.00000001f)
+            return 1f;
+        Vector3 end = start + addition;
+        if (end.LengthSquared() <= radius * radius)
+            return 1f;
+        float b = 2f * start.Dot(addition);
+        float c = start.LengthSquared() - radius * radius;
+        float discriminant = Mathf.Max(b * b - 4f * squared * c, 0f);
+        return Mathf.Clamp((-b + Mathf.Sqrt(discriminant)) / (2f * squared), 0f, 1f);
+    }
+
+    private float CalculateEffectiveClearance(out float nearPlaneRadius)
+    {
+        nearPlaneRadius = CalculateNearPlaneRadius();
+        return Mathf.Max(Mathf.Max(CameraClearanceRadius, 0f),
+            nearPlaneRadius + Mathf.Max(CameraSafetyMargin, 0f));
+    }
+
+    private float CalculateGuaranteedOffset(float clearance, float centerLag) =>
+        Mathf.Max(0f, Sensor.SensedRadius - clearance -
+            Mathf.Max(CameraSafetyMargin, 0f) - centerLag);
 
     public void ResetGuard()
     {

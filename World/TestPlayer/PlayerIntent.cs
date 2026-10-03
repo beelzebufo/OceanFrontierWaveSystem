@@ -24,6 +24,14 @@ public partial class PlayerIntent : Node
         return pressed;
     }
 
+    // Physical keys keep Q/E independent of the active keyboard layout.
+    public float ReadLeanAxis()
+    {
+        bool left = Input.IsPhysicalKeyPressed(Key.Q);
+        bool right = Input.IsPhysicalKeyPressed(Key.E);
+        return (right ? 1f : 0f) - (left ? 1f : 0f);
+    }
+
     public Vector3 ReadWorldDirection()
     {
         Vector2 axes = Vector2.Zero;
