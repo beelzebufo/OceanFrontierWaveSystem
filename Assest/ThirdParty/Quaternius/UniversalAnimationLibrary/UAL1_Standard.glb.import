@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cgrsl4eenriss"
-path="res://.godot/imported/Superhero_Male_FullBody.gltf-20f2f1b88ec00948bb36337863546f09.scn"
+uid="uid://cltymceundyv1"
+path="res://.godot/imported/UAL1_Standard.glb-05eab9957f372cb213b4b2599f73ab5b.scn"
 
 [deps]
 
-source_file="res://Assest/ThirdParty/Quaternius/UniversalBaseCharacters/Superhero_Male_FullBody.gltf"
-dest_files=["res://.godot/imported/Superhero_Male_FullBody.gltf-20f2f1b88ec00948bb36337863546f09.scn"]
+source_file="res://Assest/ThirdParty/Quaternius/UniversalAnimationLibrary/UAL1_Standard.glb"
+dest_files=["res://.godot/imported/UAL1_Standard.glb-05eab9957f372cb213b4b2599f73ab5b.scn"]
 
 [params]
 

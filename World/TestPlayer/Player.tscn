@@ -15,6 +15,11 @@
 [ext_resource type="Script" uid="uid://4afxjaobchh1" path="res://World/TestPlayer/CharacterHandRigAdapter.cs" id="13_hand_rig_adapter"]
 [ext_resource type="PackedScene" uid="uid://cgrsl4eenriss" path="res://Assest/ThirdParty/Quaternius/UniversalBaseCharacters/Superhero_Male_FullBody.gltf" id="14_quaternius_body"]
 [ext_resource type="Script" uid="uid://bwnjd50scdtjn" path="res://World/TestPlayer/CharacterVisualFacing.cs" id="15_visual_facing"]
+[ext_resource type="Script" uid="uid://bax3ige4fp63s" path="res://World/TestPlayer/CharacterFirstPersonBody.cs" id="16_first_person_body"]
+[ext_resource type="AnimationLibrary" path="res://World/TestPlayer/QuaterniusBaseAnimations.tres" id="17_base_library"]
+[ext_resource type="AnimationNodeStateMachine" path="res://World/TestPlayer/QuaterniusBaseAnimationGraph.tres" id="18_base_graph"]
+[ext_resource type="Script" uid="uid://ctaybtrpp77ee" path="res://World/TestPlayer/CharacterAnimationController.cs" id="19_animation_controller"]
+[ext_resource type="Script" uid="uid://bxhi4s2tajtgj" path="res://World/TestPlayer/DebugThirdPersonView.cs" id="20_third_person_view"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -112,7 +117,25 @@ transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 process_priority = 5
 script = ExtResource("15_visual_facing")
 
+[node name="CharacterFirstPersonBody" type="Node" parent="." node_paths=PackedStringArray("Skeleton", "FullBody", "Eyes", "Eyebrows", "FirstPersonCamera")]
+script = ExtResource("16_first_person_body")
+Skeleton = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D")
+FullBody = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/SuperHero_Male")
+Eyes = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/Eyes")
+Eyebrows = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/Eyebrows")
+FirstPersonCamera = NodePath("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation/Camera3D")
+
 [node name="Quaternius" parent="CharacterVisual" instance=ExtResource("14_quaternius_body")]
+
+[node name="BaseAnimationPlayer" type="AnimationPlayer" parent="CharacterVisual/Quaternius"]
+root_node = NodePath("..")
+libraries = {
+"": ExtResource("17_base_library")
+}
+
+[node name="BaseAnimationTree" type="AnimationTree" parent="CharacterVisual/Quaternius"]
+tree_root = ExtResource("18_base_graph")
+anim_player = NodePath("../BaseAnimationPlayer")
 
 [node name="LeftHandIK" type="TwoBoneIK3D" parent="CharacterVisual/Quaternius/Armature/Skeleton3D"]
 setting_count = 1
@@ -147,13 +170,20 @@ RightIK = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/RightHandI
 RightTarget = NodePath("../CharacterVisual/RightHandTarget")
 RightPole = NodePath("../CharacterVisual/RightHandPole")
 
+[node name="CharacterAnimationController" type="Node" parent="." node_paths=PackedStringArray("Locomotion", "Motor", "Tree")]
+process_physics_priority = 25
+script = ExtResource("19_animation_controller")
+Locomotion = NodePath("..")
+Motor = NodePath("../KinematicCharacterMotor")
+Tree = NodePath("../CharacterVisual/Quaternius/BaseAnimationTree")
+
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true
 
 [node name="FacingYaw" type="Node3D" parent="ViewRoot" unique_id=302543854]
 
 [node name="ViewAnchor" type="Node3D" parent="ViewRoot/FacingYaw" unique_id=849469025]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.699, -0.066)
 
 [node name="ViewMotionPosition" type="Node3D" parent="ViewRoot/FacingYaw/ViewAnchor" unique_id=884298328]
 
@@ -165,6 +195,15 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
 unique_name_in_owner = true
 current = true
 far = 16384.0
+
+[node name="DebugThirdPersonView" type="Node3D" parent="." node_paths=PackedStringArray("Player", "FacingYaw", "FirstPersonCamera", "ThirdPersonCamera")]
+script = ExtResource("20_third_person_view")
+Player = NodePath("..")
+FacingYaw = NodePath("../ViewRoot/FacingYaw")
+FirstPersonCamera = NodePath("../ViewRoot/FacingYaw/ViewAnchor/ViewMotionPosition/PitchPivot/ViewMotionRotation/Camera3D")
+ThirdPersonCamera = NodePath("Camera3D")
+
+[node name="Camera3D" type="Camera3D" parent="DebugThirdPersonView"]
 
 [node name="DebugHud" type="CanvasLayer" parent="." unique_id=1841111037]
 

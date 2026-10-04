@@ -1,0 +1,79 @@
+[gd_resource type="AnimationNodeStateMachine" format=3 uid="uid://b7oubx3pcvhlv"]
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_dmqkh"]
+animation = &"Idle"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_4ysex"]
+animation = &"Jump_Land"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_n7ili"]
+animation = &"Jump"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_jemov"]
+animation = &"Jump_Start"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_2memb"]
+animation = &"Walk"
+
+[sub_resource type="AnimationNodeTimeScale" id="AnimationNodeTimeScale_mkxtk"]
+
+[sub_resource type="AnimationNodeBlendTree" id="AnimationNodeBlendTree_8aw23"]
+nodes/WalkClip/node = SubResource("AnimationNodeAnimation_2memb")
+nodes/WalkClip/position = Vector2(-300, 0)
+nodes/WalkRate/node = SubResource("AnimationNodeTimeScale_mkxtk")
+nodes/WalkRate/position = Vector2(-100, 0)
+node_connections = [&"output", 0, &"WalkRate", &"WalkRate", 0, &"WalkClip"]
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_ya3cs"]
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_ki8i2"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_yp0e1"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_8xdxs"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_wfniw"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_js4qh"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_b00at"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_huo81"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_urtqk"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_2meed"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_lhm38"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_5xrau"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_04ed5"]
+xfade_time = 0.12
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_6a6bo"]
+xfade_time = 0.12
+
+[resource]
+states/Idle/node = SubResource("AnimationNodeAnimation_dmqkh")
+states/Idle/position = Vector2(0, 0)
+states/JumpLand/node = SubResource("AnimationNodeAnimation_4ysex")
+states/JumpLand/position = Vector2(440, 180)
+states/JumpLoop/node = SubResource("AnimationNodeAnimation_n7ili")
+states/JumpLoop/position = Vector2(220, 180)
+states/JumpStart/node = SubResource("AnimationNodeAnimation_jemov")
+states/JumpStart/position = Vector2(0, 180)
+states/Walk/node = SubResource("AnimationNodeBlendTree_8aw23")
+states/Walk/position = Vector2(220, 0)
+transitions = ["Start", "Idle", SubResource("AnimationNodeStateMachineTransition_ya3cs"), "Idle", "Walk", SubResource("AnimationNodeStateMachineTransition_ki8i2"), "Walk", "Idle", SubResource("AnimationNodeStateMachineTransition_yp0e1"), "Idle", "JumpStart", SubResource("AnimationNodeStateMachineTransition_8xdxs"), "Walk", "JumpStart", SubResource("AnimationNodeStateMachineTransition_wfniw"), "JumpStart", "JumpLoop", SubResource("AnimationNodeStateMachineTransition_js4qh"), "JumpStart", "JumpLand", SubResource("AnimationNodeStateMachineTransition_b00at"), "JumpLoop", "JumpLand", SubResource("AnimationNodeStateMachineTransition_huo81"), "JumpLand", "Idle", SubResource("AnimationNodeStateMachineTransition_urtqk"), "JumpLand", "Walk", SubResource("AnimationNodeStateMachineTransition_2meed"), "Idle", "JumpLoop", SubResource("AnimationNodeStateMachineTransition_lhm38"), "Walk", "JumpLoop", SubResource("AnimationNodeStateMachineTransition_5xrau"), "JumpLoop", "Idle", SubResource("AnimationNodeStateMachineTransition_04ed5"), "JumpLoop", "Walk", SubResource("AnimationNodeStateMachineTransition_6a6bo")]
