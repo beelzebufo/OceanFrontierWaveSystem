@@ -13,6 +13,8 @@
 [ext_resource type="Script" uid="uid://dfpc1gc2brace7" path="res://World/TestPlayer/CharacterHandBraceTargets.cs" id="11_brace_targets"]
 [ext_resource type="Script" uid="uid://1y5tvn342y3l" path="res://World/TestPlayer/PlayerLeanController.cs" id="12_lean"]
 [ext_resource type="Script" uid="uid://4afxjaobchh1" path="res://World/TestPlayer/CharacterHandRigAdapter.cs" id="13_hand_rig_adapter"]
+[ext_resource type="PackedScene" uid="uid://cgrsl4eenriss" path="res://Assest/ThirdParty/Quaternius/UniversalBaseCharacters/Superhero_Male_FullBody.gltf" id="14_quaternius_body"]
+[ext_resource type="Script" uid="uid://bwnjd50scdtjn" path="res://World/TestPlayer/CharacterVisualFacing.cs" id="15_visual_facing"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.35
@@ -103,9 +105,47 @@ process_priority = 30
 script = ExtResource("11_brace_targets")
 DebugVisualizeBraceTargets = true
 
-[node name="CharacterHandRigAdapter" type="Node" parent="."]
+[node name="CharacterVisual" type="Node3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+
+[node name="CharacterVisualFacing" type="Node" parent="."]
+process_priority = 5
+script = ExtResource("15_visual_facing")
+
+[node name="Quaternius" parent="CharacterVisual" instance=ExtResource("14_quaternius_body")]
+
+[node name="LeftHandIK" type="TwoBoneIK3D" parent="CharacterVisual/Quaternius/Armature/Skeleton3D"]
+setting_count = 1
+settings/0/root_bone_name = "upperarm_l"
+settings/0/middle_bone_name = "lowerarm_l"
+settings/0/end_bone_name = "hand_l"
+
+[node name="RightHandIK" type="TwoBoneIK3D" parent="CharacterVisual/Quaternius/Armature/Skeleton3D"]
+setting_count = 1
+settings/0/root_bone_name = "upperarm_r"
+settings/0/middle_bone_name = "lowerarm_r"
+settings/0/end_bone_name = "hand_r"
+
+[node name="LeftHandTarget" type="Node3D" parent="CharacterVisual"]
+
+[node name="LeftHandPole" type="Node3D" parent="CharacterVisual"]
+
+[node name="RightHandTarget" type="Node3D" parent="CharacterVisual"]
+
+[node name="RightHandPole" type="Node3D" parent="CharacterVisual"]
+
+[node name="CharacterHandRigAdapter" type="Node" parent="." node_paths=PackedStringArray("BraceTargets", "Motor", "View", "LeftIK", "LeftTarget", "LeftPole", "RightIK", "RightTarget", "RightPole")]
 process_priority = 40
 script = ExtResource("13_hand_rig_adapter")
+BraceTargets = NodePath("../CharacterHandBraceTargets")
+Motor = NodePath("../KinematicCharacterMotor")
+View = NodePath("../PlayerViewController")
+LeftIK = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/LeftHandIK")
+LeftTarget = NodePath("../CharacterVisual/LeftHandTarget")
+LeftPole = NodePath("../CharacterVisual/LeftHandPole")
+RightIK = NodePath("../CharacterVisual/Quaternius/Armature/Skeleton3D/RightHandIK")
+RightTarget = NodePath("../CharacterVisual/RightHandTarget")
+RightPole = NodePath("../CharacterVisual/RightHandPole")
 
 [node name="ViewRoot" type="Node3D" parent="." unique_id=1221460251]
 top_level = true
