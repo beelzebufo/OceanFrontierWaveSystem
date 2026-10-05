@@ -14,33 +14,49 @@
 [sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_kj7nw"]
 name = "PatchDry"
 scene_file = ExtResource("1_73gx5")
-last_lod = 0
+cast_shadows = 1
+last_lod = 1
 last_shadow_lod = 0
-lod0_range = 128.0
+shadow_impostor = 0
+lod0_range = 24.0
+lod1_range = 55.0
+fade_margin = 0.0
 
 [sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_0hvtg"]
 name = "PatchLow"
 id = 1
 scene_file = ExtResource("2_773rl")
-last_lod = 0
+cast_shadows = 1
+last_lod = 1
 last_shadow_lod = 0
-lod0_range = 128.0
+shadow_impostor = 0
+lod0_range = 24.0
+lod1_range = 55.0
+fade_margin = 0.0
 
 [sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_vpd8q"]
 name = "PatchMedium"
 id = 2
 scene_file = ExtResource("3_f1nff")
-last_lod = 0
+cast_shadows = 1
+last_lod = 1
 last_shadow_lod = 0
-lod0_range = 128.0
+shadow_impostor = 0
+lod0_range = 24.0
+lod1_range = 55.0
+fade_margin = 0.0
 
 [sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_g1kis"]
 name = "PatchMixed"
 id = 3
 scene_file = ExtResource("4_vk3a5")
-last_lod = 0
+cast_shadows = 1
+last_lod = 1
 last_shadow_lod = 0
-lod0_range = 128.0
+shadow_impostor = 0
+lod0_range = 24.0
+lod1_range = 55.0
+fade_margin = 0.0
 
 [sub_resource type="Terrain3DTextureAsset" id="Terrain3DTextureAsset_hut17"]
 name = "Grass"
