@@ -1,5 +1,9 @@
 [gd_resource type="Terrain3DAssets" format=3 uid="uid://diiasgm1ro36c"]
 
+[ext_resource type="PackedScene" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaPatchDry.tscn" id="1_73gx5"]
+[ext_resource type="PackedScene" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaPatchLow.tscn" id="2_773rl"]
+[ext_resource type="PackedScene" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaPatchMedium.tscn" id="3_f1nff"]
+[ext_resource type="PackedScene" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaPatchMixed.tscn" id="4_vk3a5"]
 [ext_resource type="Texture2D" uid="uid://dbd284wfivioi" path="res://Terrain/Textures/Packed/Grass/Grass_albedo_height.png" id="1_tsyta"]
 [ext_resource type="Texture2D" uid="uid://b3pc3esxl7t1l" path="res://Terrain/Textures/Packed/Grass/Grass_normal_roughness.png" id="2_ogy75"]
 [ext_resource type="Texture2D" uid="uid://iurh5clkr5nu" path="res://Terrain/Textures/Packed/Dirt/Dirt_albedo_height.png" id="3_jdp7q"]
@@ -7,20 +11,33 @@
 [ext_resource type="Texture2D" uid="uid://bbu6g7nkohrb" path="res://Terrain/Textures/Packed/Rock/Rock_albedo_height.png" id="5_72snh"]
 [ext_resource type="Texture2D" uid="uid://ceotea8fpj7jm" path="res://Terrain/Textures/Packed/Rock/Rock_normal_roughness.png" id="6_0yu3d"]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ryreo"]
-transparency = 4
-cull_mode = 2
-vertex_color_use_as_albedo = true
-backlight_enabled = true
-backlight = Color(0.5, 0.5, 0.5, 1)
-distance_fade_mode = 1
-distance_fade_min_distance = 128.0
-distance_fade_max_distance = 96.0
+[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_kj7nw"]
+name = "PatchDry"
+scene_file = ExtResource("1_73gx5")
+last_lod = 0
+last_shadow_lod = 0
+lod0_range = 128.0
 
-[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_tkrjh"]
-generated_type = 1
-height_offset = 0.5
-material_override = SubResource("StandardMaterial3D_ryreo")
+[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_0hvtg"]
+name = "PatchLow"
+id = 1
+scene_file = ExtResource("2_773rl")
+last_lod = 0
+last_shadow_lod = 0
+lod0_range = 128.0
+
+[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_vpd8q"]
+name = "PatchMedium"
+id = 2
+scene_file = ExtResource("3_f1nff")
+last_lod = 0
+last_shadow_lod = 0
+lod0_range = 128.0
+
+[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_g1kis"]
+name = "PatchMixed"
+id = 3
+scene_file = ExtResource("4_vk3a5")
 last_lod = 0
 last_shadow_lod = 0
 lod0_range = 128.0
@@ -43,5 +60,5 @@ albedo_texture = ExtResource("5_72snh")
 normal_texture = ExtResource("6_0yu3d")
 
 [resource]
-mesh_list = Array[Terrain3DMeshAsset]([SubResource("Terrain3DMeshAsset_tkrjh")])
+mesh_list = Array[Terrain3DMeshAsset]([SubResource("Terrain3DMeshAsset_kj7nw"), SubResource("Terrain3DMeshAsset_0hvtg"), SubResource("Terrain3DMeshAsset_vpd8q"), SubResource("Terrain3DMeshAsset_g1kis")])
 texture_list = Array[Terrain3DTextureAsset]([SubResource("Terrain3DTextureAsset_hut17"), SubResource("Terrain3DTextureAsset_nwrxp"), SubResource("Terrain3DTextureAsset_qcsoo")])

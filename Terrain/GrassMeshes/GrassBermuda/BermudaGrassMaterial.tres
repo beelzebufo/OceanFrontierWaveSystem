@@ -1,0 +1,28 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://Terrain/GrassMeshes/GrassBermuda/Shaders/bermuda_grass.gdshader" id="1_shader"]
+[ext_resource type="Texture2D" path="res://Terrain/GrassMeshes/GrassBermuda/textures/grass_bermuda_01_albedo_rgba_2k.png" id="2_albedo"]
+[ext_resource type="Texture2D" path="res://Terrain/GrassMeshes/GrassBermuda/textures/grass_bermuda_01_nor_gl_2k.png" id="3_normal"]
+[ext_resource type="Texture2D" path="res://Terrain/GrassMeshes/GrassBermuda/textures/grass_bermuda_01_rough_2k.png" id="4_roughness"]
+
+[resource]
+shader = ExtResource("1_shader")
+shader_parameter/albedo_texture = ExtResource("2_albedo")
+shader_parameter/normal_texture = ExtResource("3_normal")
+shader_parameter/roughness_texture = ExtResource("4_roughness")
+shader_parameter/albedo_tint = Color(1, 1, 1, 1)
+shader_parameter/alpha_cutoff = 0.5
+shader_parameter/normal_strength = 1.0
+shader_parameter/roughness_multiplier = 1.0
+shader_parameter/wind_direction = Vector2(1, 0.25)
+shader_parameter/wind_strength = 0.08
+shader_parameter/wind_speed = 1.3
+shader_parameter/wind_spatial_frequency = 0.7
+shader_parameter/bend_start_height = 0.015
+shader_parameter/bend_full_height = 0.25
+shader_parameter/interaction_enabled = false
+shader_parameter/player_world_position = Vector3(0, 0, 0)
+shader_parameter/flatten_radius = 0.38
+shader_parameter/bend_radius = 0.75
+shader_parameter/flatten_amount = 0.95
+shader_parameter/bend_strength = 0.2

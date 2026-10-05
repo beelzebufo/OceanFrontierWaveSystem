@@ -3,6 +3,8 @@
 [ext_resource type="PackedScene" uid="uid://c6qklvoyb3tm6" path="res://World/Terrain/TerrainWorld.tscn" id="2_sfscx"]
 [ext_resource type="PackedScene" uid="uid://bytb0p01hxkuc" path="res://World/Ocean/OceanRuntimeScene.tscn" id="3_ow10j"]
 [ext_resource type="PackedScene" uid="uid://hjeufk1g44jx" path="res://World/TestPlayer/Player.tscn" id="4_player"]
+[ext_resource type="Script" path="res://Terrain/GrassMeshes/GrassBermuda/GrassInteractionDriver.cs" id="5_grass_driver"]
+[ext_resource type="ShaderMaterial" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaGrassMaterial.tres" id="6_grass_material"]
 [ext_resource type="PackedScene" uid="uid://6skvjwt6lcng" path="res://Assest/ThirdParty/Quaternius/npc/Untitled.glb" id="4_sfscx"]
 
 [node name="OceanAndTerrain" type="Node3D" unique_id=341177939]
@@ -16,5 +18,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 32, 0)
 
 [node name="Untitled" parent="." unique_id=1592330795 instance=ExtResource("4_sfscx")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -43.133476, 10.3194475, 65.35948)
+
+[node name="GrassInteractionDriver" type="Node" parent="." node_paths=PackedStringArray("Player")]
+script = ExtResource("5_grass_driver")
+Player = NodePath("../Player")
+GrassMaterial = ExtResource("6_grass_material")
 
 [editable path="TerrainWorld"]

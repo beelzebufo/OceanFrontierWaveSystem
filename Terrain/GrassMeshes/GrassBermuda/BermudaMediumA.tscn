@@ -1,0 +1,48 @@
+[gd_scene format=4]
+
+[ext_resource type="Material" path="res://Terrain/GrassMeshes/GrassBermuda/BermudaGrassMaterial.tres" id="1_0fxuq"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stlu6"]
+resource_name = "grass_bermuda_01"
+cull_mode = 2
+metallic_texture_channel = 2
+roughness_texture_channel = 1
+normal_enabled = true
+metadata/_gltf_primary_texture_coord = 0
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_0fxuq"]
+_surfaces = [{
+"aabb": AABB(-0.06485819, 2.0835904e-10, -0.08330539, 0.15404898, 0.3910001, 0.11426933),
+"format": 34359742465,
+"index_count": 51,
+"index_data": PackedByteArray("AAANAAIAAAABAA0AAQADAA0ADQADAAQADgACAA0ADQAEAA4ADgAFAAIADgAEAAYADwAFAA4ADgAGAA8ADwAHAAUADwAGAAsADwAIAAcADwALAAkADwAJAAgADAAJAAsACQAKAAgA"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 16,
+"vertex_data": PackedByteArray("se6kPTczJT0JLIC9AADutdsXZS8AALK1qam2PU+87z1AixG96yWCvUmj7z0YqP08lt5rvQk3HT5AOfM6VUCJPcX0Nz5i2Km9X9SEva1dSz5AAia72HUzvJJ6WT4EnKq9hn6svAtygD5A7ZK9kFA0vYSNaT7YmRK9SMpSPCoxyD7lZnq9bCyDvdhQWj6QYum7eKhAvbXJoT4AwAM6QLk9PDln9D0IuxQ8LLZfvIJdIj64Bjy8ZkkfvWaHSj7yMwO9")
+}]
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_7yb4q"]
+resource_name = "grass_bermuda_01_2k_Plane_014"
+_surfaces = [{
+"aabb": AABB(-0.06485819, 2.0835904e-10, -0.08330539, 0.15404898, 0.3910001, 0.11426933),
+"attribute_data": PackedByteArray("3s5dP+6lbT/H60Y//41+P9s0Wz/ebl4/sAcwP+fAZj+0IDQ/28laP9rXWT/JKkk/s6EyP87ITT/HcEc/xAdEP8QvRD++LT4/u9I6P8WMRD/GI0Y/ppklP7MFMz/J10g/tMwzP7AAMD/C+UE/47hiP7/KPj/XNlc/vJo7P8yzSz8="),
+"format": 34359742487,
+"index_count": 51,
+"index_data": PackedByteArray("AAANAAIAAAABAA0AAQADAA0ADQADAAQADgACAA0ADQAEAA4ADgAFAAIADgAEAAYADwAFAA4ADgAGAA8ADwAHAAUADwAGAAsADwAIAAcADwALAAkADwAJAAgADAAJAAsACQAKAAgA"),
+"lods": [0.0054165567, PackedByteArray("AAABAAIAAQADAAIAAgADAAQABAAFAAIABgAFAAQABgAHAAUABgAIAAcABgAJAAgACQAKAAgABgALAAkADAAJAAsA")],
+"material": SubResource("StandardMaterial3D_stlu6"),
+"name": "grass_bermuda_01",
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 16,
+"vertex_data": PackedByteArray("se6kPTczJT0JLIC9AADutdsXZS8AALK1qam2PU+87z1AixG96yWCvUmj7z0YqP08lt5rvQk3HT5AOfM6VUCJPcX0Nz5i2Km9X9SEva1dSz5AAia72HUzvJJ6WT4EnKq9hn6svAtygD5A7ZK9kFA0vYSNaT7YmRK9SMpSPCoxyD7lZnq9bCyDvdhQWj6QYum7eKhAvbXJoT4AwAM6QLk9PDln9D0IuxQ8LLZfvIJdIj64Bjy8ZkkfvWaHSj7yMwO9W69Sb+zpxpweqX9x4+lZoJ6sX5IQ7euhMJaOmOfwIa4cmcynHe+Lq3Ke3LJK7jan6K5RmEHxu6CZrlml/OYrntDNgnfm5diQ8M3uf2H17ZaNyZ1r6eWojX/F64Up9X2ZIscccZ745JXuoqKUfe7zpoKb9K0y8Laplq4kn7Tws58=")
+}]
+shadow_mesh = SubResource("ArrayMesh_0fxuq")
+
+[node name="BermudaMediumA" type="Node3D" unique_id=1746364680]
+
+[node name="grass_bermuda_01_medium_a" type="MeshInstance3D" parent="." unique_id=1688122950]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0017398, -0.0007399479, -0.0026442364)
+mesh = SubResource("ArrayMesh_7yb4q")
+surface_material_override/0 = ExtResource("1_0fxuq")
