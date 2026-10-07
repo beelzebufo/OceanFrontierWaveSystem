@@ -31,6 +31,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private Camera3D _mainCamera;
 	private ReflectionProbe _reflectionProbe;
 	private MeshInstance3D _hullBelowWater;
+	private MeshInstance3D _referenceTarget;
 	private ShaderMaterial _hullClipMaterial;
 	private uint _originalMainCameraCullMask;
 	private bool _mainCameraMaskCached;
@@ -52,6 +53,14 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private int _surfaceDiagnosticMode;
 	private Transform3D _mainCameraSnapshot;
 	private Transform3D _mirroredCameraSnapshot;
+	private Vector2 _expectedPlanarUv;
+	private Vector2 _expectedMainScreen;
+	private bool _planarMarkerValid;
+	private bool _mainMarkerValid;
+	private ulong _synchronizationRevision;
+	private ulong _scheduledCaptureRevision;
+	private ulong _renderFrame;
+	internal event Action TemporalStateSynchronized;
 
 
 	internal bool ProbeEnabled =>
@@ -87,6 +96,16 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal Texture2D PlanarTexture =>
 		_planarTexture;
 
+	internal Vector2 ExpectedPlanarUv => _expectedPlanarUv;
+	internal Vector2 ExpectedMainScreen => _expectedMainScreen;
+	internal bool PlanarMarkerValid => _planarMarkerValid;
+	internal bool MainMarkerValid => _mainMarkerValid;
+	internal string TemporalState =>
+		$"Render frame: {_renderFrame} | sync: {_synchronizationRevision} | scheduled capture: {_scheduledCaptureRevision}\n" +
+		$"Main: {_mainCameraSnapshot.Origin} | mirrored: {_mirroredCameraSnapshot.Origin}\n" +
+		$"Planar UV: {_expectedPlanarUv} | main screen: {_expectedMainScreen}\n" +
+		$"Main camera interpolation: {_mainCamera?.PhysicsInterpolationMode} | project enabled: {ProjectSettings.GetSetting("physics/common/physics_interpolation", false)}";
+
 	public override void _Ready()
 	{
 		_surfaceRenderer =
@@ -105,10 +124,15 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			GetNodeOrNull<MeshInstance3D>(
 				HullBelowWaterPath);
 
+		_referenceTarget =
+			GetParent().GetNodeOrNull<MeshInstance3D>(
+				"ReflectionProbeTestTarget");
+
 		if (_surfaceRenderer == null ||
 			_mainCamera == null ||
 			_reflectionProbe == null ||
-			_hullBelowWater == null)
+			_hullBelowWater == null ||
+			_referenceTarget == null)
 		{
 			GD.PushError(
 				"Reflection-1B-V1 diagnostic node paths are incomplete.");
@@ -228,11 +252,13 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		{
 			_planarViewport.RenderTargetUpdateMode =
 				SubViewport.UpdateMode.Always;
+			_scheduledCaptureRevision++;
 		}
 		else if ((_frameIndex & 1) == 0)
 		{
 			_planarViewport.RenderTargetUpdateMode =
 				SubViewport.UpdateMode.Once;
+			_scheduledCaptureRevision++;
 		}
 
 		_frameIndex++;
@@ -287,6 +313,36 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_surfaceRenderer.SetPlanarReflectionViewProjection(
 			reflectionViewProjection);
+
+		_renderFrame = (ulong)Engine.GetFramesDrawn();
+		_synchronizationRevision++;
+
+		Vector3 reference = _referenceTarget.GlobalPosition;
+		Vector4 planarClip = reflectionViewProjection *
+			new Vector4(reference.X, reference.Y, reference.Z, 1.0f);
+		_planarMarkerValid = planarClip.W > 0.000001f;
+		if (_planarMarkerValid)
+		{
+			_expectedPlanarUv = new Vector2(
+				planarClip.X / planarClip.W * 0.5f + 0.5f,
+				-planarClip.Y / planarClip.W * 0.5f + 0.5f);
+		}
+
+		Vector3 mirroredReference = reference;
+		mirroredReference.Y = 2.0f * SeaLevel - reference.Y;
+		Projection mainViewProjection = _mainCamera.GetCameraProjection() *
+			new Projection(_mainCameraSnapshot.AffineInverse());
+		Vector4 mainClip = mainViewProjection *
+			new Vector4(mirroredReference.X, mirroredReference.Y, mirroredReference.Z, 1.0f);
+		_mainMarkerValid = mainClip.W > 0.000001f;
+		if (_mainMarkerValid)
+		{
+			Vector2 size = GetViewport().GetVisibleRect().Size;
+			_expectedMainScreen = new Vector2(
+				(mainClip.X / mainClip.W * 0.5f + 0.5f) * size.X,
+				(-mainClip.Y / mainClip.W * 0.5f + 0.5f) * size.Y);
+		}
+		TemporalStateSynchronized?.Invoke();
 
 	}
 

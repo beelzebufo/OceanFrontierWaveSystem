@@ -426,6 +426,8 @@ public partial class OceanWaveDiagnosticScreen : CanvasLayer
 
 		_performanceHud?.Tick(
 			delta);
+
+		_reflectionPanel?.Tick();
 	}
 
 
