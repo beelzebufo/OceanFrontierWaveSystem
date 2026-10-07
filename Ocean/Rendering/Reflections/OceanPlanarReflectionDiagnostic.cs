@@ -304,6 +304,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_planarCamera.GlobalTransform =
 			_mirroredCameraSnapshot;
+		// FramePreDraw runs after SceneTree's normal transform flush. Push the
+		// mirrored pose to the camera RID before the child viewport draws.
+		_planarCamera.ForceUpdateTransform();
 
 
 		// Camera3D's raw projection maps view-space Y upward. The shader applies
