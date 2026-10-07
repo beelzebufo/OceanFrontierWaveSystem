@@ -21,6 +21,17 @@
 [ext_resource type="Texture2D" uid="uid://cpipatgad7rww" path="res://Ocean/Textures/Water/Foam2.png" id="18_foam_pattern"]
 [ext_resource type="Script" uid="uid://c5r4umpvah0gj" path="res://Ocean/Waves/Foam/OceanFoamRectInput.cs" id="20_1picx"]
 
+[ext_resource type="Shader" path="res://Ocean/Shaders/Rendering/diagnostic_planar_clip_pbr.gdshader" id="21_planar_clip"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_hull_planar_clip"]
+shader = ExtResource("21_planar_clip")
+shader_parameter/material_albedo = Color(0.12, 0.18, 0.24, 1)
+shader_parameter/material_metallic = 0.12
+shader_parameter/material_roughness = 0.48
+shader_parameter/reflection_clip_enabled = true
+shader_parameter/reflection_clip_y = 0.0
+shader_parameter/reflection_clip_bias = 0.0
+
 [sub_resource type="Resource" id="Resource_caustics"]
 script = ExtResource("13_caustics_settings")
 Texture = ExtResource("5_5q2mf")
@@ -304,6 +315,7 @@ mesh = SubResource("BoxMesh_boat_hull_above")
 
 [node name="HullBelowWater" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat" unique_id=1383270528]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.25, 0)
+material_override = SubResource("ShaderMaterial_hull_planar_clip")
 mesh = SubResource("BoxMesh_boat_hull_below")
 
 [node name="Cabin" type="MeshInstance3D" parent="DiagnosticBuoyancyHull/TestBoat" unique_id=218169043]

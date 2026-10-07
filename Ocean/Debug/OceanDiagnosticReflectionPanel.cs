@@ -190,6 +190,17 @@ internal sealed class OceanDiagnosticReflectionPanel
 					index == 1);
 
 
+		CheckBox materialClip =
+			OceanDiagnosticUi.Check(
+				parent,
+				"Material world-space clip",
+				_diagnostic.MaterialClipEnabled);
+
+
+		materialClip.Toggled +=
+			_diagnostic.SetMaterialClipEnabled;
+
+
 		OptionButton debugMode =
 			OceanDiagnosticUi.Option(
 				parent,

@@ -10,6 +10,8 @@ namespace OceanFrontier.Water.Rendering.Reflections;
 /// </summary>
 public partial class OceanPlanarReflectionDiagnostic : Node
 {
+	// Layer 16 is camera-only; layers 17/18 belong to the player.
+	private const uint PlanarPassMarkerLayerMask = 1u << 15;
 	private const uint PlanarCandidateLayerMask = 1u << 18;
 	private const float SeaLevel = 0.0f;
 
@@ -29,12 +31,16 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private Camera3D _mainCamera;
 	private ReflectionProbe _reflectionProbe;
 	private MeshInstance3D _hullBelowWater;
+	private ShaderMaterial _hullClipMaterial;
+	private uint _originalMainCameraCullMask;
+	private bool _mainCameraMaskCached;
 
 	private SubViewport _planarViewport;
 	private Camera3D _planarCamera;
 	private Texture2D _planarTexture;
 
-	private bool _segmentedHull = true;
+	private bool _segmentedHull = false;
+	private bool _materialClipEnabled = true;
 	private bool _smallDistortion = true;
 	private bool _everyTwoFrames = true;
 	private bool _probeEnabled = true;
@@ -72,6 +78,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal bool SegmentedHull =>
 		_segmentedHull;
 
+	internal bool MaterialClipEnabled =>
+		_materialClipEnabled;
+
 	internal int SurfaceDiagnosticMode =>
 		_surfaceDiagnosticMode;
 
@@ -107,6 +116,24 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			return;
 		}
 
+		_hullClipMaterial =
+			_hullBelowWater.MaterialOverride as ShaderMaterial;
+
+		if (_hullClipMaterial?.Shader == null ||
+			_hullClipMaterial.Shader.ResourcePath !=
+				"res://Ocean/Shaders/Rendering/diagnostic_planar_clip_pbr.gdshader")
+		{
+			GD.PushError(
+				"Reflection-1C requires the diagnostic planar clip ShaderMaterial on HullBelowWater.");
+			SetProcess(false);
+			return;
+		}
+
+		_originalMainCameraCullMask = _mainCamera.CullMask;
+		_mainCameraMaskCached = true;
+		_mainCamera.CullMask &= ~PlanarPassMarkerLayerMask;
+
+		SetMaterialClipEnabled(_materialClipEnabled);
 		CreatePlanarViewport();
 		ApplyHullMode();
 		SetProbeIntensity(_probeIntensity);
@@ -142,7 +169,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			new Camera3D
 			{
 				Name = "PlanarReflectionCamera",
-				CullMask = PlanarCandidateLayerMask,
+				CullMask =
+					PlanarCandidateLayerMask |
+					PlanarPassMarkerLayerMask,
 				Current = true,
 				// This camera is driven from the main camera's already effective
 				// render-time transform once per draw. Interpolating it again would
@@ -474,6 +503,25 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	}
 
 
+	internal void SetMaterialClipEnabled(
+		bool enabled)
+	{
+		_materialClipEnabled = enabled;
+
+		if (_hullClipMaterial == null)
+		{
+			return;
+		}
+
+		_hullClipMaterial.SetShaderParameter(
+			"reflection_clip_enabled", enabled);
+		_hullClipMaterial.SetShaderParameter(
+			"reflection_clip_y", SeaLevel);
+		_hullClipMaterial.SetShaderParameter(
+			"reflection_clip_bias", 0.0f);
+	}
+
+
 	internal void SetSurfaceDiagnosticMode(
 		int mode)
 	{
@@ -492,6 +540,13 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	{
 		RenderingServer.FramePreDraw -=
 			SynchronizePlanarStateForDraw;
+
+		if (_mainCameraMaskCached &&
+			GodotObject.IsInstanceValid(_mainCamera))
+		{
+			_mainCamera.CullMask = _originalMainCameraCullMask;
+			_mainCameraMaskCached = false;
+		}
 
 		_surfaceRenderer?.SetPlanarReflectionDiagnosticMode(0);
 		_surfaceRenderer?.SetPlanarReflectionWeight(0.0f);
