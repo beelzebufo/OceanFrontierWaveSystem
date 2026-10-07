@@ -21,6 +21,7 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 	private Label _temporalState;
 	private TemporalMarker _planarMarker;
 	private TemporalMarker _mainMarker;
+	private TemporalMarker _sourceMarker;
 	private TextureRect _rgbPreview;
 
 	internal void Tick()
@@ -38,6 +39,9 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 		_mainMarker.Point = _diagnostic.ExpectedMainScreen;
 		_mainMarker.Visible = _diagnostic.MainMarkerValid;
 		_mainMarker.QueueRedraw();
+		_sourceMarker.Point = _diagnostic.ExpectedSourceScreen;
+		_sourceMarker.Visible = _diagnostic.SourceMarkerValid;
+		_sourceMarker.QueueRedraw();
 	}
 
 
@@ -72,12 +76,21 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 		_temporalState = new Label();
 		parent.AddChild(_temporalState);
 		OceanDiagnosticUi.Info(parent,
-			"Cyan crosses: expected target origin. Main cross is the undistorted mirror point; use Distortion OFF.");
+			"Yellow SOURCE: original target. Cyan REFLECTED: undistorted mirror point. Use Distortion OFF.");
 		CanvasLayer markerLayer = new CanvasLayer { Layer = 100 };
 		_diagnostic.AddChild(markerLayer);
-		_mainMarker = new TemporalMarker();
+		_mainMarker = new TemporalMarker { MarkerColor = Colors.Cyan };
 		_mainMarker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 		markerLayer.AddChild(_mainMarker);
+		_sourceMarker = new TemporalMarker { MarkerColor = Colors.Yellow };
+		_sourceMarker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+		markerLayer.AddChild(_sourceMarker);
+
+		OptionButton cameraInterpolation = OceanDiagnosticUi.Option(
+			parent, "Main camera interpolation", "CURRENT", "OFF");
+		cameraInterpolation.Selected = _diagnostic.MainCameraInterpolationOff ? 1 : 0;
+		cameraInterpolation.ItemSelected += index =>
+			_diagnostic.SetMainCameraInterpolationOff(index == 1);
 
 
 		CheckBox probeEnabled =
@@ -304,6 +317,7 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 	private sealed partial class TemporalMarker : Control
 	{
 		internal Vector2 Point;
+		internal Color MarkerColor = Colors.Cyan;
 
 		internal TemporalMarker()
 		{
@@ -314,7 +328,7 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 		{
 			if (Point.X < 0 || Point.Y < 0 ||
 				Point.X >= Size.X || Point.Y >= Size.Y) return;
-			Color color = Colors.Cyan;
+			Color color = MarkerColor;
 			DrawLine(Point + new Vector2(-9, 0), Point + new Vector2(9, 0), color, 2);
 			DrawLine(Point + new Vector2(0, -9), Point + new Vector2(0, 9), color, 2);
 			DrawArc(Point, 4, 0, Mathf.Tau, 20, color, 2);

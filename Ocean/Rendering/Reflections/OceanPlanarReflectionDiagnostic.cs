@@ -34,6 +34,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private MeshInstance3D _referenceTarget;
 	private ShaderMaterial _hullClipMaterial;
 	private uint _originalMainCameraCullMask;
+	private PhysicsInterpolationModeEnum _originalMainCameraInterpolationMode;
+	private bool _mainCameraInterpolationOff;
 	private bool _mainCameraMaskCached;
 
 	private SubViewport _planarViewport;
@@ -55,8 +57,10 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private Transform3D _mirroredCameraSnapshot;
 	private Vector2 _expectedPlanarUv;
 	private Vector2 _expectedMainScreen;
+	private Vector2 _expectedSourceScreen;
 	private bool _planarMarkerValid;
 	private bool _mainMarkerValid;
+	private bool _sourceMarkerValid;
 	private ulong _synchronizationRevision;
 	private ulong _scheduledCaptureRevision;
 	private ulong _renderFrame;
@@ -98,13 +102,17 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 	internal Vector2 ExpectedPlanarUv => _expectedPlanarUv;
 	internal Vector2 ExpectedMainScreen => _expectedMainScreen;
+	internal Vector2 ExpectedSourceScreen => _expectedSourceScreen;
 	internal bool PlanarMarkerValid => _planarMarkerValid;
 	internal bool MainMarkerValid => _mainMarkerValid;
+	internal bool SourceMarkerValid => _sourceMarkerValid;
+	internal bool MainCameraInterpolationOff => _mainCameraInterpolationOff;
 	internal string TemporalState =>
 		$"Render frame: {_renderFrame} | sync: {_synchronizationRevision} | scheduled capture: {_scheduledCaptureRevision}\n" +
 		$"Main: {_mainCameraSnapshot.Origin} | mirrored: {_mirroredCameraSnapshot.Origin}\n" +
 		$"Planar UV: {_expectedPlanarUv} | main screen: {_expectedMainScreen}\n" +
-		$"Main camera interpolation: {_mainCamera?.PhysicsInterpolationMode} | project enabled: {ProjectSettings.GetSetting("physics/common/physics_interpolation", false)}";
+		$"Source screen: {_expectedSourceScreen} | raw camera origin: {_mainCamera?.GlobalTransform.Origin}\n" +
+		$"Main interpolation mode: {_mainCamera?.PhysicsInterpolationMode} | effective: {_mainCamera?.IsPhysicsInterpolatedAndEnabled()} | SceneTree enabled: {GetTree().IsPhysicsInterpolationEnabled()}";
 
 	public override void _Ready()
 	{
@@ -154,6 +162,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		}
 
 		_originalMainCameraCullMask = _mainCamera.CullMask;
+		_originalMainCameraInterpolationMode = _mainCamera.PhysicsInterpolationMode;
 		_mainCameraMaskCached = true;
 		_mainCamera.CullMask &= ~PlanarPassMarkerLayerMask;
 
@@ -341,6 +350,16 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			_expectedMainScreen = new Vector2(
 				(mainClip.X / mainClip.W * 0.5f + 0.5f) * size.X,
 				(-mainClip.Y / mainClip.W * 0.5f + 0.5f) * size.Y);
+		}
+		Vector4 sourceClip = mainViewProjection *
+			new Vector4(reference.X, reference.Y, reference.Z, 1.0f);
+		_sourceMarkerValid = sourceClip.W > 0.000001f;
+		if (_sourceMarkerValid)
+		{
+			Vector2 size = GetViewport().GetVisibleRect().Size;
+			_expectedSourceScreen = new Vector2(
+				(sourceClip.X / sourceClip.W * 0.5f + 0.5f) * size.X,
+				(-sourceClip.Y / sourceClip.W * 0.5f + 0.5f) * size.Y);
 		}
 		TemporalStateSynchronized?.Invoke();
 
@@ -592,6 +611,14 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 	}
 
+	internal void SetMainCameraInterpolationOff(bool off)
+	{
+		_mainCameraInterpolationOff = off;
+		_mainCamera.PhysicsInterpolationMode = off
+			? PhysicsInterpolationModeEnum.Off
+			: _originalMainCameraInterpolationMode;
+	}
+
 	public override void _ExitTree()
 	{
 		RenderingServer.FramePreDraw -=
@@ -601,6 +628,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			GodotObject.IsInstanceValid(_mainCamera))
 		{
 			_mainCamera.CullMask = _originalMainCameraCullMask;
+			_mainCamera.PhysicsInterpolationMode = _originalMainCameraInterpolationMode;
 			_mainCameraMaskCached = false;
 		}
 
