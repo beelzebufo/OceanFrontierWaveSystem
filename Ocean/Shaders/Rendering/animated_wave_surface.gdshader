@@ -1006,17 +1006,38 @@ void fragment()
                     0));
 
 
+        vec2 raw_planar_uv =
+            planar_base_uv +
+                final_normal.xy *
+                (
+                    planar_reflection_diagnostic_mode == 5 ||
+                    planar_reflection_diagnostic_mode == 6
+                        ? 0.0
+                        : planar_reflection_distortion
+                );
+
+
+        // Fade the actual distorted UV over two texels on each edge. The
+        // lookup remains clamped for safety, but outside samples contribute
+        // no planar radiance and leave the existing fallback available.
+        vec2 planar_edge_distance =
+            min(raw_planar_uv, vec2(1.0) - raw_planar_uv);
+
+
+        vec2 planar_edge_validity =
+            smoothstep(
+                vec2(0.0),
+                2.0 / max(planar_texture_size, vec2(1.0)),
+                planar_edge_distance);
+
+
+        float planar_validity =
+            planar_edge_validity.x * planar_edge_validity.y *
+            (planar_clip.w > 0.000001 ? 1.0 : 0.0);
+
+
         vec2 planar_uv =
-            clamp_screen_uv(
-                planar_base_uv +
-                    final_normal.xy *
-                    (
-                        planar_reflection_diagnostic_mode == 5 ||
-                        planar_reflection_diagnostic_mode == 6
-                            ? 0.0
-                            : planar_reflection_distortion
-                    ),
-                planar_texture_size);
+            clamp_screen_uv(raw_planar_uv, planar_texture_size);
 
 
         vec4 planar_sample =
@@ -1026,10 +1047,7 @@ void fragment()
                 0.0);
 
 
-        planar_sample.a *=
-            planar_clip.w > 0.000001
-                ? 1.0
-                : 0.0;
+        planar_sample.a *= planar_validity;
 
 
         // Crest prevents ocean reflections from sampling below the world
@@ -1948,7 +1966,7 @@ void fragment()
                 planar_reflection_diagnostic_mode == 6)
             {
                 EMISSION =
-                    planar_sample.rgb;
+                    planar_sample.rgb * planar_validity;
             }
             else if (planar_reflection_diagnostic_mode == 2)
             {
@@ -1960,7 +1978,7 @@ void fragment()
             {
                 EMISSION =
                     vec3(
-                        planar_uv,
+                        raw_planar_uv,
                         0.0);
             }
 
