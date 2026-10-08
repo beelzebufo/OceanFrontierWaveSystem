@@ -535,7 +535,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			Math.Clamp(
 				mode,
 				0,
-				6);
+				9);
 
 		_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
 			_surfaceDiagnosticMode);

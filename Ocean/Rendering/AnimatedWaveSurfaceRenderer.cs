@@ -249,6 +249,10 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private int _planarReflectionDiagnosticMode;
 	private Projection _planarReflectionViewProjection;
 	private bool _planarReflectionViewProjectionInitialized;
+	private Texture2D _localBoatReflectionTexture;
+	private float _localBoatReflectionWeight;
+	private float _localBoatReflectionRadius = 14.0f;
+	private Vector2 _localBoatReflectionCenter;
 
 
 	private int _meshResolution;
@@ -425,6 +429,34 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		ApplyPlanarReflectionParameters();
 	}
 
+	internal void SetLocalBoatReflection(Texture2D texture, float radius)
+	{
+		_localBoatReflectionTexture = texture;
+		_localBoatReflectionRadius = radius;
+		ApplyPlanarReflectionParameters();
+	}
+
+	internal void SetLocalBoatReflectionWeight(float weight)
+	{
+		_localBoatReflectionWeight = Mathf.Clamp(weight, 0.0f, 1.0f);
+		SetSurfaceParameter("local_boat_reflection_weight", _localBoatReflectionWeight);
+	}
+
+	internal void SetLocalBoatReflectionRadius(float radius)
+	{
+		_localBoatReflectionRadius = radius;
+		SetSurfaceParameter("local_boat_reflection_radius", radius);
+	}
+
+	internal void SetLocalBoatReflectionCenter(Vector3 center)
+	{
+		Vector2 xz = new(center.X, center.Z);
+		if (_localBoatReflectionCenter == xz)
+			return;
+		_localBoatReflectionCenter = xz;
+		SetSurfaceParameter("local_boat_reflection_center_xz", xz);
+	}
+
 
 	internal void SetPlanarReflectionWeight(
 		float weight)
@@ -464,7 +496,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			Math.Clamp(
 				mode,
 				0,
-				6);
+				9);
 
 
 		SetSurfaceParameter(

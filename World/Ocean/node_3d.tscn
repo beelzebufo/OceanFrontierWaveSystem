@@ -16,6 +16,7 @@
 [ext_resource type="Script" uid="uid://dl4jqx10hld4r" path="res://Ocean/Rendering/OceanCausticsSettings.cs" id="13_caustics_settings"]
 [ext_resource type="Script" uid="uid://bwyoy820f1p5p" path="res://Ocean/Lighting/OceanSceneLightingBridge.cs" id="14_lighting_bridge"]
 [ext_resource type="Script" uid="uid://daoi4l7n4vkln" path="res://Ocean/Rendering/Reflections/OceanPlanarReflectionDiagnostic.cs" id="15_planar_diagnostic"]
+[ext_resource type="Script" uid="uid://bvaduh6v1ky46" path="res://Ocean/Rendering/Reflections/OceanLocalBoatReflectionDiagnostic.cs" id="15_local_boat_reflection"]
 [ext_resource type="Script" uid="uid://b8bu1xdd4gdml" path="res://Ocean/Physics/Weird/WeirdBuoyancy.cs" id="16_weird_buoyancy"]
 [ext_resource type="Script" uid="uid://cjxswiblxafe1" path="res://Ocean/Waves/Foam/OceanFoamSettings.cs" id="17_foam_settings"]
 [ext_resource type="Texture2D" uid="uid://cpipatgad7rww" path="res://Ocean/Textures/Water/Foam2.png" id="18_foam_pattern"]
@@ -273,6 +274,13 @@ SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
 MainCameraPath = NodePath("../Camera3D")
 ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
 HullBelowWaterPath = NodePath("../DiagnosticBuoyancyHull/TestBoat/HullBelowWater")
+
+[node name="OceanLocalBoatReflectionDiagnostic" type="Node" parent="."]
+script = ExtResource("15_local_boat_reflection")
+SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
+MainCameraPath = NodePath("../Camera3D")
+BoatRootPath = NodePath("../DiagnosticBuoyancyHull/TestBoat")
+ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")

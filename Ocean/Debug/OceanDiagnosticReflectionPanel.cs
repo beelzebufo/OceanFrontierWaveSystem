@@ -18,6 +18,7 @@ internal sealed class OceanDiagnosticReflectionPanel
 
 
 	private OceanPlanarReflectionDiagnostic _diagnostic;
+	private OceanLocalBoatReflectionDiagnostic _localBoat;
 
 
 	internal void Initialize(
@@ -26,6 +27,8 @@ internal sealed class OceanDiagnosticReflectionPanel
 	{
 		_diagnostic =
 			diagnostic;
+		_localBoat = diagnostic?.GetParent()?.GetNodeOrNull<OceanLocalBoatReflectionDiagnostic>(
+			"OceanLocalBoatReflectionDiagnostic");
 
 
 		OceanDiagnosticUi.Header(
@@ -212,7 +215,10 @@ internal sealed class OceanDiagnosticReflectionPanel
 				"PROJECTIVE UV",
 				"FORCE WEIGHT 1",
 				"DISTORTION OFF",
-				"OLD SCREEN_UV RGB");
+				"OLD SCREEN_UV RGB",
+				"LOCAL RGB",
+				"LOCAL ALPHA",
+				"LOCAL INFLUENCE");
 
 
 		debugMode.Selected =
@@ -264,6 +270,25 @@ internal sealed class OceanDiagnosticReflectionPanel
 
 		previews.AddChild(
 			alphaPreview);
+
+		if (_localBoat != null)
+		{
+			parent.AddChild(new HSeparator());
+			OceanDiagnosticUi.Header(parent, "Local boat reflection");
+			OceanDiagnosticUi.Check(parent, "Local boat reflection enabled",
+				_localBoat.LocalEnabled).Toggled += _localBoat.SetLocalEnabled;
+			OceanDiagnosticUi.Spin(parent, "Influence radius",
+				_localBoat.Radius, 8.0, 30.0, 0.5).ValueChanged +=
+				value => _localBoat.SetRadius((float)value);
+			VBoxContainer localPreviews =
+				OceanDiagnosticUi.Foldout(parent, "Local boat previews");
+			OceanDiagnosticUi.Info(localPreviews, "RGB");
+			localPreviews.AddChild(CreatePreview(_localBoat.Texture));
+			OceanDiagnosticUi.Info(localPreviews, "Alpha");
+			TextureRect localAlpha = CreatePreview(_localBoat.Texture);
+			localAlpha.Material = alphaPreview.Material;
+			localPreviews.AddChild(localAlpha);
+		}
 	}
 
 

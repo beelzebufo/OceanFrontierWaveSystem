@@ -148,9 +148,15 @@ uniform float planar_reflection_distortion :
 // Reflection-1B-V1-Fix surface-only diagnostics:
 // 0 final, 1 projective RGB, 2 projective alpha, 3 projective UV,
 // 4 force weight, 5 no distortion, 6 old SCREEN_UV RGB comparison.
+// 7 local RGB, 8 local alpha, 9 local influence.
 uniform int planar_reflection_diagnostic_mode = 0;
 
 uniform mat4 planar_reflection_view_projection = mat4(1.0);
+
+uniform sampler2D local_boat_reflection_texture : filter_linear, repeat_disable;
+uniform float local_boat_reflection_weight = 0.0;
+uniform vec2 local_boat_reflection_center_xz = vec2(0.0);
+uniform float local_boat_reflection_radius = 14.0;
 
 
 // Crest-compatible parameter convention.
@@ -1049,6 +1055,34 @@ void fragment()
 
         planar_sample.a *= planar_validity;
 
+        vec2 local_texture_size =
+            vec2(textureSize(local_boat_reflection_texture, 0));
+        vec2 raw_local_uv =
+            SCREEN_UV + final_normal.xy *
+            (planar_reflection_diagnostic_mode == 5
+                ? 0.0 : planar_reflection_distortion);
+        vec2 local_edge_distance =
+            min(raw_local_uv, vec2(1.0) - raw_local_uv);
+        vec2 local_edge_validity = smoothstep(
+            vec2(0.0),
+            2.0 / max(local_texture_size, vec2(1.0)),
+            local_edge_distance);
+        vec2 local_uv =
+            clamp_screen_uv(raw_local_uv, local_texture_size);
+        vec4 local_sample =
+            textureLod(local_boat_reflection_texture, local_uv, 0.0);
+        float local_distance =
+            length(displaced_world_position.xz - local_boat_reflection_center_xz);
+        float local_influence = 1.0 - smoothstep(
+            local_boat_reflection_radius * 0.7,
+            local_boat_reflection_radius,
+            local_distance);
+        float local_weight = clamp(
+            local_boat_reflection_weight * local_sample.a *
+            local_edge_validity.x * local_edge_validity.y *
+            local_influence,
+            0.0, 1.0);
+
 
         // Crest prevents ocean reflections from sampling below the world
         // horizon. Godot's native IBL does not perform this water-specific
@@ -1109,20 +1143,26 @@ void fragment()
                     0.0,
                     1.0);
 
+            float global_contribution =
+                planar_weight * (1.0 - local_weight);
+            float combined_weight =
+                global_contribution + local_weight;
+
 
             float radiance_weight =
                 below_horizon +
-                planar_weight -
+                combined_weight -
                 below_horizon *
-                    planar_weight;
+                    combined_weight;
 
 
             vec3 radiance_numerator =
                 water_horizon_radiance *
                     below_horizon *
-                    (1.0 - planar_weight) +
+                    (1.0 - combined_weight) +
                 planar_sample.rgb *
-                    planar_weight;
+                    global_contribution +
+                local_sample.rgb * local_weight;
 
 
             // Forward+ consumes custom RADIANCE before its reflection-probe
@@ -1955,7 +1995,8 @@ void fragment()
             planar_reflection_diagnostic_mode >= 1 &&
             (
                 planar_reflection_diagnostic_mode <= 3 ||
-                planar_reflection_diagnostic_mode == 6
+                planar_reflection_diagnostic_mode == 6 ||
+                planar_reflection_diagnostic_mode >= 7
             ))
         {
             ALBEDO =
@@ -1973,6 +2014,18 @@ void fragment()
                 EMISSION =
                     vec3(
                         planar_sample.a);
+            }
+            else if (planar_reflection_diagnostic_mode == 7)
+            {
+                EMISSION = local_sample.rgb * local_weight;
+            }
+            else if (planar_reflection_diagnostic_mode == 8)
+            {
+                EMISSION = vec3(local_weight);
+            }
+            else if (planar_reflection_diagnostic_mode == 9)
+            {
+                EMISSION = vec3(local_influence);
             }
             else
             {
