@@ -6,7 +6,7 @@ namespace OceanFrontier.Water.Debug;
 /// <summary>
 /// Mouse-accessible controls for the disposable planar/probe validation rig.
 /// </summary>
-internal sealed partial class OceanDiagnosticReflectionPanel
+internal sealed class OceanDiagnosticReflectionPanel
 {
 	private static readonly int[] PlanarWidths =
 	{
@@ -18,31 +18,6 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 
 
 	private OceanPlanarReflectionDiagnostic _diagnostic;
-	private Label _temporalState;
-	private TemporalMarker _planarMarker;
-	private TemporalMarker _mainMarker;
-	private TemporalMarker _sourceMarker;
-	private TextureRect _rgbPreview;
-
-	internal void Tick()
-	{
-		if (_diagnostic == null) return;
-		_temporalState.Text = _diagnostic.TemporalState;
-		Vector2 textureSize = _diagnostic.PlanarTexture.GetSize();
-		float scale = Mathf.Min(_rgbPreview.Size.X / textureSize.X,
-			_rgbPreview.Size.Y / textureSize.Y);
-		Vector2 imageSize = textureSize * scale;
-		_planarMarker.Point = (_rgbPreview.Size - imageSize) * 0.5f +
-			_diagnostic.ExpectedPlanarUv * imageSize;
-		_planarMarker.Visible = _diagnostic.PlanarMarkerValid;
-		_planarMarker.QueueRedraw();
-		_mainMarker.Point = _diagnostic.ExpectedMainScreen;
-		_mainMarker.Visible = _diagnostic.MainMarkerValid;
-		_mainMarker.QueueRedraw();
-		_sourceMarker.Point = _diagnostic.ExpectedSourceScreen;
-		_sourceMarker.Visible = _diagnostic.SourceMarkerValid;
-		_sourceMarker.QueueRedraw();
-	}
 
 
 	internal void Initialize(
@@ -66,31 +41,12 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 
 			return;
 		}
-		_diagnostic.TemporalStateSynchronized += Tick;
 
 
 		OceanDiagnosticUi.Info(
 			parent,
 			"Probe, planar capture, boat segmentation, and surface debug controls.");
 
-		_temporalState = new Label();
-		parent.AddChild(_temporalState);
-		OceanDiagnosticUi.Info(parent,
-			"Yellow SOURCE: original target. Cyan REFLECTED: undistorted mirror point. Use Distortion OFF.");
-		CanvasLayer markerLayer = new CanvasLayer { Layer = 100 };
-		_diagnostic.AddChild(markerLayer);
-		_mainMarker = new TemporalMarker { MarkerColor = Colors.Cyan };
-		_mainMarker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-		markerLayer.AddChild(_mainMarker);
-		_sourceMarker = new TemporalMarker { MarkerColor = Colors.Yellow };
-		_sourceMarker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-		markerLayer.AddChild(_sourceMarker);
-
-		OptionButton cameraInterpolation = OceanDiagnosticUi.Option(
-			parent, "Main camera interpolation", "CURRENT", "OFF");
-		cameraInterpolation.Selected = _diagnostic.MainCameraInterpolationOff ? 1 : 0;
-		cameraInterpolation.ItemSelected += index =>
-			_diagnostic.SetMainCameraInterpolationOff(index == 1);
 
 
 		CheckBox probeEnabled =
@@ -280,11 +236,7 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 			"RGB");
 
 
-		_rgbPreview = CreatePreview(_diagnostic.PlanarTexture);
-		previews.AddChild(_rgbPreview);
-		_planarMarker = new TemporalMarker();
-		_planarMarker.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-		_rgbPreview.AddChild(_planarMarker);
+		previews.AddChild(CreatePreview(_diagnostic.PlanarTexture));
 
 
 		OceanDiagnosticUi.Info(
@@ -312,27 +264,6 @@ internal sealed partial class OceanDiagnosticReflectionPanel
 
 		previews.AddChild(
 			alphaPreview);
-	}
-
-	private sealed partial class TemporalMarker : Control
-	{
-		internal Vector2 Point;
-		internal Color MarkerColor = Colors.Cyan;
-
-		internal TemporalMarker()
-		{
-			MouseFilter = MouseFilterEnum.Ignore;
-		}
-
-		public override void _Draw()
-		{
-			if (Point.X < 0 || Point.Y < 0 ||
-				Point.X >= Size.X || Point.Y >= Size.Y) return;
-			Color color = MarkerColor;
-			DrawLine(Point + new Vector2(-9, 0), Point + new Vector2(9, 0), color, 2);
-			DrawLine(Point + new Vector2(0, -9), Point + new Vector2(0, 9), color, 2);
-			DrawArc(Point, 4, 0, Mathf.Tau, 20, color, 2);
-		}
 	}
 
 

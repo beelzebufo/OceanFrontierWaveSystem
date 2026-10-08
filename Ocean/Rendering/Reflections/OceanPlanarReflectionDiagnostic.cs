@@ -31,11 +31,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private Camera3D _mainCamera;
 	private ReflectionProbe _reflectionProbe;
 	private MeshInstance3D _hullBelowWater;
-	private MeshInstance3D _referenceTarget;
 	private ShaderMaterial _hullClipMaterial;
 	private uint _originalMainCameraCullMask;
-	private PhysicsInterpolationModeEnum _originalMainCameraInterpolationMode;
-	private bool _mainCameraInterpolationOff;
 	private bool _mainCameraMaskCached;
 
 	private SubViewport _planarViewport;
@@ -55,16 +52,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	private int _surfaceDiagnosticMode;
 	private Transform3D _mainCameraSnapshot;
 	private Transform3D _mirroredCameraSnapshot;
-	private Vector2 _expectedPlanarUv;
-	private Vector2 _expectedMainScreen;
-	private Vector2 _expectedSourceScreen;
-	private bool _planarMarkerValid;
-	private bool _mainMarkerValid;
-	private bool _sourceMarkerValid;
-	private ulong _synchronizationRevision;
-	private ulong _scheduledCaptureRevision;
-	private ulong _renderFrame;
-	internal event Action TemporalStateSynchronized;
 
 
 	internal bool ProbeEnabled =>
@@ -100,20 +87,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal Texture2D PlanarTexture =>
 		_planarTexture;
 
-	internal Vector2 ExpectedPlanarUv => _expectedPlanarUv;
-	internal Vector2 ExpectedMainScreen => _expectedMainScreen;
-	internal Vector2 ExpectedSourceScreen => _expectedSourceScreen;
-	internal bool PlanarMarkerValid => _planarMarkerValid;
-	internal bool MainMarkerValid => _mainMarkerValid;
-	internal bool SourceMarkerValid => _sourceMarkerValid;
-	internal bool MainCameraInterpolationOff => _mainCameraInterpolationOff;
-	internal string TemporalState =>
-		$"Render frame: {_renderFrame} | sync: {_synchronizationRevision} | scheduled capture: {_scheduledCaptureRevision}\n" +
-		$"Main: {_mainCameraSnapshot.Origin} | mirrored: {_mirroredCameraSnapshot.Origin}\n" +
-		$"Planar UV: {_expectedPlanarUv} | main screen: {_expectedMainScreen}\n" +
-		$"Source screen: {_expectedSourceScreen} | raw camera origin: {_mainCamera?.GlobalTransform.Origin}\n" +
-		$"Main interpolation mode: {_mainCamera?.PhysicsInterpolationMode} | effective: {_mainCamera?.IsPhysicsInterpolatedAndEnabled()} | SceneTree enabled: {GetTree().IsPhysicsInterpolationEnabled()}";
-
 	public override void _Ready()
 	{
 		_surfaceRenderer =
@@ -132,15 +105,10 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			GetNodeOrNull<MeshInstance3D>(
 				HullBelowWaterPath);
 
-		_referenceTarget =
-			GetParent().GetNodeOrNull<MeshInstance3D>(
-				"ReflectionProbeTestTarget");
-
 		if (_surfaceRenderer == null ||
 			_mainCamera == null ||
 			_reflectionProbe == null ||
-			_hullBelowWater == null ||
-			_referenceTarget == null)
+			_hullBelowWater == null)
 		{
 			GD.PushError(
 				"Reflection-1B-V1 diagnostic node paths are incomplete.");
@@ -162,7 +130,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		}
 
 		_originalMainCameraCullMask = _mainCamera.CullMask;
-		_originalMainCameraInterpolationMode = _mainCamera.PhysicsInterpolationMode;
 		_mainCameraMaskCached = true;
 		_mainCamera.CullMask &= ~PlanarPassMarkerLayerMask;
 
@@ -261,13 +228,11 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		{
 			_planarViewport.RenderTargetUpdateMode =
 				SubViewport.UpdateMode.Always;
-			_scheduledCaptureRevision++;
 		}
 		else if ((_frameIndex & 1) == 0)
 		{
 			_planarViewport.RenderTargetUpdateMode =
 				SubViewport.UpdateMode.Once;
-			_scheduledCaptureRevision++;
 		}
 
 		_frameIndex++;
@@ -304,8 +269,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_planarCamera.GlobalTransform =
 			_mirroredCameraSnapshot;
-		// FramePreDraw runs after SceneTree's normal transform flush. Push the
-		// mirrored pose to the camera RID before the child viewport draws.
+		// FramePreDraw follows SceneTree's normal transform notification flush.
+		// Update the RenderingServer camera before the SubViewport draws.
 		_planarCamera.ForceUpdateTransform();
 
 
@@ -325,47 +290,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_surfaceRenderer.SetPlanarReflectionViewProjection(
 			reflectionViewProjection);
-
-		_renderFrame = (ulong)Engine.GetFramesDrawn();
-		_synchronizationRevision++;
-
-		Vector3 reference = _referenceTarget.GlobalPosition;
-		Vector4 planarClip = reflectionViewProjection *
-			new Vector4(reference.X, reference.Y, reference.Z, 1.0f);
-		_planarMarkerValid = planarClip.W > 0.000001f;
-		if (_planarMarkerValid)
-		{
-			_expectedPlanarUv = new Vector2(
-				planarClip.X / planarClip.W * 0.5f + 0.5f,
-				-planarClip.Y / planarClip.W * 0.5f + 0.5f);
-		}
-
-		Vector3 mirroredReference = reference;
-		mirroredReference.Y = 2.0f * SeaLevel - reference.Y;
-		Projection mainViewProjection = _mainCamera.GetCameraProjection() *
-			new Projection(_mainCameraSnapshot.AffineInverse());
-		Vector4 mainClip = mainViewProjection *
-			new Vector4(mirroredReference.X, mirroredReference.Y, mirroredReference.Z, 1.0f);
-		_mainMarkerValid = mainClip.W > 0.000001f;
-		if (_mainMarkerValid)
-		{
-			Vector2 size = GetViewport().GetVisibleRect().Size;
-			_expectedMainScreen = new Vector2(
-				(mainClip.X / mainClip.W * 0.5f + 0.5f) * size.X,
-				(-mainClip.Y / mainClip.W * 0.5f + 0.5f) * size.Y);
-		}
-		Vector4 sourceClip = mainViewProjection *
-			new Vector4(reference.X, reference.Y, reference.Z, 1.0f);
-		_sourceMarkerValid = sourceClip.W > 0.000001f;
-		if (_sourceMarkerValid)
-		{
-			Vector2 size = GetViewport().GetVisibleRect().Size;
-			_expectedSourceScreen = new Vector2(
-				(sourceClip.X / sourceClip.W * 0.5f + 0.5f) * size.X,
-				(-sourceClip.Y / sourceClip.W * 0.5f + 0.5f) * size.Y);
-		}
-		TemporalStateSynchronized?.Invoke();
-
 	}
 
 	private void UpdateViewportSize()
@@ -614,14 +538,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 	}
 
-	internal void SetMainCameraInterpolationOff(bool off)
-	{
-		_mainCameraInterpolationOff = off;
-		_mainCamera.PhysicsInterpolationMode = off
-			? PhysicsInterpolationModeEnum.Off
-			: _originalMainCameraInterpolationMode;
-	}
-
 	public override void _ExitTree()
 	{
 		RenderingServer.FramePreDraw -=
@@ -631,7 +547,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			GodotObject.IsInstanceValid(_mainCamera))
 		{
 			_mainCamera.CullMask = _originalMainCameraCullMask;
-			_mainCamera.PhysicsInterpolationMode = _originalMainCameraInterpolationMode;
 			_mainCameraMaskCached = false;
 		}
 
