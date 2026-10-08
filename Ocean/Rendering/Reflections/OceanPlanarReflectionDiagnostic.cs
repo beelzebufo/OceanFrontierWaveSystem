@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using OceanFrontier.Water.Runtime;
 
 namespace OceanFrontier.Water.Rendering.Reflections;
 
@@ -13,7 +14,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	// Layer 16 is camera-only; layers 17/18 belong to the player.
 	private const uint PlanarPassMarkerLayerMask = 1u << 15;
 	private const uint PlanarCandidateLayerMask = 1u << 18;
-	private const float SeaLevel = 0.0f;
+	// Rendering bias only; never shifts the camera reflection plane.
+	private const float ReflectionClipBias = 0.0f;
 
 	[Export]
 	public NodePath SurfaceRendererPath { get; set; }
@@ -206,7 +208,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		bool aboveWater =
 			_mainCamera.GlobalPosition.Y >=
-				SeaLevel;
+				OceanRuntime.MeanSeaLevelY;
 
 		bool planarActive =
 			aboveWater &&
@@ -263,7 +265,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		_mirroredCameraSnapshot =
 			ReflectCameraTransform(
-				_mainCameraSnapshot)
+				_mainCameraSnapshot,
+				OceanRuntime.MeanSeaLevelY)
 				.Orthonormalized();
 
 
@@ -360,7 +363,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	}
 
 	private static Transform3D ReflectCameraTransform(
-		Transform3D source)
+		Transform3D source,
+		float planeY)
 	{
 		static Vector3 ReflectVector(
 			Vector3 value)
@@ -382,7 +386,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 		reflectedOrigin.Y +=
 			2.0f *
-			SeaLevel;
+			planeY;
 
 		return new Transform3D(
 			reflectedBasis,
@@ -518,9 +522,9 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_hullClipMaterial.SetShaderParameter(
 			"reflection_clip_enabled", enabled);
 		_hullClipMaterial.SetShaderParameter(
-			"reflection_clip_y", SeaLevel);
+			"reflection_clip_y", OceanRuntime.MeanSeaLevelY);
 		_hullClipMaterial.SetShaderParameter(
-			"reflection_clip_bias", 0.0f);
+			"reflection_clip_bias", ReflectionClipBias);
 	}
 
 

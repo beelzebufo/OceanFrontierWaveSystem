@@ -16,6 +16,15 @@ namespace OceanFrontier.Water.Runtime;
 [GlobalClass]
 public partial class OceanRuntime : Node
 {
+	/// <summary>
+	/// Fixed world-space mean plane shared by planar reflection and LOD scaling.
+	/// This is a spatial contract, NOT a configurable ocean-height setting:
+	/// surface shaders and canonical AWF queries are based on world Y=0.
+	/// Moving a renderer Node3D does not relocate the rendered mean plane.
+	/// Instantaneous queried surface heights must not be replaced by this value.
+	/// </summary>
+	public const float MeanSeaLevelY = 0.0f;
+
 	[Export]
 	public SeaState SeaState { get; set; } = new();
 
@@ -565,15 +574,12 @@ public partial class OceanRuntime : Node
 
 
 		//
-		// Current ocean contract:
-		// sea level = world Y 0.
-		//
-		// Later this can use authoritative local sea level.
+		// Distance to the fixed mean plane, not the instantaneous AWF surface.
 		//
 
 		float viewerHeight =
 			MathF.Abs(
-				camera.GlobalPosition.Y);
+				camera.GlobalPosition.Y - MeanSeaLevelY);
 
 
 		//
