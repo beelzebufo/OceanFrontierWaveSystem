@@ -91,6 +91,12 @@ internal sealed class OceanDiagnosticReflectionPanel
 		planarEnabled.Toggled +=
 			_diagnostic.SetPlanarEnabled;
 
+		OceanDiagnosticUi.Check(
+			parent,
+			"Global planar test set",
+			_diagnostic.ValidationSetVisible).Toggled +=
+			_diagnostic.SetValidationSetVisible;
+
 
 		OceanDiagnosticUi.Spin(
 			parent,

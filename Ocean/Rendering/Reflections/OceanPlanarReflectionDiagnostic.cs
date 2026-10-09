@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using OceanFrontier.Water.Runtime;
 
@@ -29,11 +30,15 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	[Export]
 	public NodePath HullBelowWaterPath { get; set; }
 
+	[Export]
+	public NodePath ValidationSetPath { get; set; }
+
 	private AnimatedWaveSurfaceRenderer _surfaceRenderer;
 	private Camera3D _mainCamera;
 	private ReflectionProbe _reflectionProbe;
 	private MeshInstance3D _hullBelowWater;
 	private ShaderMaterial _hullClipMaterial;
+	private Node3D _validationSet;
 	private uint _originalMainCameraCullMask;
 	private bool _mainCameraMaskCached;
 
@@ -89,6 +94,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal Texture2D PlanarTexture =>
 		_planarTexture;
 
+	internal bool ValidationSetVisible => _validationSet?.Visible ?? false;
+
 	public override void _Ready()
 	{
 		_surfaceRenderer =
@@ -106,6 +113,8 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_hullBelowWater =
 			GetNodeOrNull<MeshInstance3D>(
 				HullBelowWaterPath);
+
+		_validationSet = GetNodeOrNull<Node3D>(ValidationSetPath);
 
 		if (_surfaceRenderer == null ||
 			_mainCamera == null ||
@@ -136,6 +145,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_mainCamera.CullMask &= ~PlanarPassMarkerLayerMask;
 
 		SetMaterialClipEnabled(_materialClipEnabled);
+		InitializeValidationSetMaterials();
 		CreatePlanarViewport();
 		ApplyHullMode();
 		SetProbeIntensity(_probeIntensity);
@@ -507,6 +517,31 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			"reflection_clip_y", OceanRuntime.MeanSeaLevelY);
 		_hullClipMaterial.SetShaderParameter(
 			"reflection_clip_bias", ReflectionClipBias);
+	}
+
+	private void InitializeValidationSetMaterials()
+	{
+		if (_validationSet == null)
+			return;
+		var configuredMaterials = new HashSet<ShaderMaterial>();
+		foreach (Node node in _validationSet.FindChildren("*", "MeshInstance3D", true, false))
+		{
+			if (node is not MeshInstance3D mesh ||
+				mesh.MaterialOverride is not ShaderMaterial material ||
+				material.Shader?.ResourcePath !=
+					"res://Ocean/Shaders/Rendering/diagnostic_planar_clip_pbr.gdshader" ||
+				!configuredMaterials.Add(material))
+				continue;
+			material.SetShaderParameter("reflection_clip_enabled", true);
+			material.SetShaderParameter("reflection_clip_y", OceanRuntime.MeanSeaLevelY);
+			material.SetShaderParameter("reflection_clip_bias", ReflectionClipBias);
+		}
+	}
+
+	internal void SetValidationSetVisible(bool visible)
+	{
+		if (_validationSet != null)
+			_validationSet.Visible = visible;
 	}
 
 

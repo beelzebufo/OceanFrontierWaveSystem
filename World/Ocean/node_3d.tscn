@@ -195,6 +195,85 @@ roughness = 0.7
 material = SubResource("StandardMaterial3D_optical_reference")
 size = Vector3(6, 0.8, 6)
 
+[sub_resource type="SphereMesh" id="SphereMesh_planar_rock"]
+radius = 1.0
+height = 2.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_planar_rock_dark"]
+shader = ExtResource("21_planar_clip")
+shader_parameter/material_albedo = Color(0.22, 0.24, 0.25, 1)
+shader_parameter/material_metallic = 0.0
+shader_parameter/material_roughness = 0.82
+shader_parameter/reflection_clip_enabled = true
+shader_parameter/reflection_clip_y = 0.0
+shader_parameter/reflection_clip_bias = 0.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_planar_rock_brown"]
+shader = ExtResource("21_planar_clip")
+shader_parameter/material_albedo = Color(0.38, 0.32, 0.27, 1)
+shader_parameter/material_metallic = 0.0
+shader_parameter/material_roughness = 0.85
+shader_parameter/reflection_clip_enabled = true
+shader_parameter/reflection_clip_y = 0.0
+shader_parameter/reflection_clip_bias = 0.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_planar_rock_ochre"]
+shader = ExtResource("21_planar_clip")
+shader_parameter/material_albedo = Color(0.45, 0.39, 0.25, 1)
+shader_parameter/material_metallic = 0.0
+shader_parameter/material_roughness = 0.78
+shader_parameter/reflection_clip_enabled = true
+shader_parameter/reflection_clip_y = 0.0
+shader_parameter/reflection_clip_bias = 0.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_pier_deck"]
+size = Vector3(14, 0.8, 12)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_planar_pier_deck"]
+albedo_color = Color(0.44, 0.27, 0.14, 1)
+roughness = 0.8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_planar_pile"]
+top_radius = 0.52
+bottom_radius = 0.52
+height = 8.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_planar_pile"]
+shader = ExtResource("21_planar_clip")
+shader_parameter/material_albedo = Color(0.34, 0.2, 0.1, 1)
+shader_parameter/material_metallic = 0.0
+shader_parameter/material_roughness = 0.84
+shader_parameter/reflection_clip_enabled = true
+shader_parameter/reflection_clip_y = 0.0
+shader_parameter/reflection_clip_bias = 0.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_building_base"]
+size = Vector3(9, 3, 8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_building_upper"]
+size = Vector3(6, 5, 5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_building_roof"]
+size = Vector3(8.5, 0.5, 7.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_building_tower"]
+size = Vector3(2.4, 6, 2.4)
+
+[sub_resource type="BoxMesh" id="BoxMesh_planar_building_marker"]
+size = Vector3(0.8, 5, 1.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_planar_building_wall"]
+albedo_color = Color(0.75, 0.72, 0.61, 1)
+roughness = 0.74
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_planar_building_roof"]
+albedo_color = Color(0.19, 0.22, 0.29, 1)
+roughness = 0.68
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_planar_building_marker"]
+albedo_color = Color(0.85, 0.2, 0.06, 1)
+roughness = 0.62
+
 [node name="OceanRuntime" type="Node" unique_id=1570357355]
 script = ExtResource("1_ocean_runtime")
 Caustics = SubResource("Resource_caustics")
@@ -222,6 +301,95 @@ cull_mask = 524287
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120.77382, 10, -8)
 layers = 262144
 mesh = SubResource("BoxMesh_reflection_target")
+
+[node name="GlobalPlanarValidationSet" type="Node3D" parent="."]
+
+[node name="Rocks" type="Node3D" parent="GlobalPlanarValidationSet"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -27, 0, -32)
+
+[node name="RockA" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Rocks"]
+transform = Transform3D(3.2, 0, 0, 0, 2.4, 0, 0, 0, 2.8, -3.5, -0.6, 0)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_rock_dark")
+mesh = SubResource("SphereMesh_planar_rock")
+
+[node name="RockB" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Rocks"]
+transform = Transform3D(2.5, 0, 0, 0, 1.6, 0, 0, 0, 3.1, 0.2, -0.2, -1.2)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_rock_brown")
+mesh = SubResource("SphereMesh_planar_rock")
+
+[node name="RockC" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Rocks"]
+transform = Transform3D(2.1, 0, 0, 0, 2.8, 0, 0, 0, 2.0, 3.4, -1.0, 1.3)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_rock_ochre")
+mesh = SubResource("SphereMesh_planar_rock")
+
+[node name="Pier" type="Node3D" parent="GlobalPlanarValidationSet"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, -54)
+
+[node name="Deck" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Pier"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.2, 0)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_pier_deck")
+mesh = SubResource("BoxMesh_planar_pier_deck")
+
+[node name="PileA" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Pier"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, -0.5, -4)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_pile")
+mesh = SubResource("CylinderMesh_planar_pile")
+
+[node name="PileB" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Pier"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, -0.5, -4)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_pile")
+mesh = SubResource("CylinderMesh_planar_pile")
+
+[node name="PileC" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Pier"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, -0.5, 4)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_pile")
+mesh = SubResource("CylinderMesh_planar_pile")
+
+[node name="PileD" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Pier"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, -0.5, 4)
+layers = 262144
+material_override = SubResource("ShaderMaterial_planar_pile")
+mesh = SubResource("CylinderMesh_planar_pile")
+
+[node name="Building" type="Node3D" parent="GlobalPlanarValidationSet"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 0, -78)
+
+[node name="Base" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Building"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_building_wall")
+mesh = SubResource("BoxMesh_planar_building_base")
+
+[node name="UpperFloor" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Building"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 5.5, 0)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_building_wall")
+mesh = SubResource("BoxMesh_planar_building_upper")
+
+[node name="Roof" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Building"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 8.25, 0)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_building_roof")
+mesh = SubResource("BoxMesh_planar_building_roof")
+
+[node name="Tower" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Building"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 10.5, -1)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_building_wall")
+mesh = SubResource("BoxMesh_planar_building_tower")
+
+[node name="OrientationMarker" type="MeshInstance3D" parent="GlobalPlanarValidationSet/Building"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.9, 4.0, 2.5)
+layers = 262144
+material_override = SubResource("StandardMaterial3D_planar_building_marker")
+mesh = SubResource("BoxMesh_planar_building_marker")
 
 [node name="PlanarDiagnosticHull" type="Node3D" parent="." unique_id=426818060]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -13)
@@ -274,6 +442,7 @@ SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
 MainCameraPath = NodePath("../Camera3D")
 ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
 HullBelowWaterPath = NodePath("../DiagnosticBuoyancyHull/TestBoat/HullBelowWater")
+ValidationSetPath = NodePath("../GlobalPlanarValidationSet")
 
 [node name="OceanLocalBoatReflectionDiagnostic" type="Node" parent="."]
 script = ExtResource("15_local_boat_reflection")
