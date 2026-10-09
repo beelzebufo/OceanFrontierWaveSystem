@@ -144,10 +144,17 @@ uniform float planar_reflection_weight :
 
 uniform float planar_reflection_distortion :
     hint_range(0.0, 0.02, 0.0001) = 0.0;
+// 0 OFF, 1 FIXED (accepted baseline), 2 ADAPTIVE.
+uniform int reflection_distortion_mode = 1;
+uniform float reflection_slope_gain : hint_range(0.5, 4.0) = 2.0;
+uniform float reflection_slope_power : hint_range(0.5, 4.0) = 2.0;
+uniform float reflection_wave_distortion_gain : hint_range(0.0, 4.0) = 1.0;
+uniform float reflection_slope_fade : hint_range(0.0, 0.5) = 0.0;
+uniform float reflection_distance_factor : hint_range(0.0, 0.1) = 0.0;
 
 // Surface-only diagnostics: 0 final, 1 screen RGB, 2 screen alpha,
 // 3 screen UV, 4 force weight, 5 no distortion,
-// 6 local RGB, 7 local alpha, 8 local influence.
+// 6 local RGB, 7 local alpha, 8 local influence, 9 wave slope.
 uniform int planar_reflection_diagnostic_mode = 0;
 
 // One texture contains up to four owned tiles, one for each active reflector.
@@ -198,6 +205,8 @@ varying vec2 undisplaced_world_xz;
 // Final rendered world position after topology morph and full XYZ canonical
 // AWF displacement. The fragment-stage built-in VERTEX is view-space.
 varying vec3 displaced_world_position;
+// AWF geometric normal before the renderer-only visual normal map.
+varying vec3 reflection_wave_normal_world;
 
 
 // Same transition alpha used by displacement/topology.
@@ -714,6 +723,7 @@ void vertex()
 
     NORMAL =
         surface_normal_and_det_j.xyz;
+    reflection_wave_normal_world = surface_normal_and_det_j.xyz;
 
 
     surface_det_j =
@@ -985,6 +995,30 @@ void fragment()
             normalize(
                 NORMAL);
 
+        float wave_slope = clamp(
+            length(normalize(reflection_wave_normal_world).xz),
+            0.0, 1.0);
+        float shaped_slope = pow(
+            clamp(wave_slope * reflection_slope_gain, 0.0, 1.0),
+            reflection_slope_power);
+        float adaptive_response = reflection_distortion_mode == 2
+            ? shaped_slope : 0.0;
+        float distortion_multiplier = min(
+            1.0 + adaptive_response * reflection_wave_distortion_gain,
+            4.0);
+        // Fragment VERTEX is already in view space; no depth texture read.
+        float distance_scale = reflection_distortion_mode == 2
+            ? min(max(1.0, -VERTEX.z * reflection_distance_factor), 4.0)
+            : 1.0;
+        float distortion_strength =
+            reflection_distortion_mode == 0 ||
+            planar_reflection_diagnostic_mode == 5
+                ? 0.0
+                : planar_reflection_distortion *
+                    distortion_multiplier * distance_scale;
+        float reflection_breakup =
+            1.0 - adaptive_response * reflection_slope_fade;
+
 
         vec2 planar_texture_size =
             vec2(
@@ -995,12 +1029,7 @@ void fragment()
 
         vec2 raw_planar_uv =
             SCREEN_UV +
-                final_normal.xy *
-                (
-                    planar_reflection_diagnostic_mode == 5
-                        ? 0.0
-                        : planar_reflection_distortion
-                );
+                final_normal.xy * distortion_strength;
 
 
         // Fade the actual distorted UV over two texels on each edge. The
@@ -1038,9 +1067,7 @@ void fragment()
             vec2(textureSize(local_reflection_texture, 0)) /
             local_reflection_grid;
         vec2 raw_local_uv =
-            SCREEN_UV + final_normal.xy *
-            (planar_reflection_diagnostic_mode == 5
-                ? 0.0 : planar_reflection_distortion);
+            SCREEN_UV + final_normal.xy * distortion_strength;
         vec2 local_edge_distance =
             min(raw_local_uv, vec2(1.0) - raw_local_uv);
         vec2 local_edge_validity = smoothstep(
@@ -1075,7 +1102,8 @@ void fragment()
                 local_reflection_texture, owned_uv, 0.0);
             float owned_weight = clamp(
                 local_reflection_weight * owned_sample.a *
-                local_edge_validity.x * local_edge_validity.y * influence,
+                local_edge_validity.x * local_edge_validity.y *
+                influence * reflection_breakup,
                 0.0, 1.0);
             if (owned_weight > 0.0)
             {
@@ -1141,7 +1169,7 @@ void fragment()
                             ? 1.0
                             : planar_reflection_weight
                     ) *
-                        planar_sample.a,
+                        planar_sample.a * reflection_breakup,
                     0.0,
                     1.0);
 
@@ -2026,6 +2054,10 @@ void fragment()
             else if (planar_reflection_diagnostic_mode == 8)
             {
                 EMISSION = vec3(local_influence);
+            }
+            else if (planar_reflection_diagnostic_mode == 9)
+            {
+                EMISSION = vec3(shaped_slope);
             }
             else
             {

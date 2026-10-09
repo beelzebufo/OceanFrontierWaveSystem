@@ -246,6 +246,12 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private Texture2D _planarReflectionTexture;
 	private float _planarReflectionWeight;
 	private float _planarReflectionDistortion;
+	private int _reflectionDistortionMode = 1;
+	private float _reflectionSlopeGain = 2.0f;
+	private float _reflectionSlopePower = 2.0f;
+	private float _reflectionWaveDistortionGain = 1.0f;
+	private float _reflectionSlopeFade;
+	private float _reflectionDistanceFactor;
 	private int _planarReflectionDiagnosticMode;
 	private Texture2D _localReflectionTexture;
 	private float _localReflectionWeight;
@@ -507,6 +513,33 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			_planarReflectionDistortion);
 	}
 
+	internal void SetReflectionDistortionSettings(
+		int mode,
+		float slopeGain,
+		float slopePower,
+		float waveGain,
+		float slopeFade,
+		float distanceFactor)
+	{
+		_reflectionDistortionMode = Math.Clamp(mode, 0, 2);
+		_reflectionSlopeGain = Mathf.Clamp(slopeGain, 0.5f, 4.0f);
+		_reflectionSlopePower = Mathf.Clamp(slopePower, 0.5f, 4.0f);
+		_reflectionWaveDistortionGain = Mathf.Clamp(waveGain, 0.0f, 4.0f);
+		_reflectionSlopeFade = Mathf.Clamp(slopeFade, 0.0f, 0.5f);
+		_reflectionDistanceFactor = Mathf.Clamp(distanceFactor, 0.0f, 0.1f);
+		ApplyReflectionDistortionSettings();
+	}
+
+	private void ApplyReflectionDistortionSettings()
+	{
+		SetSurfaceParameter("reflection_distortion_mode", _reflectionDistortionMode);
+		SetSurfaceParameter("reflection_slope_gain", _reflectionSlopeGain);
+		SetSurfaceParameter("reflection_slope_power", _reflectionSlopePower);
+		SetSurfaceParameter("reflection_wave_distortion_gain", _reflectionWaveDistortionGain);
+		SetSurfaceParameter("reflection_slope_fade", _reflectionSlopeFade);
+		SetSurfaceParameter("reflection_distance_factor", _reflectionDistanceFactor);
+	}
+
 
 	internal void SetPlanarReflectionDiagnosticMode(
 		int mode)
@@ -515,7 +548,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			Math.Clamp(
 				mode,
 				0,
-				8);
+				9);
 
 
 		SetSurfaceParameter(

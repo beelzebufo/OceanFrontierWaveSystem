@@ -170,21 +170,40 @@ internal sealed class OceanDiagnosticReflectionPanel
 		OptionButton distortion =
 			OceanDiagnosticUi.Option(
 				parent,
-				"Distortion",
+				"Reflection distortion",
 				"OFF",
-				"SMALL");
+				"FIXED",
+				"ADAPTIVE");
 
 
 		distortion.Selected =
-			_diagnostic.SmallDistortion
-				? 1
-				: 0;
+			_diagnostic.DistortionMode;
 
 
 		distortion.ItemSelected +=
 			index =>
-				_diagnostic.SetSmallDistortion(
-					index == 1);
+				_diagnostic.SetDistortionMode((int)index);
+
+		VBoxContainer distortionControls =
+			OceanDiagnosticUi.Foldout(parent, "Distortion settings");
+		OceanDiagnosticUi.Spin(distortionControls, "Base distortion",
+			_diagnostic.BaseDistortion, 0.0, 0.02, 0.0001)
+			.ValueChanged += value => _diagnostic.SetBaseDistortion((float)value);
+		OceanDiagnosticUi.Spin(distortionControls, "Slope gain",
+			_diagnostic.SlopeGain, 0.5, 4.0, 0.05)
+			.ValueChanged += value => _diagnostic.SetSlopeGain((float)value);
+		OceanDiagnosticUi.Spin(distortionControls, "Slope power",
+			_diagnostic.SlopePower, 0.5, 4.0, 0.05)
+			.ValueChanged += value => _diagnostic.SetSlopePower((float)value);
+		OceanDiagnosticUi.Spin(distortionControls, "Wave distortion gain",
+			_diagnostic.WaveDistortionGain, 0.0, 4.0, 0.05)
+			.ValueChanged += value => _diagnostic.SetWaveDistortionGain((float)value);
+		OceanDiagnosticUi.Spin(distortionControls, "Slope reflection fade",
+			_diagnostic.SlopeReflectionFade, 0.0, 0.5, 0.01)
+			.ValueChanged += value => _diagnostic.SetSlopeReflectionFade((float)value);
+		OceanDiagnosticUi.Spin(distortionControls, "Distance factor",
+			_diagnostic.DistanceFactor, 0.0, 0.1, 0.001)
+			.ValueChanged += value => _diagnostic.SetDistanceFactor((float)value);
 
 
 		OptionButton segmentation =
@@ -230,7 +249,8 @@ internal sealed class OceanDiagnosticReflectionPanel
 			"DISTORTION OFF",
 			"LOCAL RGB",
 				"LOCAL ALPHA",
-				"LOCAL INFLUENCE");
+				"LOCAL INFLUENCE",
+				"REFLECTION SLOPE");
 
 
 		debugMode.Selected =

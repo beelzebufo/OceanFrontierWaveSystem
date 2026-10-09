@@ -24,3 +24,15 @@ can rebuild those sets; steady frames reuse all proxy nodes, materials, the
 camera, and the viewport. This stage mirrors rigid mesh transforms and source
 color, as the accepted diagnostic boat path did; it does not mirror skeletal
 deformation or animated material parameters.
+
+## Reflection-3A distortion
+
+Global and local lookups use the same screen-space distortion direction from
+the final view-space water normal. Adaptive strength uses the normalized
+world-space AWF geometric normal before the visual micro-normal layer. Both
+lookups apply the resulting offset in capture-local coordinates. For local
+reflection, raw UV validity uses the participant tile's pixel dimensions;
+only then is the UV clamped inside that tile and mapped into the shared atlas.
+Neither distortion nor breakup changes the world-XZ influence test or the
+registry's slot ownership. A lower local weight reveals the existing global
+planar/environment fallback.

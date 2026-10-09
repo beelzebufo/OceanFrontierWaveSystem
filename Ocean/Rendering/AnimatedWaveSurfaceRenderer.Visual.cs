@@ -123,6 +123,7 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"planar_reflection_distortion",
 			_planarReflectionDistortion);
+		ApplyReflectionDistortionSettings();
 
 
 		SetSurfaceParameter(

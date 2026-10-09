@@ -48,7 +48,13 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 
 	private bool _segmentedHull = false;
 	private bool _materialClipEnabled = true;
-	private bool _smallDistortion = true;
+	private int _distortionMode = 1;
+	private float _baseDistortion = 0.0035f;
+	private float _slopeGain = 2.0f;
+	private float _slopePower = 2.0f;
+	private float _waveDistortionGain = 1.0f;
+	private float _slopeReflectionFade;
+	private float _distanceFactor;
 	private bool _everyTwoFrames = true;
 	private bool _probeEnabled = true;
 	private bool _planarEnabled = true;
@@ -79,8 +85,13 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	internal int TargetWidth =>
 		_targetWidth;
 
-	internal bool SmallDistortion =>
-		_smallDistortion;
+	internal int DistortionMode => _distortionMode;
+	internal float BaseDistortion => _baseDistortion;
+	internal float SlopeGain => _slopeGain;
+	internal float SlopePower => _slopePower;
+	internal float WaveDistortionGain => _waveDistortionGain;
+	internal float SlopeReflectionFade => _slopeReflectionFade;
+	internal float DistanceFactor => _distanceFactor;
 
 	internal bool SegmentedHull =>
 		_segmentedHull;
@@ -150,6 +161,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		ApplyHullMode();
 		SetProbeIntensity(_probeIntensity);
 		SetPlanarWeight(_planarWeight);
+		ApplyDistortionSettings();
 
 		RenderingServer.FramePreDraw +=
 			SynchronizePlanarStateForDraw;
@@ -202,7 +214,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		_surfaceRenderer.SetPlanarReflectionDiagnostic(
 			_planarTexture,
 				_planarWeight,
-				0.0035f);
+				_baseDistortion);
 	}
 
 	public override void _Process(
@@ -477,17 +489,57 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 	}
 
 
-	internal void SetSmallDistortion(
-		bool enabled)
+	internal void SetDistortionMode(int mode)
 	{
-		_smallDistortion =
-			enabled;
+		_distortionMode = Math.Clamp(mode, 0, 2);
+		ApplyDistortionSettings();
+	}
 
-		_surfaceRenderer.SetPlanarReflectionDistortion(
-			enabled
-				? 0.0035f
-				: 0.0f);
+	internal void SetBaseDistortion(float value)
+	{
+		_baseDistortion = Mathf.Clamp(value, 0.0f, 0.02f);
+		_surfaceRenderer.SetPlanarReflectionDistortion(_baseDistortion);
+	}
 
+	internal void SetSlopeGain(float value)
+	{
+		_slopeGain = Mathf.Clamp(value, 0.5f, 4.0f);
+		ApplyDistortionSettings();
+	}
+
+	internal void SetSlopePower(float value)
+	{
+		_slopePower = Mathf.Clamp(value, 0.5f, 4.0f);
+		ApplyDistortionSettings();
+	}
+
+	internal void SetWaveDistortionGain(float value)
+	{
+		_waveDistortionGain = Mathf.Clamp(value, 0.0f, 4.0f);
+		ApplyDistortionSettings();
+	}
+
+	internal void SetSlopeReflectionFade(float value)
+	{
+		_slopeReflectionFade = Mathf.Clamp(value, 0.0f, 0.5f);
+		ApplyDistortionSettings();
+	}
+
+	internal void SetDistanceFactor(float value)
+	{
+		_distanceFactor = Mathf.Clamp(value, 0.0f, 0.1f);
+		ApplyDistortionSettings();
+	}
+
+	private void ApplyDistortionSettings()
+	{
+		_surfaceRenderer.SetReflectionDistortionSettings(
+			_distortionMode,
+			_slopeGain,
+			_slopePower,
+			_waveDistortionGain,
+			_slopeReflectionFade,
+			_distanceFactor);
 	}
 
 
@@ -552,7 +604,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			Math.Clamp(
 				mode,
 				0,
-				8);
+				9);
 
 		_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
 			_surfaceDiagnosticMode);
