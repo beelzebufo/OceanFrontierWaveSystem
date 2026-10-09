@@ -504,6 +504,7 @@ public partial class OceanRuntime : Node
 
 	public override void _ExitTree()
 	{
+		ClearGerstnerPackets();
 		_gpuReady = false;
 
 		QueueGpuRelease();
@@ -746,6 +747,7 @@ public partial class OceanRuntime : Node
 			initialLodScaleAlpha;
 
 
+		ExpireGerstnerPackets();
 		_animatedWaveInputs.CaptureMainThread();
 		_seaFloorDepthInputs.CaptureMainThread();
 		_foamInputs.CaptureMainThread();
@@ -935,7 +937,8 @@ public partial class OceanRuntime : Node
 							0,
 							initialDepthInputCount),
 						initialSettings.ShallowWaterAttenuation,
-						initialSettings.ShallowWaterMaximumDepth);
+						initialSettings.ShallowWaterMaximumDepth,
+						0.0f, initialSettings.Gravity);
 
 
 					//
@@ -1137,6 +1140,8 @@ public partial class OceanRuntime : Node
 				_simulationTimeScale;
 		}
 
+
+		ExpireGerstnerPackets();
 
 		if (!_gpuReady)
 		{
@@ -1426,7 +1431,8 @@ public partial class OceanRuntime : Node
 				0,
 				seaFloorDepthInputCount),
 			settings.ShallowWaterAttenuation,
-			settings.ShallowWaterMaximumDepth);
+			settings.ShallowWaterMaximumDepth,
+			simulationTime, settings.Gravity);
 
 
 		//

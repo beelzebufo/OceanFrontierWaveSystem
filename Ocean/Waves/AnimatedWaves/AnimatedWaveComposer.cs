@@ -514,7 +514,9 @@ internal sealed class AnimatedWaveComposer : IDisposable
 		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs,
 		ReadOnlySpan<SeaFloorDepthInputSnapshot> seaFloorDepthInputs,
 		float shallowWaterAttenuation,
-		float shallowWaterMaximumDepth)
+		float shallowWaterMaximumDepth,
+		float simulationTime = 0.0f,
+		float gravity = 9.81f)
 	{
 		if (_fftDirectPass == null ||
 			_combinePass == null ||
@@ -603,7 +605,8 @@ internal sealed class AnimatedWaveComposer : IDisposable
 			lodScaleAlpha,
 			hasSeaFloorDepth,
 			shallowWaterAttenuation,
-			shallowWaterMaximumDepth);
+			shallowWaterMaximumDepth,
+			simulationTime, gravity, LodLayout);
 
 
 		//

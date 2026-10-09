@@ -29,6 +29,7 @@ public enum AnimatedWaveInputOperation
 	Displacement = 0,
 	ScaleByFactor = 1,
 	DirectionalFft = 2,
+	RadialGerstnerPacket = 3,
 }
 
 
@@ -61,6 +62,7 @@ internal interface IAnimatedWaveInputSnapshotSource : IAnimatedWaveInput
 /// </summary>
 internal readonly struct AnimatedWaveInputSnapshot
 {
+	public readonly GerstnerWavePacketInput Packet;
 	public readonly int Priority;
 	public readonly long RegistrationOrder;
 	public readonly AnimatedWaveInputOperation Operation;
@@ -97,8 +99,10 @@ internal readonly struct AnimatedWaveInputSnapshot
 		Vector3 displacement,
 		float scale,
 		bool invert,
-		float directionRadians)
+		float directionRadians,
+		GerstnerWavePacketInput packet = null)
 	{
+		Packet = packet;
 		Priority = priority;
 		RegistrationOrder = registrationOrder;
 		Operation = operation;

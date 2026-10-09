@@ -33,7 +33,7 @@ internal sealed class AnimatedWaveInputRegistry
 	private long _nextRegistrationOrder = 1;
 
 
-	public void Register(
+	public bool Register(
 		IAnimatedWaveInputSnapshotSource input)
 	{
 		if (input == null)
@@ -51,7 +51,7 @@ internal sealed class AnimatedWaveInputRegistry
 					_registered[index],
 					input))
 			{
-				return;
+				return true;
 			}
 		}
 
@@ -63,7 +63,7 @@ internal sealed class AnimatedWaveInputRegistry
 				$"Animated Wave input capacity {Capacity} exceeded; " +
 				$"'{input.DiagnosticName}' was not registered.");
 
-			return;
+			return false;
 		}
 
 
@@ -74,6 +74,7 @@ internal sealed class AnimatedWaveInputRegistry
 			_nextRegistrationOrder++;
 
 		_registeredCount++;
+		return true;
 	}
 
 

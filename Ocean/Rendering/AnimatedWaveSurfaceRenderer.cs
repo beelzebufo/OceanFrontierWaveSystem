@@ -910,7 +910,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 					OceanSurfaceRenderLayerMask,
 
 				ExtraCullMargin =
-					128.0f,
+					128.0f + GerstnerWavePacketInput.MaximumCombinedDisplacement,
 
 				Visible =
 					false,
@@ -969,7 +969,7 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 					OceanSurfaceRenderLayerMask,
 
 				ExtraCullMargin =
-					128.0f,
+					128.0f + GerstnerWavePacketInput.MaximumCombinedDisplacement,
 
 				CastShadow =
 					GeometryInstance3D

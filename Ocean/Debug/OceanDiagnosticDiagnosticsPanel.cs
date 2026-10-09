@@ -107,6 +107,7 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 
 		Build2DWaveControls(
 			waves2D);
+		BuildPacketControls(parent);
 
 
 		OceanDiagnosticUi.Info(
@@ -114,6 +115,37 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 			"2D wave inspection is diagnostic-only. It never becomes the production render or physics path.");
 	}
 
+
+	private void BuildPacketControls(VBoxContainer parent)
+	{
+		var panel = OceanDiagnosticUi.Foldout(parent, "Radial Gerstner packet", false);
+		var x = OceanDiagnosticUi.Spin(panel, "Origin X", 0, -100000, 100000, 1);
+		var z = OceanDiagnosticUi.Spin(panel, "Origin Z", 0, -100000, 100000, 1);
+		var isolate = OceanDiagnosticUi.Check(panel, "Isolate packets (disable FFT)", false);
+		float savedMultiplier = 1;
+		isolate.Toggled += enabled =>
+		{
+			RuntimeWaveSettings settings = _runtime.GetWaveSettingsSnapshot();
+			if (enabled) savedMultiplier = settings.Multiplier;
+			settings.Multiplier = enabled ? 0 : savedMultiplier;
+			_runtime.RequestWaveSettings(settings);
+		};
+		var one = new Button { Text = "Trigger one packet" };
+		var two = new Button { Text = "Trigger two overlapping packets" };
+		var clear = new Button { Text = "Clear all packets" };
+		panel.AddChild(one); panel.AddChild(two); panel.AddChild(clear);
+		one.Pressed += () => _runtime.TriggerGerstnerPacket(new Vector2((float)x.Value, (float)z.Value));
+		two.Pressed += () =>
+		{
+			_runtime.TriggerGerstnerPacket(new Vector2((float)x.Value - 8, (float)z.Value));
+			_runtime.TriggerGerstnerPacket(new Vector2((float)x.Value + 8, (float)z.Value));
+		};
+		clear.Pressed += _runtime.ClearGerstnerPackets;
+		OceanDiagnosticUi.Info(panel,
+			"4 crests, wavelength 8 m, lifetime 40 s; full train emerges after about 18 s. " +
+			"Use ocean pause/time scale, AWF Height view and GPU query markers above. " +
+			"Move the camera to check snapped LOD shifts. Uncheck isolation to restore FFT.");
+	}
 
 	private void Build2DWaveControls(
 		VBoxContainer parent)

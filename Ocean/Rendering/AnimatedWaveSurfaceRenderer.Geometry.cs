@@ -644,7 +644,7 @@ public partial class AnimatedWaveSurfaceRenderer
 							position.Y),
 
 					ExtraCullMargin =
-						128.0f,
+						128.0f + GerstnerWavePacketInput.MaximumCombinedDisplacement,
 
 					CastShadow =
 						GeometryInstance3D

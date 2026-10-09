@@ -91,8 +91,9 @@ uniform PushConstants
 	uint has_sea_floor_depth;
 	float shallow_water_attenuation;
 	float shallow_water_maximum_depth;
-	float padding_0;
-	float padding_1;
+	float simulation_time;
+	float gravity;
+	uvec4 dispatch_offset;
 }
 pc;
 
@@ -103,6 +104,7 @@ const uint PLACEMENT_ALL_LODS_POST_COMBINE = 2u;
 const uint BLEND_MODE_BLEND = 1u;
 const uint OPERATION_SCALE_BY_FACTOR = 1u;
 const uint OPERATION_DIRECTIONAL_FFT = 2u;
+const uint OPERATION_RADIAL_GERSTNER_PACKET = 3u;
 const uint FLAG_INVERT = 1u;
 const float PI = 3.14159265358979323846;
 const float TWO_PI = 2.0 * PI;
@@ -277,9 +279,60 @@ vec3 sample_directional_fft(
 }
 
 
+// Original radial packet implementation; Crest supplies the dispersion/composition
+// reference, not a radial packet algorithm. Tagged descriptor packing:
+// vec4 0: origin XZ, start, lifetime; vec4 1: wavelength, amplitude, crests, chop;
+// vec4 2: phase, fade-in, fade-out, attenuation. XYZ uses project world axes.
+vec3 radial_packet(vec2 world_xz, uint lod_index, float terrain_y,
+	AnimatedWaveInputDescriptor d)
+{
+	float tau = pc.simulation_time - d.center_xz_axis_x.z;
+	float lifetime = d.center_xz_axis_x.w;
+	if (tau <= 0.0 || tau >= lifetime) return vec3(0.0);
+	float wavelength = d.axis_z_size_xz.x;
+	float transition = 1.0;
+	// Use the same filter as FFT, with a finer effective wavelength to retain
+	// 8-16 samples per carrier (finite envelopes contain higher frequencies).
+	if (!wavelength_lod_weight(wavelength * 0.25, lod_index, transition) ||
+		transition <= 0.0) return vec3(0.0);
+	float k = TWO_PI / wavelength;
+	float omega = sqrt(pc.gravity * k);
+	float front = 0.5 * omega / k * tau;
+	float width = d.axis_z_size_xz.z * wavelength;
+	vec2 delta = world_xz - d.center_xz_axis_x.xy;
+	// Reject outside the compact support before trigonometry or depth work.
+	if (any(greaterThan(abs(delta), vec2(front)))) return vec3(0.0);
+	float r = length(delta);
+	float behind_front = front - r;
+	if (behind_front <= 0.0 || behind_front >= width || r <= 0.0) return vec3(0.0);
+	float edge = 0.5 * wavelength;
+	float envelope = smoothstep(0.0, edge, behind_front) *
+		smoothstep(0.0, edge, width - behind_front);
+	// O(r^2) makes vertical gradient and radial horizontal displacement vanish
+	// at the origin for any phase; no direction division at r == 0.
+	envelope *= smoothstep(0.0, edge, r);
+	envelope *= smoothstep(0.0, d.feather_weight_amplitude_wavelength.y, tau) *
+		smoothstep(0.0, d.feather_weight_amplitude_wavelength.z, lifetime - tau);
+	// Gentle temporal decay, with exact compact lifetime support above.
+	envelope *= exp(-tau / lifetime);
+	if (pc.has_sea_floor_depth != 0u)
+	{
+		float depth = -terrain_y; // Existing sea level zero / terrain-height convention.
+		float depth_weight = clamp(2.0 * depth / wavelength, 0.0, 1.0);
+		if (pc.shallow_water_maximum_depth < 1000.0)
+			depth_weight = mix(depth_weight, 1.0,
+				clamp(depth / pc.shallow_water_maximum_depth, 0.0, 1.0));
+		envelope *= mix(1.0, depth_weight, d.feather_weight_amplitude_wavelength.w);
+	}
+	float theta = k * r - omega * tau + d.feather_weight_amplitude_wavelength.x;
+	float amplitude = d.axis_z_size_xz.y * envelope * transition;
+	vec2 horizontal = -d.axis_z_size_xz.w * amplitude * sin(theta) * (delta / r);
+	return vec3(horizontal.x, amplitude * cos(theta), horizontal.y);
+}
+
 void main()
 {
-	uvec3 id = gl_GlobalInvocationID;
+	uvec3 id = gl_GlobalInvocationID + pc.dispatch_offset.xyz;
 
 	if (id.x >= pc.resolution ||
 		id.y >= pc.resolution ||
@@ -309,6 +362,13 @@ void main()
 		AnimatedWaveInputDescriptor descriptor = u_inputs.inputs[input_index];
 		uint placement = descriptor.placement_blend_operation_flags.x;
 		uint operation = descriptor.placement_blend_operation_flags.z;
+
+		if (operation == OPERATION_RADIAL_GERSTNER_PACKET)
+		{
+			if (pc.phase == 0u) result += radial_packet(world_xz, id.z, terrain_y, descriptor);
+			continue;
+		}
+
 
 		if (operation == OPERATION_DIRECTIONAL_FFT)
 		{

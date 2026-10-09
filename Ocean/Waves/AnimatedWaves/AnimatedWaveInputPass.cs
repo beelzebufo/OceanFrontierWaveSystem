@@ -5,7 +5,8 @@ namespace OceanFrontier.Water.Waves.AnimatedWaves;
 
 /// <summary>
 /// Applies ordered Animated Waves input descriptors to DirectField or the
-/// canonical final field. Each active phase is one full-grid dispatch.
+/// canonical final field. Ordinary inputs share one dispatch per active phase;
+/// packet-only pre-combine work is bounded to eligible LOD regions.
 /// </summary>
 internal sealed class AnimatedWaveInputPass : IDisposable
 {
@@ -17,7 +18,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 	private const int LocalSizeX = 8;
 	private const int LocalSizeY = 8;
-	private const int PushConstantBytes = 48;
+	private const int PushConstantBytes = 64;
+	private readonly GerstnerWavePacketInput[] _packetInputs = new GerstnerWavePacketInput[GerstnerWavePacketInput.Capacity];
+	private int _packetCount;
+	private bool _hasOrdinaryPreInputs;
 
 
 	private readonly RenderingDevice _rd;
@@ -330,6 +334,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	/// 32 vec4 feather_weight_amplitude_wavelength
 	/// 48 vec4 displacement_xyz_scale; x aliases DirectionalFft radians
 	/// 64 uvec4 placement_blend_operation_flags
+	/// Radial packet operation reuses these slots as documented in WriteDescriptor.
 	/// </summary>
 	public void Upload(
 		ReadOnlySpan<AnimatedWaveInputSnapshot> inputs)
@@ -341,6 +346,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				nameof(inputs));
 		}
 
+
+		Array.Clear(_packetInputs);
+		_packetCount = 0;
+		_hasOrdinaryPreInputs = false;
 
 		ActiveInputCount =
 			inputs.Length;
@@ -379,6 +388,10 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			}
 
 
+			if (input.Packet != null) _packetInputs[_packetCount++] = input.Packet;
+			else if (input.Placement != AnimatedWaveInputPlacement.AllLodsPostCombine)
+				_hasOrdinaryPreInputs = true;
+
 			WriteDescriptor(
 				index,
 				input);
@@ -413,8 +426,17 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 		float lodScaleAlpha,
 		bool hasSeaFloorDepth,
 		float shallowWaterAttenuation,
-		float shallowWaterMaximumDepth)
+		float shallowWaterMaximumDepth,
+		float simulationTime = 0.0f,
+		float gravity = 9.81f,
+		AnimatedWaveLodLayout layout = null)
 	{
+		if (HasPreCombineInputs && !_hasOrdinaryPreInputs && layout != null)
+		{
+			DispatchPacketBounds(layout, lodScaleAlpha, hasSeaFloorDepth,
+				shallowWaterAttenuation, shallowWaterMaximumDepth, simulationTime, gravity);
+			return;
+		}
 		if (HasPreCombineInputs)
 		{
 			Dispatch(
@@ -423,7 +445,7 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 				lodScaleAlpha,
 				hasSeaFloorDepth,
 				shallowWaterAttenuation,
-				shallowWaterMaximumDepth);
+				shallowWaterMaximumDepth, simulationTime, gravity);
 		}
 	}
 
@@ -443,13 +465,57 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 	}
 
 
+	// Packet-only frames touch just the union of packet AABBs on eligible LODs.
+	// Mixed ordinary-input frames reuse their existing dispatch and ordering.
+	private void DispatchPacketBounds(AnimatedWaveLodLayout layout, float alpha, bool depth,
+		float attenuation, float maxDepth, float time, float gravity)
+	{
+		for (int lod = 0; lod < _lodCount; lod++)
+		{
+			AnimatedWaveLodSlice slice = layout[lod];
+			Vector2 lower = new(float.PositiveInfinity, float.PositiveInfinity);
+			Vector2 upper = new(float.NegativeInfinity, float.NegativeInfinity);
+			for (int i = 0; i < _packetCount; i++)
+			{
+				GerstnerWavePacketInput packet = _packetInputs[i];
+				float elapsed = time - packet.StartTime;
+				float wavelength = packet.Wavelength * 0.25f;
+				if (elapsed <= 0 || elapsed >= packet.Lifetime || wavelength < slice.MinWavelength) continue;
+				bool lastPair = wavelength >= layout[_lodCount - 1].MinWavelength;
+				bool eligible = lastPair
+					? _lodCount == 1 || (lod == _lodCount - 2 && alpha < 1) || (lod == _lodCount - 1 && alpha > 0)
+					: wavelength < slice.MaxWavelength;
+				if (!eligible) continue;
+				float radius = 0.5f * MathF.Sqrt(gravity * packet.Wavelength / Mathf.Tau) * elapsed;
+				Vector2 extent = new(radius, radius);
+				lower = lower.Min(packet.WorldPositionXZ - extent);
+				upper = upper.Max(packet.WorldPositionXZ + extent);
+			}
+			if (!lower.IsFinite()) continue;
+			Vector2 corner = slice.CenterXZ - Vector2.One * slice.WorldSize * 0.5f;
+			// Clamp in float before converting to int, including far-away finite positions.
+			Vector2 lo = ((lower - corner) / slice.TexelWidth).Clamp(Vector2.Zero, Vector2.One * _resolution);
+			Vector2 hi = ((upper - corner) / slice.TexelWidth).Clamp(Vector2.Zero, Vector2.One * _resolution);
+			int x = (int)MathF.Floor(lo.X), y = (int)MathF.Floor(lo.Y);
+			int width = (int)MathF.Ceiling(hi.X) - x, height = (int)MathF.Ceiling(hi.Y) - y;
+			if (width <= 0 || height <= 0) continue;
+			Dispatch(_directUniformSet, 0, alpha, depth, attenuation, maxDepth, time, gravity,
+				x, y, lod, width, height, 1);
+		}
+	}
+
+
 	private void Dispatch(
 		Rid uniformSet,
 		uint phase,
 		float lodScaleAlpha,
 		bool hasSeaFloorDepth,
 		float shallowWaterAttenuation,
-		float shallowWaterMaximumDepth)
+		float shallowWaterMaximumDepth,
+		float simulationTime = 0.0f,
+		float gravity = 9.81f,
+		int offsetX = 0, int offsetY = 0, int offsetLod = 0,
+		int width = 0, int height = 0, int layers = 0)
 	{
 		WriteUInt(
 			_pushBytes,
@@ -489,10 +555,16 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			24,
 			_waveResolutionMultiplier);
 
+		WriteFloat(_pushBytes, 40, simulationTime);
+		WriteFloat(_pushBytes, 44, gravity);
 		WriteUInt(_pushBytes, 28, hasSeaFloorDepth ? 1u : 0u);
 		WriteFloat(_pushBytes, 32, Mathf.Clamp(shallowWaterAttenuation, 0.0f, 1.0f));
 		WriteFloat(_pushBytes, 36, Mathf.Clamp(shallowWaterMaximumDepth, 1.0f, 1000.0f));
 
+
+		WriteUInt(_pushBytes, 48, (uint)offsetX);
+		WriteUInt(_pushBytes, 52, (uint)offsetY);
+		WriteUInt(_pushBytes, 56, (uint)offsetLod);
 
 		long computeList =
 			_rd.ComputeListBegin();
@@ -517,9 +589,9 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 
 		_rd.ComputeListDispatch(
 			computeList,
-			(uint)((_resolution + LocalSizeX - 1) / LocalSizeX),
-			(uint)((_resolution + LocalSizeY - 1) / LocalSizeY),
-			(uint)_lodCount);
+			(uint)(((width > 0 ? width : _resolution) + LocalSizeX - 1) / LocalSizeX),
+			(uint)(((height > 0 ? height : _resolution) + LocalSizeY - 1) / LocalSizeY),
+			(uint)(layers > 0 ? layers : _lodCount));
 
 
 		_rd.ComputeListEnd();
@@ -537,6 +609,29 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			index *
 			DescriptorStrideBytes;
 
+
+		if (input.Packet is GerstnerWavePacketInput packet)
+		{
+			// Radial operation reuses the existing 80-byte tagged descriptor.
+			WriteFloat(_descriptorBytes, offset + 0, packet.WorldPositionXZ.X);
+			WriteFloat(_descriptorBytes, offset + 4, packet.WorldPositionXZ.Y);
+			WriteFloat(_descriptorBytes, offset + 8, packet.StartTime);
+			WriteFloat(_descriptorBytes, offset + 12, packet.Lifetime);
+			WriteFloat(_descriptorBytes, offset + 16, packet.Wavelength);
+			WriteFloat(_descriptorBytes, offset + 20, packet.Amplitude);
+			WriteFloat(_descriptorBytes, offset + 24, packet.CrestCount);
+			WriteFloat(_descriptorBytes, offset + 28, packet.Chop);
+			WriteFloat(_descriptorBytes, offset + 32, packet.InitialPhase);
+			WriteFloat(_descriptorBytes, offset + 36, packet.FadeIn);
+			WriteFloat(_descriptorBytes, offset + 40, packet.FadeOut);
+			WriteFloat(_descriptorBytes, offset + 44, packet.AttenuationStrength);
+			_descriptorBytes.AsSpan(offset + 48, 16).Clear();
+			WriteUInt(_descriptorBytes, offset + 64, 0);
+			WriteUInt(_descriptorBytes, offset + 68, 0);
+			WriteUInt(_descriptorBytes, offset + 72, (uint)AnimatedWaveInputOperation.RadialGerstnerPacket);
+			WriteUInt(_descriptorBytes, offset + 76, 0);
+			return;
+		}
 
 		WriteFloat(_descriptorBytes, offset + 0, input.CenterXZ.X);
 		WriteFloat(_descriptorBytes, offset + 4, input.CenterXZ.Y);
