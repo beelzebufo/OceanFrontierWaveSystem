@@ -286,13 +286,13 @@ internal sealed class OceanDiagnosticReflectionPanel
 		if (_localBoat != null)
 		{
 			parent.AddChild(new HSeparator());
-			OceanDiagnosticUi.Header(parent, "Local boat reflection");
+			OceanDiagnosticUi.Header(parent, "Local reflections");
 			if (_registry != null)
 				_registryStatus = OceanDiagnosticUi.Info(parent,
 					"Registered local reflectors: --\nActive local reflectors: -- / 4");
-			OceanDiagnosticUi.Check(parent, "Local boat reflection enabled",
+			OceanDiagnosticUi.Check(parent, "Local capture enabled",
 				_localBoat.LocalEnabled).Toggled += _localBoat.SetLocalEnabled;
-			OceanDiagnosticUi.Spin(parent, "Influence radius",
+			OceanDiagnosticUi.Spin(parent, "Diagnostic boat radius",
 				_localBoat.Radius, 8.0, 30.0, 0.5).ValueChanged +=
 				value => _localBoat.SetRadius((float)value);
 			OptionButton localResolution = OceanDiagnosticUi.Option(
@@ -302,7 +302,7 @@ internal sealed class OceanDiagnosticReflectionPanel
 			localResolution.ItemSelected += index =>
 				_localBoat.SetTargetWidth(LocalWidths[(int)index]);
 			VBoxContainer localPreviews =
-				OceanDiagnosticUi.Foldout(parent, "Local boat previews");
+				OceanDiagnosticUi.Foldout(parent, "Shared local capture");
 			OceanDiagnosticUi.Info(localPreviews, "RGB");
 			localPreviews.AddChild(CreatePreview(_localBoat.Texture));
 			OceanDiagnosticUi.Info(localPreviews, "Alpha");

@@ -247,10 +247,18 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _planarReflectionWeight;
 	private float _planarReflectionDistortion;
 	private int _planarReflectionDiagnosticMode;
-	private Texture2D _localBoatReflectionTexture;
-	private float _localBoatReflectionWeight;
-	private float _localBoatReflectionRadius = 14.0f;
-	private Vector2 _localBoatReflectionCenter;
+	private Texture2D _localReflectionTexture;
+	private float _localReflectionWeight;
+	private int _localReflectionCount;
+	private Vector2 _localReflectionGrid = Vector2.One;
+	private readonly Vector4[] _localReflectionRegions = new Vector4[4];
+	private static readonly string[] LocalReflectionRegionNames =
+	{
+		"local_reflection_region_0",
+		"local_reflection_region_1",
+		"local_reflection_region_2",
+		"local_reflection_region_3",
+	};
 
 
 	private int _meshResolution;
@@ -427,32 +435,45 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 		ApplyPlanarReflectionParameters();
 	}
 
-	internal void SetLocalBoatReflection(Texture2D texture, float radius)
+	internal void SetLocalReflectionTexture(Texture2D texture)
 	{
-		_localBoatReflectionTexture = texture;
-		_localBoatReflectionRadius = radius;
+		_localReflectionTexture = texture;
 		ApplyPlanarReflectionParameters();
 	}
 
-	internal void SetLocalBoatReflectionWeight(float weight)
+	internal void SetLocalReflectionWeight(float weight)
 	{
-		_localBoatReflectionWeight = Mathf.Clamp(weight, 0.0f, 1.0f);
-		SetSurfaceParameter("local_boat_reflection_weight", _localBoatReflectionWeight);
-	}
-
-	internal void SetLocalBoatReflectionRadius(float radius)
-	{
-		_localBoatReflectionRadius = radius;
-		SetSurfaceParameter("local_boat_reflection_radius", radius);
-	}
-
-	internal void SetLocalBoatReflectionCenter(Vector3 center)
-	{
-		Vector2 xz = new(center.X, center.Z);
-		if (_localBoatReflectionCenter == xz)
+		float bounded = Mathf.Clamp(weight, 0.0f, 1.0f);
+		if (_localReflectionWeight == bounded)
 			return;
-		_localBoatReflectionCenter = xz;
-		SetSurfaceParameter("local_boat_reflection_center_xz", xz);
+		_localReflectionWeight = bounded;
+		SetSurfaceParameter("local_reflection_weight", bounded);
+	}
+
+	internal void SetLocalReflectionCount(int count)
+	{
+		int bounded = Mathf.Clamp(count, 0, _localReflectionRegions.Length);
+		if (_localReflectionCount == bounded)
+			return;
+		_localReflectionCount = bounded;
+		SetSurfaceParameter("local_reflection_count", bounded);
+	}
+
+	internal void SetLocalReflectionGrid(Vector2 grid)
+	{
+		if (_localReflectionGrid == grid)
+			return;
+		_localReflectionGrid = grid;
+		SetSurfaceParameter("local_reflection_grid", grid);
+	}
+
+	internal void SetLocalReflectionRegion(int index, Vector4 region)
+	{
+		if (index < 0 || index >= _localReflectionRegions.Length ||
+			_localReflectionRegions[index] == region)
+			return;
+		_localReflectionRegions[index] = region;
+		SetSurfaceParameter(LocalReflectionRegionNames[index], region);
 	}
 
 

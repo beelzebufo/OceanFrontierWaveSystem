@@ -101,15 +101,18 @@ public partial class AnimatedWaveSurfaceRenderer
 				_planarReflectionTexture);
 		}
 
-		if (_localBoatReflectionTexture != null)
+		if (_localReflectionTexture != null)
 		{
 			SetSurfaceParameter(
-				"local_boat_reflection_texture",
-				_localBoatReflectionTexture);
+				"local_reflection_texture",
+				_localReflectionTexture);
 		}
-		SetSurfaceParameter("local_boat_reflection_weight", _localBoatReflectionWeight);
-		SetSurfaceParameter("local_boat_reflection_radius", _localBoatReflectionRadius);
-		SetSurfaceParameter("local_boat_reflection_center_xz", _localBoatReflectionCenter);
+		SetSurfaceParameter("local_reflection_weight", _localReflectionWeight);
+		SetSurfaceParameter("local_reflection_count", _localReflectionCount);
+		SetSurfaceParameter("local_reflection_grid", _localReflectionGrid);
+		for (int i = 0; i < _localReflectionRegions.Length; i++)
+			SetSurfaceParameter(LocalReflectionRegionNames[i],
+				_localReflectionRegions[i]);
 
 
 		SetSurfaceParameter(

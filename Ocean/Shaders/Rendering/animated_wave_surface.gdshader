@@ -150,10 +150,24 @@ uniform float planar_reflection_distortion :
 // 6 local RGB, 7 local alpha, 8 local influence.
 uniform int planar_reflection_diagnostic_mode = 0;
 
-uniform sampler2D local_boat_reflection_texture : filter_linear, repeat_disable;
-uniform float local_boat_reflection_weight = 0.0;
-uniform vec2 local_boat_reflection_center_xz = vec2(0.0);
-uniform float local_boat_reflection_radius = 14.0;
+// One texture contains up to four owned tiles, one for each active reflector.
+// A tile's alpha is coverage only; its slot is its exact object identity.
+uniform sampler2D local_reflection_texture : filter_linear, repeat_disable;
+uniform float local_reflection_weight = 0.0;
+uniform int local_reflection_count = 0;
+uniform vec2 local_reflection_grid = vec2(1.0);
+uniform vec4 local_reflection_region_0 = vec4(0.0);
+uniform vec4 local_reflection_region_1 = vec4(0.0);
+uniform vec4 local_reflection_region_2 = vec4(0.0);
+uniform vec4 local_reflection_region_3 = vec4(0.0);
+
+vec4 local_reflection_region(int index)
+{
+    if (index == 0) return local_reflection_region_0;
+    if (index == 1) return local_reflection_region_1;
+    if (index == 2) return local_reflection_region_2;
+    return local_reflection_region_3;
+}
 
 
 // Crest-compatible parameter convention.
@@ -1021,7 +1035,8 @@ void fragment()
         planar_sample.a *= planar_validity;
 
         vec2 local_texture_size =
-            vec2(textureSize(local_boat_reflection_texture, 0));
+            vec2(textureSize(local_reflection_texture, 0)) /
+            local_reflection_grid;
         vec2 raw_local_uv =
             SCREEN_UV + final_normal.xy *
             (planar_reflection_diagnostic_mode == 5
@@ -1034,19 +1049,41 @@ void fragment()
             local_edge_distance);
         vec2 local_uv =
             clamp_screen_uv(raw_local_uv, local_texture_size);
-        vec4 local_sample =
-            textureLod(local_boat_reflection_texture, local_uv, 0.0);
-        float local_distance =
-            length(displaced_world_position.xz - local_boat_reflection_center_xz);
-        float local_influence = 1.0 - smoothstep(
-            local_boat_reflection_radius * 0.7,
-            local_boat_reflection_radius,
-            local_distance);
-        float local_weight = clamp(
-            local_boat_reflection_weight * local_sample.a *
-            local_edge_validity.x * local_edge_validity.y *
-            local_influence,
-            0.0, 1.0);
+        vec4 local_sample = vec4(0.0);
+        float local_influence = 0.0;
+        float local_weight = 0.0;
+        // Each slot samples only its own capture tile. If the water fragment
+        // lies outside that owner's XZ region, its pixels cannot be used.
+        for (int slot = 0; slot < 4; slot++)
+        {
+            if (slot >= local_reflection_count)
+                break;
+            vec4 region = local_reflection_region(slot);
+            float distance_to_owner =
+                length(displaced_world_position.xz - region.xy);
+            float influence = 1.0 - smoothstep(
+                region.z * 0.7, region.z, distance_to_owner);
+            local_influence = max(local_influence, influence);
+            if (influence <= 0.0)
+                continue;
+            vec2 tile = vec2(
+                float(slot % 2), float(slot / 2));
+            if (local_reflection_grid.x < 1.5)
+                tile = vec2(0.0);
+            vec2 owned_uv = (tile + local_uv) / local_reflection_grid;
+            vec4 owned_sample = textureLod(
+                local_reflection_texture, owned_uv, 0.0);
+            float owned_weight = clamp(
+                local_reflection_weight * owned_sample.a *
+                local_edge_validity.x * local_edge_validity.y * influence,
+                0.0, 1.0);
+            if (owned_weight > 0.0)
+            {
+                local_sample = owned_sample;
+                local_weight = owned_weight;
+                break;
+            }
+        }
 
 
         // Crest prevents ocean reflections from sampling below the world
