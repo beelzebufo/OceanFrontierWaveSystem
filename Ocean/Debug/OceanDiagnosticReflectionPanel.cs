@@ -8,6 +8,7 @@ namespace OceanFrontier.Water.Debug;
 /// </summary>
 internal sealed class OceanDiagnosticReflectionPanel
 {
+	private static readonly int[] LocalWidths = { 128, 256, 512 };
 	private static readonly int[] PlanarWidths =
 	{
 		256,
@@ -280,6 +281,12 @@ internal sealed class OceanDiagnosticReflectionPanel
 			OceanDiagnosticUi.Spin(parent, "Influence radius",
 				_localBoat.Radius, 8.0, 30.0, 0.5).ValueChanged +=
 				value => _localBoat.SetRadius((float)value);
+			OptionButton localResolution = OceanDiagnosticUi.Option(
+				parent, "Local reflection resolution", "128", "256", "512");
+			localResolution.Selected = System.Array.IndexOf(
+				LocalWidths, _localBoat.TargetWidth);
+			localResolution.ItemSelected += index =>
+				_localBoat.SetTargetWidth(LocalWidths[(int)index]);
 			VBoxContainer localPreviews =
 				OceanDiagnosticUi.Foldout(parent, "Local boat previews");
 			OceanDiagnosticUi.Info(localPreviews, "RGB");

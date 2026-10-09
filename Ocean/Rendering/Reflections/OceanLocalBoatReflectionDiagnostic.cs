@@ -10,7 +10,6 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 {
 	private const uint ProxyLayer = 1u << 14;
 	private const uint MainOnlyBoatLayer = 1u << 13;
-	private const int CaptureWidth = 256;
 	private const float LocalFar = 80.0f;
 
 	[Export] public NodePath SurfaceRendererPath { get; set; }
@@ -32,9 +31,11 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 	private bool _enabled = true;
 	private bool _captureActive;
 	private float _radius = 14.0f;
+	private int _targetWidth = 256;
 
 	internal bool LocalEnabled => _enabled;
 	internal float Radius => _radius;
+	internal int TargetWidth => _targetWidth;
 	internal Texture2D Texture => _texture;
 
 	public override void _Ready()
@@ -177,13 +178,26 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 
 	private void UpdateViewportSize()
 	{
+		if (_viewport == null)
+			return;
 		Vector2 size = GetViewport().GetVisibleRect().Size;
 		if (size.X <= 0 || size.Y <= 0)
 			return;
-		Vector2I targetSize = new(CaptureWidth,
-			Math.Max(2, Mathf.RoundToInt(CaptureWidth * size.Y / size.X)));
+		Vector2I targetSize = new(_targetWidth,
+			Math.Max(2, Mathf.RoundToInt(_targetWidth * size.Y / size.X)));
 		if (_viewport.Size != targetSize)
 			_viewport.Size = targetSize;
+	}
+
+	public void SetTargetWidth(int width)
+	{
+		_targetWidth = width switch
+		{
+			128 => 128,
+			512 => 512,
+			_ => 256,
+		};
+		UpdateViewportSize();
 	}
 
 	public void SetLocalEnabled(bool enabled)
