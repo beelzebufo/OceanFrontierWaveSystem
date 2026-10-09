@@ -247,8 +247,6 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 	private float _planarReflectionWeight;
 	private float _planarReflectionDistortion;
 	private int _planarReflectionDiagnosticMode;
-	private Projection _planarReflectionViewProjection;
-	private bool _planarReflectionViewProjectionInitialized;
 	private Texture2D _localBoatReflectionTexture;
 	private float _localBoatReflectionWeight;
 	private float _localBoatReflectionRadius = 14.0f;
@@ -496,35 +494,12 @@ public partial class AnimatedWaveSurfaceRenderer : Node3D
 			Math.Clamp(
 				mode,
 				0,
-				9);
+				8);
 
 
 		SetSurfaceParameter(
 			"planar_reflection_diagnostic_mode",
 			_planarReflectionDiagnosticMode);
-	}
-
-
-	internal void SetPlanarReflectionViewProjection(
-		Projection viewProjection)
-	{
-		if (_planarReflectionViewProjectionInitialized &&
-			_planarReflectionViewProjection == viewProjection)
-		{
-			return;
-		}
-
-
-		_planarReflectionViewProjection =
-			viewProjection;
-
-		_planarReflectionViewProjectionInitialized =
-			true;
-
-
-		SetSurfaceParameter(
-			"planar_reflection_view_projection",
-			_planarReflectionViewProjection);
 	}
 
 

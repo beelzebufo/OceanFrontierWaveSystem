@@ -145,13 +145,10 @@ uniform float planar_reflection_weight :
 uniform float planar_reflection_distortion :
     hint_range(0.0, 0.02, 0.0001) = 0.0;
 
-// Reflection-1B-V1-Fix surface-only diagnostics:
-// 0 final, 1 projective RGB, 2 projective alpha, 3 projective UV,
-// 4 force weight, 5 no distortion, 6 old SCREEN_UV RGB comparison.
-// 7 local RGB, 8 local alpha, 9 local influence.
+// Surface-only diagnostics: 0 final, 1 screen RGB, 2 screen alpha,
+// 3 screen UV, 4 force weight, 5 no distortion,
+// 6 local RGB, 7 local alpha, 8 local influence.
 uniform int planar_reflection_diagnostic_mode = 0;
-
-uniform mat4 planar_reflection_view_projection = mat4(1.0);
 
 uniform sampler2D local_boat_reflection_texture : filter_linear, repeat_disable;
 uniform float local_boat_reflection_weight = 0.0;
@@ -975,36 +972,6 @@ void fragment()
                 NORMAL);
 
 
-        vec4 planar_clip =
-            planar_reflection_view_projection *
-            vec4(
-                displaced_world_position,
-                1.0);
-
-
-        float planar_safe_w =
-            abs(planar_clip.w) > 0.000001
-                ? planar_clip.w
-                : 0.000001;
-
-
-        vec2 planar_ndc =
-            planar_clip.xy /
-            planar_safe_w;
-
-
-        vec2 projective_planar_uv =
-            vec2(
-                planar_ndc.x * 0.5 + 0.5,
-                -planar_ndc.y * 0.5 + 0.5);
-
-
-        vec2 planar_base_uv =
-            planar_reflection_diagnostic_mode == 6
-                ? SCREEN_UV
-                : projective_planar_uv;
-
-
         vec2 planar_texture_size =
             vec2(
                 textureSize(
@@ -1013,11 +980,10 @@ void fragment()
 
 
         vec2 raw_planar_uv =
-            planar_base_uv +
+            SCREEN_UV +
                 final_normal.xy *
                 (
-                    planar_reflection_diagnostic_mode == 5 ||
-                    planar_reflection_diagnostic_mode == 6
+                    planar_reflection_diagnostic_mode == 5
                         ? 0.0
                         : planar_reflection_distortion
                 );
@@ -1038,8 +1004,7 @@ void fragment()
 
 
         float planar_validity =
-            planar_edge_validity.x * planar_edge_validity.y *
-            (planar_clip.w > 0.000001 ? 1.0 : 0.0);
+            planar_edge_validity.x * planar_edge_validity.y;
 
 
         vec2 planar_uv =
@@ -1995,16 +1960,14 @@ void fragment()
             planar_reflection_diagnostic_mode >= 1 &&
             (
                 planar_reflection_diagnostic_mode <= 3 ||
-                planar_reflection_diagnostic_mode == 6 ||
-                planar_reflection_diagnostic_mode >= 7
+                planar_reflection_diagnostic_mode >= 6
             ))
         {
             ALBEDO =
                 vec3(0.0);
 
 
-            if (planar_reflection_diagnostic_mode == 1 ||
-                planar_reflection_diagnostic_mode == 6)
+            if (planar_reflection_diagnostic_mode == 1)
             {
                 EMISSION =
                     planar_sample.rgb * planar_validity;
@@ -2015,15 +1978,15 @@ void fragment()
                     vec3(
                         planar_sample.a);
             }
-            else if (planar_reflection_diagnostic_mode == 7)
+            else if (planar_reflection_diagnostic_mode == 6)
             {
                 EMISSION = local_sample.rgb * local_weight;
             }
-            else if (planar_reflection_diagnostic_mode == 8)
+            else if (planar_reflection_diagnostic_mode == 7)
             {
                 EMISSION = vec3(local_weight);
             }
-            else if (planar_reflection_diagnostic_mode == 9)
+            else if (planar_reflection_diagnostic_mode == 8)
             {
                 EMISSION = vec3(local_influence);
             }

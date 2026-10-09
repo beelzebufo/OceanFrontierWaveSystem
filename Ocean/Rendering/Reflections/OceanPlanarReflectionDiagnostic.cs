@@ -275,24 +275,6 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 		// FramePreDraw follows SceneTree's normal transform notification flush.
 		// Update the RenderingServer camera before the SubViewport draws.
 		_planarCamera.ForceUpdateTransform();
-
-
-		// Camera3D's raw projection maps view-space Y upward. The shader applies
-		// the same final Y inversion as Camera3D.UnprojectPosition when mapping
-		// NDC to ViewportTexture UV. Use the same mirrored snapshot assigned to
-		// the camera instead of re-reading mutable node state.
-		Projection reflectionView =
-			new(
-				_mirroredCameraSnapshot.AffineInverse());
-
-
-		Projection reflectionViewProjection =
-			_planarCamera.GetCameraProjection() *
-			reflectionView;
-
-
-		_surfaceRenderer.SetPlanarReflectionViewProjection(
-			reflectionViewProjection);
 	}
 
 	private void UpdateViewportSize()
@@ -535,7 +517,7 @@ public partial class OceanPlanarReflectionDiagnostic : Node
 			Math.Clamp(
 				mode,
 				0,
-				9);
+				8);
 
 		_surfaceRenderer.SetPlanarReflectionDiagnosticMode(
 			_surfaceDiagnosticMode);

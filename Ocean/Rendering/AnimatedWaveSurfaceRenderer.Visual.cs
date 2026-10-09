@@ -125,14 +125,6 @@ public partial class AnimatedWaveSurfaceRenderer
 		SetSurfaceParameter(
 			"planar_reflection_diagnostic_mode",
 			_planarReflectionDiagnosticMode);
-
-
-		if (_planarReflectionViewProjectionInitialized)
-		{
-			SetSurfaceParameter(
-				"planar_reflection_view_projection",
-				_planarReflectionViewProjection);
-		}
 	}
 
 
