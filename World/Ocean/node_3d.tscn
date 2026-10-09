@@ -23,6 +23,8 @@
 [ext_resource type="Script" uid="uid://c5r4umpvah0gj" path="res://Ocean/Waves/Foam/OceanFoamRectInput.cs" id="20_1picx"]
 
 [ext_resource type="Shader" path="res://Ocean/Shaders/Rendering/diagnostic_planar_clip_pbr.gdshader" id="21_planar_clip"]
+[ext_resource type="Script" path="res://Ocean/Rendering/Reflections/OceanLocalReflectionRegistry.cs" id="22_local_registry"]
+[ext_resource type="Script" path="res://Ocean/Rendering/Reflections/OceanLocalReflectionParticipant.cs" id="23_local_participant"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_hull_planar_clip"]
 shader = ExtResource("21_planar_clip")
@@ -450,6 +452,16 @@ SurfaceRendererPath = NodePath("../AnimatedWaveSurfaceRenderer")
 MainCameraPath = NodePath("../Camera3D")
 BoatRootPath = NodePath("../DiagnosticBuoyancyHull/TestBoat")
 ReflectionProbePath = NodePath("../DiagnosticReflectionProbe")
+ParticipantPath = NodePath("../DiagnosticBoat")
+
+[node name="OceanLocalReflectionRegistry" type="Node" parent="."]
+script = ExtResource("22_local_registry")
+MainCameraPath = NodePath("../Camera3D")
+
+[node name="DiagnosticBoat" type="Node" parent="."]
+script = ExtResource("23_local_participant")
+RegistryPath = NodePath("../OceanLocalReflectionRegistry")
+SourceRootPath = NodePath("../DiagnosticBuoyancyHull/TestBoat")
 
 [node name="FftDisplacementDebugView" type="CanvasLayer" parent="." unique_id=186540696]
 script = ExtResource("2_ku7j0")

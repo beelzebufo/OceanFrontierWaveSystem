@@ -16,12 +16,14 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 	[Export] public NodePath MainCameraPath { get; set; }
 	[Export] public NodePath BoatRootPath { get; set; }
 	[Export] public NodePath ReflectionProbePath { get; set; }
+	[Export] public NodePath ParticipantPath { get; set; }
 
 	private readonly List<(MeshInstance3D Source, MeshInstance3D Proxy, uint Layers)> _meshes = new();
 	private AnimatedWaveSurfaceRenderer _surfaceRenderer;
 	private Camera3D _mainCamera;
 	private Node3D _boatRoot;
 	private ReflectionProbe _reflectionProbe;
+	private OceanLocalReflectionParticipant _participant;
 	private uint _originalMainMask;
 	private uint _originalProbeMask;
 	private Node3D _proxyRoot;
@@ -30,11 +32,13 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 	private Texture2D _texture;
 	private bool _enabled = true;
 	private bool _captureActive;
-	private float _radius = 14.0f;
+	private float _fallbackRadius = 14.0f;
+	private float _appliedRadius = float.NaN;
 	private int _targetWidth = 256;
 
 	internal bool LocalEnabled => _enabled;
-	internal float Radius => _radius;
+	internal float Radius => GodotObject.IsInstanceValid(_participant)
+		? _participant.InfluenceRadius : _fallbackRadius;
 	internal int TargetWidth => _targetWidth;
 	internal Texture2D Texture => _texture;
 
@@ -44,6 +48,8 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 		_mainCamera = GetNodeOrNull<Camera3D>(MainCameraPath);
 		_boatRoot = GetNodeOrNull<Node3D>(BoatRootPath);
 		_reflectionProbe = GetNodeOrNull<ReflectionProbe>(ReflectionProbePath);
+		_participant = ParticipantPath != null && !ParticipantPath.IsEmpty
+			? GetNodeOrNull<OceanLocalReflectionParticipant>(ParticipantPath) : null;
 		if (_surfaceRenderer == null || _mainCamera == null ||
 			_boatRoot == null || _reflectionProbe == null)
 		{
@@ -112,7 +118,8 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 		_viewport.AddChild(_camera);
 		UpdateViewportSize();
 		_texture = _viewport.GetTexture();
-		_surfaceRenderer.SetLocalBoatReflection(_texture, _radius);
+		_surfaceRenderer.SetLocalBoatReflection(_texture, Radius);
+		_appliedRadius = Radius;
 		SetLocalEnabled(_enabled);
 		RenderingServer.FramePreDraw += SynchronizeForDraw;
 	}
@@ -165,6 +172,11 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 		if (_viewport == null)
 			return;
 		UpdateViewportSize();
+		if (_appliedRadius != Radius)
+		{
+			_appliedRadius = Radius;
+			_surfaceRenderer.SetLocalBoatReflectionRadius(_appliedRadius);
+		}
 		bool active = _enabled && !_surfaceRenderer.PlanetCurvatureEnabled &&
 			_mainCamera.GlobalPosition.Y >= OceanRuntime.MeanSeaLevelY;
 		_captureActive = active;
@@ -203,6 +215,8 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 	public void SetLocalEnabled(bool enabled)
 	{
 		_enabled = enabled;
+		if (GodotObject.IsInstanceValid(_participant))
+			_participant.Enabled = enabled;
 		foreach (var (source, _, layers) in _meshes)
 			source.Layers = enabled
 				? MainOnlyBoatLayer
@@ -212,8 +226,13 @@ public partial class OceanLocalBoatReflectionDiagnostic : Node
 
 	internal void SetRadius(float radius)
 	{
-		_radius = Mathf.Clamp(radius, 8.0f, 30.0f);
-		_surfaceRenderer?.SetLocalBoatReflectionRadius(_radius);
+		float bounded = Mathf.Clamp(radius, 8.0f, 30.0f);
+		if (GodotObject.IsInstanceValid(_participant))
+			_participant.InfluenceRadius = bounded;
+		else
+			_fallbackRadius = bounded;
+		_appliedRadius = Radius;
+		_surfaceRenderer?.SetLocalBoatReflectionRadius(_appliedRadius);
 	}
 
 	public override void _ExitTree()

@@ -1,4 +1,5 @@
 using Godot;
+using System.Text;
 using OceanFrontier.Water.Rendering.Reflections;
 
 namespace OceanFrontier.Water.Debug;
@@ -20,6 +21,9 @@ internal sealed class OceanDiagnosticReflectionPanel
 
 	private OceanPlanarReflectionDiagnostic _diagnostic;
 	private OceanLocalBoatReflectionDiagnostic _localBoat;
+	private OceanLocalReflectionRegistry _registry;
+	private Label _registryStatus;
+	private ulong _nextRegistrySampleUsec;
 
 
 	internal void Initialize(
@@ -30,6 +34,8 @@ internal sealed class OceanDiagnosticReflectionPanel
 			diagnostic;
 		_localBoat = diagnostic?.GetParent()?.GetNodeOrNull<OceanLocalBoatReflectionDiagnostic>(
 			"OceanLocalBoatReflectionDiagnostic");
+		_registry = diagnostic?.GetParent()?.GetNodeOrNull<OceanLocalReflectionRegistry>(
+			"OceanLocalReflectionRegistry");
 
 
 		OceanDiagnosticUi.Header(
@@ -281,6 +287,9 @@ internal sealed class OceanDiagnosticReflectionPanel
 		{
 			parent.AddChild(new HSeparator());
 			OceanDiagnosticUi.Header(parent, "Local boat reflection");
+			if (_registry != null)
+				_registryStatus = OceanDiagnosticUi.Info(parent,
+					"Registered local reflectors: --\nActive local reflectors: -- / 4");
 			OceanDiagnosticUi.Check(parent, "Local boat reflection enabled",
 				_localBoat.LocalEnabled).Toggled += _localBoat.SetLocalEnabled;
 			OceanDiagnosticUi.Spin(parent, "Influence radius",
@@ -301,6 +310,24 @@ internal sealed class OceanDiagnosticReflectionPanel
 			localAlpha.Material = alphaPreview.Material;
 			localPreviews.AddChild(localAlpha);
 		}
+	}
+
+	internal void Tick(double _)
+	{
+		if (!GodotObject.IsInstanceValid(_registry) || _registryStatus == null)
+			return;
+		ulong now = Time.GetTicksUsec();
+		if (now < _nextRegistrySampleUsec)
+			return;
+		_nextRegistrySampleUsec = now + 250_000;
+		var text = new StringBuilder();
+		text.Append("Registered local reflectors: ").Append(_registry.RegisteredCount)
+			.Append("\nActive local reflectors: ").Append(_registry.ActiveCount)
+			.Append(" / ").Append(OceanLocalReflectionRegistry.MaxActiveReflectors);
+		for (int i = 0; i < _registry.ActiveCount; i++)
+			text.Append('\n').Append(i).Append(": ")
+				.Append(_registry.GetActiveParticipant(i)?.Name);
+		_registryStatus.Text = text.ToString();
 	}
 
 
