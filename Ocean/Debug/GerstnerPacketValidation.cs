@@ -47,6 +47,8 @@ public partial class GerstnerPacketValidation : Node
 				if (i == 599) throw new Exception("GPU initialization timed out (RenderingDevice required).");
 			}
 			await RunChecks();
+			GD.Print($"[PacketValidation] Stage 5E-1 retained: {_checks} checks passed.");
+			await RunSectorChecks();
 			GD.Print($"[PacketValidation] PASS: {_checks} checks; sparse canonical AWF physics queries.");
 			Finish(0);
 		}
@@ -228,6 +230,234 @@ public partial class GerstnerPacketValidation : Node
 		long dispatches = _runtime.RuntimeAnimatedWaveInputDispatchCount;
 		await Frames(5);
 		Check(_runtime.RuntimeAnimatedWaveInputDispatchCount == dispatches, "no input dispatches without active packets");
+	}
+
+	private async Task RunSectorChecks()
+	{
+		GD.Print("[PacketValidation] Stage 5E-2 sector checks");
+		SetCirclePoints();
+		float phase = Mathf.PosMod(MathF.Sqrt(9.81f * Mathf.Tau / 8) * 30 - Mathf.Tau / 8 * 36 + Mathf.Pi, Mathf.Tau) - Mathf.Pi;
+		var radial = new GerstnerWavePacketInput
+		{
+			WorldPositionXZ = _origin, StartTime = _runtime.OceanTime - 30, Chop = 0, InitialPhase = phase,
+		};
+		foreach (GerstnerWavePacketInput invalid in new[]
+		{
+			radial with { DirectionXZ = Vector2.Zero }, radial with { DirectionXZ = new Vector2(float.NaN, 1) },
+			radial with { DirectionXZ = new Vector2(1, float.PositiveInfinity) },
+			radial with { SectorHalfAngleDegrees = 0 }, radial with { SectorHalfAngleDegrees = 181 },
+			radial with { SectorHalfAngleDegrees = float.NaN }, radial with { SectorHalfAngleDegrees = float.PositiveInfinity },
+			radial with { AngularFeatherDegrees = -1 }, radial with { AngularFeatherDegrees = 181 },
+			radial with { AngularFeatherDegrees = float.NaN }, radial with { AngularFeatherDegrees = float.PositiveInfinity },
+			radial with { SectorHalfAngleDegrees = 20, AngularFeatherDegrees = 21 },
+		})
+		{
+			bool rejected = false;
+			try { _runtime.CreateGerstnerPacket(invalid); } catch (ArgumentException) { rejected = true; }
+			Check(rejected, "invalid sector parameter rejected");
+		}
+		Check(AnimatedWaveInputPass.DescriptorStrideBytes == 80 && GerstnerWavePacketInput.Capacity == 8, "descriptor stride and capacity unchanged");
+		long id = _runtime.CreateGerstnerPacket(radial);
+		Vector3[] full = await Sample();
+		AssertOracle(full, radial, 0.04f, "default full circle matches unchanged Stage 5E-1 oracle");
+		_runtime.UpdateGerstnerPacket(id, radial with { DirectionXZ = Vector2.Left, AngularFeatherDegrees = 180 });
+		Check(Difference(await Sample(), full) == 0, "H=180 bypasses angle and feather exactly, including opposite axis");
+		await CaptureVisual("full-circle");
+		var sector = radial with { SectorHalfAngleDegrees = 90, AngularFeatherDegrees = 15 };
+		_runtime.UpdateGerstnerPacket(id, sector);
+		Vector3[] half = await Sample();
+		AssertSectorOracle(half, sector, 0.04f, "half-circle canonical physics");
+		Check(half[0].Y > 0.15f && half[120].Length() == 0, "half-circle has positive interior and zero opposite hemisphere");
+		await CaptureVisual("half-circle");
+		sector = sector with { SectorHalfAngleDegrees = 45, AngularFeatherDegrees = 10 };
+		_runtime.UpdateGerstnerPacket(id, sector);
+		await Sample();
+		await CaptureVisual("90-degree-sector");
+		sector = sector with { SectorHalfAngleDegrees = 20, AngularFeatherDegrees = 10 };
+		_runtime.UpdateGerstnerPacket(id, sector);
+		Vector3[] narrow = await Sample();
+		AssertSectorOracle(narrow, sector, 0.04f, "narrow sector canonical physics");
+		Check(narrow[0].Y > 0.15f && narrow[60].Length() == 0 && narrow[120].Length() == 0, "narrow sector orientation and no opposite leakage");
+		await CaptureVisual("narrow-sector");
+		for (int axis = 0; axis < 4; axis++)
+		{
+			Vector2 direction = axis switch { 0 => Vector2.Right, 1 => Vector2.Down, 2 => Vector2.Left, _ => Vector2.Up };
+			Check(_runtime.UpdateGerstnerPacket(id, sector with { DirectionXZ = direction * 7 }), "direction update keeps existing handle");
+			Vector3[] rotated = await Sample();
+			AssertSectorOracle(rotated, sector with { DirectionXZ = direction }, 0.04f, $"world XZ direction {axis * 90} degrees");
+			Check(rotated[axis * 60].Y > 0.15f && rotated[(axis * 60 + 120) % 240].Length() == 0, "updated direction rotates the sector");
+		}
+		foreach (float magnitude in new[] { float.Epsilon, float.MaxValue })
+		{
+			_runtime.UpdateGerstnerPacket(id, sector with { DirectionXZ = new Vector2(magnitude, 0) });
+			Check(Difference(await Sample(), narrow) == 0, "finite extreme direction normalizes without overflow or mutation");
+		}
+		Check(sector.DirectionXZ == Vector2.Right && _runtime.GerstnerPacketCount == 1, "immutable description and source count preserved");
+
+		// Dense angular samples through both boundaries; fixed crest radius keeps the radial oracle positive.
+		for (int i = 0; i < _points.Length; i++)
+		{
+			float angle = Mathf.DegToRad(-60 + i * 0.5f);
+			_points[i] = _origin + 36 * new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+		}
+		var feathered = sector with { SectorHalfAngleDegrees = 45, AngularFeatherDegrees = 20 };
+		_runtime.UpdateGerstnerPacket(id, feathered);
+		Vector3[] feather = await Sample();
+		AssertSectorOracle(feather, feathered, 0.04f, "smooth angular feather");
+		Check(feather[170].Y > feather[190].Y && feather[190].Y > feather[210].Y && feather[220].Length() == 0,
+			"feather falls from inner boundary through midpoint to zero outside");
+		float step = 0;
+		for (int i = 1; i < feather.Length; i++) step = MathF.Max(step, (feather[i] - feather[i - 1]).Length());
+		Check(step < 0.02f, $"positive feather continuous at 0.5 degree sampling: max step {step:0.00000} m");
+		// Hard/sub-texel edges are checked away from boundaries; bilinear AWF sampling necessarily blurs them.
+		for (int i = 0; i < _points.Length; i++)
+		{
+			float angle = Mathf.DegToRad(new[] { 0f, 10f, 30f, 180f }[i % 4]);
+			_points[i] = _origin + 36 * new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+		}
+		var hard = sector with { AngularFeatherDegrees = 0 };
+		_runtime.UpdateGerstnerPacket(id, hard);
+		Vector3[] hardResult = await Sample();
+		AssertSectorOracle(hardResult, hard, 0.04f, "zero feather explicit hard edge");
+		_runtime.UpdateGerstnerPacket(id, hard with { AngularFeatherDegrees = float.Epsilon });
+		Check(Difference(await Sample(), hardResult) == 0, "coincident float cosine thresholds are finite and deterministic");
+		_runtime.UpdateGerstnerPacket(id, hard with { SectorHalfAngleDegrees = 1 });
+		Vector3[] minimum = await Sample();
+		Check(minimum[0].Y > 0.04f && minimum[2].Length() == 0 && minimum[3].Length() == 0, "one-degree minimum sector is finite with no opposite leakage");
+		SetCirclePoints();
+		var chopped = feathered with { Chop = 0.5f, InitialPhase = phase + 0.7f };
+		_runtime.UpdateGerstnerPacket(id, chopped);
+		AssertSectorOracle(await Sample(), chopped, 0.055f, "sector XYZ and physics horizontal inversion");
+		for (int i = 0; i < _points.Length; i++) _points[i] = _origin + new Vector2((i - 120) * 0.01f, 0);
+		var young = chopped with { StartTime = _runtime.OceanTime - 1 };
+		_runtime.UpdateGerstnerPacket(id, young);
+		AssertSectorOracle(await Sample(), young, 0.025f, "directional origin and near-origin guard");
+
+		SetCirclePoints();
+		_runtime.UpdateGerstnerPacket(id, feathered);
+		Vector3[] first = await Sample();
+		var other = feathered with { WorldPositionXZ = _origin + new Vector2(-8, 4), DirectionXZ = new Vector2(1, 1) };
+		_runtime.UpdateGerstnerPacket(id, other);
+		Vector3[] second = await Sample();
+		_runtime.UpdateGerstnerPacket(id, feathered);
+		long secondId = _runtime.CreateGerstnerPacket(other);
+		Vector3[] overlap = await Sample();
+		Check(SumError(overlap, first, second) < 0.002f, "two directional packets add through canonical field");
+		AssertSectorOracle(overlap, feathered, 0.055f, "directional overlap oracle", other);
+		await CaptureVisual("directional-overlap");
+		_runtime.RemoveGerstnerPacket(secondId);
+		_runtime.FocusOverrideXZ += new Vector2(1.3f, 0.8f);
+		Check(Difference(await Sample(), first) < 0.04f, "camera snapping preserves sector world orientation");
+		_runtime.LodScaleOverrideEnabled = true; _runtime.LodScaleOverride = 2;
+		Check(Difference(await Sample(), first) < 0.04f, "sector whole-stack scale has no amplitude multiplication");
+		_runtime.LodScaleOverride = 1; _runtime.FocusOverrideXZ = _origin;
+		var longSector = feathered with { Wavelength = 128, Lifetime = 200, SectorHalfAngleDegrees = 90, AngularFeatherDegrees = 60 };
+		_runtime.UpdateGerstnerPacket(id, longSector);
+		var camera = new Camera3D { Position = new Vector3(_origin.X, 32 * MathF.Sqrt(2) + 4, _origin.Y), Current = true };
+		AddChild(camera);
+		_runtime.LodScaleOverrideEnabled = false; _runtime.AnimatedWaveViewHeightScaleEnabled = true;
+		Vector3[] transition = await Sample();
+		Check(MathF.Abs(_runtime.RuntimeLodScaleAlpha - 0.5f) < 0.001f, "sector last-two-LOD alpha 0.5 exercised");
+		AssertSectorOracle(transition, longSector, 0.065f, "sector complementary LOD weights");
+		_runtime.AnimatedWaveViewHeightScaleEnabled = false; camera.QueueFree();
+		_runtime.UpdateGerstnerPacket(id, feathered);
+		await Frames(4);
+		await CheckSectorDispatches(1, "one eligible LOD uses one dispatch per frame");
+
+		var depth = new SeaFloorDepthRectInput { SizeXZ = new Vector2(1000, 1000), BottomHeightY = 0 };
+		_runtime.AddChild(depth);
+		Check(Difference(await Sample(), first, 0.05f) < 0.003f, "sector retains shallow-water attenuation");
+		depth.Enabled = false;
+		var local = new AnimatedWaveRectInput { SizeXZ = new Vector2(1000, 1000), Displacement = new Vector3(0, 0.1f, 0),
+			Placement = AnimatedWaveInputPlacement.WavelengthFilteredPreCombine, WavelengthMeters = 2 };
+		_runtime.AddChild(local);
+		Vector3[] mixed = await Sample();
+		float error = 0;
+		for (int i = 0; i < mixed.Length; i++) error = MathF.Max(error, (mixed[i] - first[i] - local.Displacement).Length());
+		Check(error < 0.003f, "sector coexists with local pre-combine input");
+		await CheckSectorDispatches(1, "sector reuses ordinary-input dispatch");
+		local.Placement = AnimatedWaveInputPlacement.AllLodsPostCombine;
+		local.BlendMode = AnimatedWaveInputBlendMode.Blend; local.Weight = 0.5f; local.Displacement = Vector3.Zero;
+		Check(Difference(await Sample(), first, 0.5f) < 0.003f, "post modifier applies once to sector");
+		local.Enabled = false;
+		_runtime.RemoveGerstnerPacket(id);
+		RuntimeWaveSettings settings = _runtime.GetWaveSettingsSnapshot(); settings.Multiplier = 1; settings.Chop = 0;
+		_runtime.RequestWaveSettings(settings); await Frames(12);
+		Vector3[] fft = await Sample();
+		id = _runtime.CreateGerstnerPacket(feathered);
+		Check(SumError(await Sample(), fft, first) < 0.008f, "Global FFT plus directional sector");
+		_runtime.RemoveGerstnerPacket(id);
+		var directional = new AnimatedWaveRectDirectionInput { SizeXZ = new Vector2(2000, 2000), DirectionOffsetDegrees = 35,
+			BlendMode = AnimatedWaveInputBlendMode.Blend, Weight = 0.7f };
+		_runtime.AddChild(directional);
+		Vector3[] directionalBase = await Sample();
+		id = _runtime.CreateGerstnerPacket(feathered);
+		Check(SumError(await Sample(), directionalBase, first) < 0.008f, "Directional FFT plus sector");
+		directional.Enabled = false;
+		settings.Multiplier = 0; _runtime.RequestWaveSettings(settings); await Frames(12);
+		_runtime.UpdateGerstnerPacket(id, feathered with { Enabled = false });
+		Check(Peak(await Sample()) == 0, "disabled sector clears field");
+		_runtime.UpdateGerstnerPacket(id, feathered);
+		_runtime._Process(10);
+		Check(Peak(await Sample()) == 0 && _runtime.GerstnerPacketCount == 0, "direction updates preserve original start and expiration");
+		await CheckSectorDispatches(0, "expired sectors add zero dispatches");
+		id = _runtime.TriggerGerstnerPacket(_origin); _runtime.RemoveGerstnerPacket(id);
+		await Frames(4);
+		await CheckSectorDispatches(0, "removed sectors add zero dispatches");
+	}
+
+	private void SetCirclePoints()
+	{
+		for (int i = 0; i < _points.Length - 1; i++)
+		{
+			float angle = Mathf.Tau * i / (_points.Length - 1);
+			_points[i] = _origin + 36 * new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+		}
+		_points[^1] = _origin;
+	}
+
+	private async Task CheckSectorDispatches(int perFrame, string name)
+	{
+		// Fence render-thread counters without reading any wave texture or synchronizing production code.
+		long before = -1, after = -1;
+		_running = false;
+		await Frames(2);
+		RenderingServer.CallOnRenderThread(Callable.From(() => before = _runtime.RuntimeAnimatedWaveInputDispatchCount));
+		await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+		_running = false;
+		for (int i = 0; i < 3; i++) { _runtime._Process(0); await Frames(1); }
+		RenderingServer.CallOnRenderThread(Callable.From(() => after = _runtime.RuntimeAnimatedWaveInputDispatchCount));
+		await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+		_running = true;
+		Check(before >= 0 && after - before == 3 * perFrame, $"{name}: {after - before} / 3 frames");
+	}
+
+	private void AssertSectorOracle(Vector3[] actual, GerstnerWavePacketInput packet, float tolerance, string name, GerstnerWavePacketInput other = null)
+	{
+		float error = 0;
+		for (int i = 0; i < actual.Length; i++)
+		{
+			Vector3 Evaluate(Vector2 p) => EvaluateSector(p, packet) + (other == null ? Vector3.Zero : EvaluateSector(p, other));
+			Vector2 source = _points[i];
+			for (int j = 0; j < 4; j++) { Vector3 d = Evaluate(source); source = _points[i] - new Vector2(d.X, d.Z); }
+			error = MathF.Max(error, (actual[i] - Evaluate(source)).Length());
+		}
+		Check(error < tolerance, $"{name}: max error {error:0.00000} m < {tolerance}");
+	}
+
+	private Vector3 EvaluateSector(Vector2 position, GerstnerWavePacketInput p)
+	{
+		Vector3 radial = EvaluatePacket(position, p, _runtime.OceanTime); // Original Stage 5E-1 oracle is unchanged.
+		if (p.SectorHalfAngleDegrees == 180 || position == p.WorldPositionXZ) return radial;
+		// Independent double-precision angular reference, diagnostic only.
+		double dx = p.DirectionXZ.X, dz = p.DirectionXZ.Y, length = Math.Sqrt(dx * dx + dz * dz);
+		Vector2 delta = position - p.WorldPositionXZ;
+		double r = Math.Sqrt((double)delta.X * delta.X + (double)delta.Y * delta.Y);
+		double alignment = Math.Clamp((delta.X * dx + delta.Y * dz) / (r * length), -1, 1);
+		double outer = Math.Cos(p.SectorHalfAngleDegrees * Math.PI / 180);
+		double inner = Math.Cos((p.SectorHalfAngleDegrees - p.AngularFeatherDegrees) * Math.PI / 180);
+		float weight = inner > outer ? Smooth((float)((alignment - outer) / (inner - outer))) : alignment >= outer ? 1 : 0;
+		return radial * weight;
 	}
 
 	private async Task<Vector3[]> Sample()

@@ -106,6 +106,7 @@ const uint OPERATION_SCALE_BY_FACTOR = 1u;
 const uint OPERATION_DIRECTIONAL_FFT = 2u;
 const uint OPERATION_RADIAL_GERSTNER_PACKET = 3u;
 const uint FLAG_INVERT = 1u;
+const uint FLAG_PACKET_FULL_CIRCLE = 2u;
 const float PI = 3.14159265358979323846;
 const float TWO_PI = 2.0 * PI;
 const float DIRECTION_STEP = PI / 20.0;
@@ -282,7 +283,8 @@ vec3 sample_directional_fft(
 // Original radial packet implementation; Crest supplies the dispersion/composition
 // reference, not a radial packet algorithm. Tagged descriptor packing:
 // vec4 0: origin XZ, start, lifetime; vec4 1: wavelength, amplitude, crests, chop;
-// vec4 2: phase, fade-in, fade-out, attenuation. XYZ uses project world axes.
+// vec4 2: phase, fade-in, fade-out, attenuation; vec4 3: axis XZ, outer/inner cosines.
+// Flags bit 1: full circle. XYZ uses project world axes.
 vec3 radial_packet(vec2 world_xz, uint lod_index, float terrain_y,
 	AnimatedWaveInputDescriptor d)
 {
@@ -305,6 +307,21 @@ vec3 radial_packet(vec2 world_xz, uint lod_index, float terrain_y,
 	float r = length(delta);
 	float behind_front = front - r;
 	if (behind_front <= 0.0 || behind_front >= width || r <= 0.0) return vec3(0.0);
+	vec2 radial_direction = delta / r;
+	float angular_weight = 1.0;
+	if ((d.placement_blend_operation_flags.w & FLAG_PACKET_FULL_CIRCLE) == 0u)
+	{
+		float alignment = clamp(dot(radial_direction, d.displacement_xyz_scale.xy), -1.0, 1.0);
+		float outer_cos = d.displacement_xyz_scale.z;
+		float inner_cos = d.displacement_xyz_scale.w;
+		// Zero feather (or thresholds coincident after float rounding) is an explicit
+		// hard edge; never call smoothstep with equal edges. The full circle bypass
+		// above also covers the opposite axis, independently of these thresholds.
+		angular_weight = inner_cos > outer_cos
+			? smoothstep(outer_cos, inner_cos, alignment)
+			: step(outer_cos, alignment);
+		if (angular_weight <= 0.0) return vec3(0.0);
+	}
 	float edge = 0.5 * wavelength;
 	float envelope = smoothstep(0.0, edge, behind_front) *
 		smoothstep(0.0, edge, width - behind_front);
@@ -324,9 +341,11 @@ vec3 radial_packet(vec2 world_xz, uint lod_index, float terrain_y,
 				clamp(depth / pc.shallow_water_maximum_depth, 0.0, 1.0));
 		envelope *= mix(1.0, depth_weight, d.feather_weight_amplitude_wavelength.w);
 	}
+	if ((d.placement_blend_operation_flags.w & FLAG_PACKET_FULL_CIRCLE) == 0u)
+		envelope *= angular_weight;
 	float theta = k * r - omega * tau + d.feather_weight_amplitude_wavelength.x;
 	float amplitude = d.axis_z_size_xz.y * envelope * transition;
-	vec2 horizontal = -d.axis_z_size_xz.w * amplitude * sin(theta) * (delta / r);
+	vec2 horizontal = -d.axis_z_size_xz.w * amplitude * sin(theta) * radial_direction;
 	return vec3(horizontal.x, amplitude * cos(theta), horizontal.y);
 }
 

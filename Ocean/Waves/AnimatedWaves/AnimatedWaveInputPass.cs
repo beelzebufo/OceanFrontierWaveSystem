@@ -625,11 +625,23 @@ internal sealed class AnimatedWaveInputPass : IDisposable
 			WriteFloat(_descriptorBytes, offset + 36, packet.FadeIn);
 			WriteFloat(_descriptorBytes, offset + 40, packet.FadeOut);
 			WriteFloat(_descriptorBytes, offset + 44, packet.AttenuationStrength);
-			_descriptorBytes.AsSpan(offset + 48, 16).Clear();
+			// Reuse the packet's spare vec4: normalized axis XZ, outer/inner cosines.
+			// Double intermediates avoid overflow/underflow for any finite nonzero float vector.
+			double dx = packet.DirectionXZ.X, dz = packet.DirectionXZ.Y;
+			double length = Math.Sqrt(dx * dx + dz * dz);
+			double radians = Math.PI / 180.0;
+			float outerCos = (float)Math.Cos(packet.SectorHalfAngleDegrees * radians);
+			float innerCos = packet.AngularFeatherDegrees == 0 ? outerCos :
+				(float)Math.Cos((packet.SectorHalfAngleDegrees - packet.AngularFeatherDegrees) * radians);
+			WriteFloat(_descriptorBytes, offset + 48, (float)(dx / length));
+			WriteFloat(_descriptorBytes, offset + 52, (float)(dz / length));
+			WriteFloat(_descriptorBytes, offset + 56, outerCos);
+			WriteFloat(_descriptorBytes, offset + 60, innerCos);
 			WriteUInt(_descriptorBytes, offset + 64, 0);
 			WriteUInt(_descriptorBytes, offset + 68, 0);
 			WriteUInt(_descriptorBytes, offset + 72, (uint)AnimatedWaveInputOperation.RadialGerstnerPacket);
-			WriteUInt(_descriptorBytes, offset + 76, 0);
+			// Bit 1 is packet-only FullCircle; do not infer it from a rounded cosine near -1.
+			WriteUInt(_descriptorBytes, offset + 76, packet.SectorHalfAngleDegrees == 180.0f ? 2u : 0u);
 			return;
 		}
 

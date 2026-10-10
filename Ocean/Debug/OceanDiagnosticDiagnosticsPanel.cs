@@ -141,6 +141,23 @@ internal sealed class OceanDiagnosticDiagnosticsPanel
 			_runtime.TriggerGerstnerPacket(new Vector2((float)x.Value + 8, (float)z.Value));
 		};
 		clear.Pressed += _runtime.ClearGerstnerPackets;
+		var direction = OceanDiagnosticUi.Spin(panel, "Direction angle (degrees)", 0, 0, 360, 1);
+		var halfAngle = OceanDiagnosticUi.Spin(panel, "Sector half-angle", 45, 1, 180, 1);
+		var feather = OceanDiagnosticUi.Spin(panel, "Angular feather", 10, 0, 45, 1);
+		halfAngle.ValueChanged += value => { feather.MaxValue = value; feather.Value = Math.Min(feather.Value, value); };
+		var directional = new Button { Text = "Trigger directional packet" };
+		panel.AddChild(directional);
+		directional.Pressed += () =>
+		{
+			float angle = Mathf.DegToRad((float)direction.Value);
+			_runtime.CreateGerstnerPacket(new GerstnerWavePacketInput
+			{
+				WorldPositionXZ = new Vector2((float)x.Value, (float)z.Value), StartTime = _runtime.OceanTime,
+				DirectionXZ = new Vector2(MathF.Cos(angle), MathF.Sin(angle)),
+				SectorHalfAngleDegrees = (float)halfAngle.Value, AngularFeatherDegrees = (float)feather.Value,
+			});
+		};
+		OceanDiagnosticUi.Info(panel, "Direction: 0° +X, 90° +Z. Half-angle 180° is a full circle; 45° gives a 90° sector.");
 		OceanDiagnosticUi.Info(panel,
 			"4 crests, wavelength 8 m, lifetime 40 s; full train emerges after about 18 s. " +
 			"Use ocean pause/time scale, AWF Height view and GPU query markers above. " +

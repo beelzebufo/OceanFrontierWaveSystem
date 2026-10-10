@@ -11,6 +11,13 @@ public sealed record GerstnerWavePacketInput
 	public const float MaximumAmplitude = 4.0f;
 	public const float MaximumCombinedDisplacement = Capacity * MaximumAmplitude;
 
+	/// <summary>Outward sector axis in world XZ (+X = 0°, +Z = 90°). Normalized during packing.</summary>
+	public Vector2 DirectionXZ { get; init; } = Vector2.Right;
+	/// <summary>180 bypasses angular attenuation, preserving the original radial packet.</summary>
+	public float SectorHalfAngleDegrees { get; init; } = 180.0f;
+	/// <summary>Feather immediately inside each sector boundary. Zero requests a hard edge.</summary>
+	public float AngularFeatherDegrees { get; init; } = 10.0f;
+
 	public Vector2 WorldPositionXZ { get; init; }
 	public float StartTime { get; init; }
 	public float Amplitude { get; init; } = 0.5f;
@@ -26,6 +33,10 @@ public sealed record GerstnerWavePacketInput
 
 	internal void Validate()
 	{
+		if (!DirectionXZ.IsFinite() || (DirectionXZ.X == 0 && DirectionXZ.Y == 0))
+			throw new ArgumentException("Packet direction must be finite and nonzero.", nameof(DirectionXZ));
+		FiniteRange(SectorHalfAngleDegrees, 1, 180, nameof(SectorHalfAngleDegrees));
+		FiniteRange(AngularFeatherDegrees, 0, SectorHalfAngleDegrees, nameof(AngularFeatherDegrees));
 		if (!WorldPositionXZ.IsFinite()) throw new ArgumentException("Packet position must be finite.");
 		FiniteRange(StartTime, 0, float.MaxValue, nameof(StartTime));
 		FiniteRange(Amplitude, 0, MaximumAmplitude, nameof(Amplitude));
